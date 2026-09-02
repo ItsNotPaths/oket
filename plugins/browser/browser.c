@@ -45,26 +45,6 @@ typedef struct {
     size_t nopen;
 } browser;
 
-static void say(const oket_api *api, oket_self self, const char *text) {
-    api->message(api, self, text, strlen(text));
-}
-
-/* A call aimed at a document this plugin opened: `inst` is set only for our own (§5). */
-static int ours(const oket_at *at) {
-    return at->inst != NULL && at->snap != NULL;
-}
-
-static char *dup_n(const char *s, size_t len) {
-    char *out = malloc(len + 1);
-
-    if (out == NULL) {
-        return NULL;
-    }
-    memcpy(out, s, len);
-    out[len] = '\0';
-    return out;
-}
-
 static int is_dir(const char *path, long *size) {
     struct stat st;
 
@@ -107,7 +87,7 @@ static void toggle_open(browser *b, const char *path) {
         return;
     }
     b->open = grown;
-    b->open[b->nopen] = dup_n(path, strlen(path));
+    b->open[b->nopen] = oket_dup(path, strlen(path));
     if (b->open[b->nopen] != NULL) {
         b->nopen++;
     }
@@ -185,7 +165,7 @@ static void walk(browser *b, oket_build *out, const char *dir, int depth) {
         }
         entries = grown;
         snprintf(path, sizeof path, "%s/%s", dir, de->d_name);
-        entries[n].name = dup_n(de->d_name, strlen(de->d_name));
+        entries[n].name = oket_dup(de->d_name, strlen(de->d_name));
         entries[n].dir = is_dir(path, &entries[n].size);
         if (entries[n].name == NULL) {
             break;
@@ -250,7 +230,7 @@ static void *open_browser(const oket_api *api, oket_self self, oket_doc doc,
     if (b == NULL) {
         return NULL;
     }
-    b->root = args_len > 0 ? dup_n(args, args_len) : dup_n(".", 1);
+    b->root = args_len > 0 ? oket_dup(args, args_len) : oket_dup(".", 1);
     if (b->root == NULL) {
         free(b);
         return NULL;
@@ -290,7 +270,7 @@ static int32_t toggle_cmd(const oket_api *api, oket_self self, const oket_at *at
     char path[PATH_CAP];
     long size;
 
-    if (!ours(at) || args_len == 0 || args_len >= sizeof path) {
+    if (!oket_mine(at) || args_len == 0 || args_len >= sizeof path) {
         return 0;
     }
     memcpy(path, args, args_len);
@@ -311,18 +291,18 @@ static int32_t root_cmd(const oket_api *api, oket_self self, const oket_at *at,
     char *root;
     long size;
 
-    if (!ours(at)) {
-        say(api, self, "br.root: this document is not the browser's");
+    if (!oket_mine(at)) {
+        oket_say(api, self, "br.root: this document is not the browser's");
         return 1;
     }
     if (args_len == 0) {
-        say(api, self, "br.root <path>");
+        oket_say(api, self, "br.root <path>");
         return 1;
     }
-    root = dup_n(args, args_len);
+    root = oket_dup(args, args_len);
     if (root == NULL || !is_dir(root, &size)) {
         free(root);
-        say(api, self, "br.root: that is not a directory");
+        oket_say(api, self, "br.root: that is not a directory");
         return 1;
     }
     free(b->root);

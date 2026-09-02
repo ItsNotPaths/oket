@@ -25,6 +25,22 @@
 extern "C" {
 #endif
 
+/* --- what every plugin writes first ---
+ *
+ * Not about text. Each is one line over `oket_api`, `oket_at` or malloc that a plugin would
+ * otherwise carry a private copy of. */
+
+/* The echo line, for a message you already have NUL-terminated. */
+void oket_say(const oket_api *api, oket_self self, const char *text);
+
+/* Whether this call is aimed at a document YOU opened: `inst` is set only for your own (§5). A
+ * command the user bound globally lands on whatever is focused, so this is what it asks first. */
+int oket_mine(const oket_at *at);
+
+/* A NUL-terminated copy of a span. Seam strings carry no terminator and the C library wants
+ * one. NULL when the allocation fails. */
+char *oket_dup(const char *s, size_t len);
+
 /* --- UTF-8 --- */
 
 /* Decodes the rune at the start of `s`, writing it to `out`. Returns its length in bytes, or

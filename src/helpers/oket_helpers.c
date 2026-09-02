@@ -686,3 +686,24 @@ void oket_batch_free(oket_batch *b) {
     free(b->edits);
     memset(b, 0, sizeof *b);
 }
+
+/* --- what every plugin writes first --- */
+
+void oket_say(const oket_api *api, oket_self self, const char *text) {
+    api->message(api, self, text, strlen(text));
+}
+
+int oket_mine(const oket_at *at) {
+    return at->inst != NULL && at->snap != NULL;
+}
+
+char *oket_dup(const char *s, size_t len) {
+    char *out = malloc(len + 1);
+
+    if (out == NULL) {
+        return NULL;
+    }
+    memcpy(out, s, len);
+    out[len] = '\0';
+    return out;
+}

@@ -42,26 +42,6 @@ typedef struct {
     char *path; /* owned; NULL for a buffer with no file yet */
 } editor;
 
-static void say(const oket_api *api, oket_self self, const char *text) {
-    api->message(api, self, text, strlen(text));
-}
-
-/* A call aimed at a document this plugin opened: `inst` is set only for our own (§5). */
-static int ours(const oket_at *at) {
-    return at->inst != NULL && at->snap != NULL;
-}
-
-static char *dup_arg(const char *s, size_t len) {
-    char *out = malloc(len + 1);
-
-    if (out == NULL) {
-        return NULL;
-    }
-    memcpy(out, s, len);
-    out[len] = '\0';
-    return out;
-}
-
 /* The descriptor this kind publishes (§5). `bound`, not `raw`: every chord goes through the
  * bind table, so an editor's keys are as auditable as any other document's — what reaches this
  * plugin is a rune, and rows naming the verbs below. */
@@ -113,10 +93,10 @@ static void *open_edit(const oket_api *api, oket_self self, oket_doc doc,
         return NULL;
     }
     if (args_len > 0) {
-        e->path = dup_arg(args, args_len);
+        e->path = oket_dup(args, args_len);
         text = e->path == NULL ? NULL : read_file(e->path, &len);
         if (text == NULL) {
-            say(api, self, "edit: that file will not read");
+            oket_say(api, self, "edit: that file will not read");
         }
     }
     describe(e, &d);
@@ -193,7 +173,7 @@ static int newline_each_cursor(const oket_api *api, oket_self self, const oket_a
  * chord already. A generation that moved needs no repair — the text IS the state (§6). */
 static int32_t event(const oket_api *api, oket_self self, const oket_at *at,
                      oket_event ev, const char *text, size_t len) {
-    if (!ours(at) || ev != OKET_EVENT_TEXT) {
+    if (!oket_mine(at) || ev != OKET_EVENT_TEXT) {
         return 0;
     }
     return insert_each_cursor(api, self, at, text, len);
@@ -204,7 +184,7 @@ static int32_t event(const oket_api *api, oket_self self, const oket_at *at,
 /* A command answers an EXIT CODE: 0 advances an `&&` chain. Note the polarity is the opposite
  * of event()'s "did you claim it". */
 static int32_t refuse(const oket_api *api, oket_self self, const char *why) {
-    say(api, self, why);
+    oket_say(api, self, why);
     return 1;
 }
 
@@ -212,7 +192,7 @@ static int32_t newline_cmd(const oket_api *api, oket_self self, const oket_at *a
                            const char *args, size_t args_len) {
     (void)args;
     (void)args_len;
-    if (!ours(at)) {
+    if (!oket_mine(at)) {
         return refuse(api, self, "ed.newline: this document is not the editor's");
     }
     newline_each_cursor(api, self, at);
@@ -230,7 +210,7 @@ static int32_t indent_cmd(const oket_api *api, oket_self self, const oket_at *at
 
     (void)args;
     (void)args_len;
-    if (!ours(at)) {
+    if (!oket_mine(at)) {
         return refuse(api, self, "ed.indent: this document is not the editor's");
     }
     memset(&b, 0, sizeof b);
@@ -259,14 +239,14 @@ static int32_t write_cmd(const oket_api *api, oket_self self, const oket_at *at,
     FILE *f;
     size_t n;
 
-    if (!ours(at)) {
+    if (!oket_mine(at)) {
         return refuse(api, self, "w: this document is not the editor's");
     }
     if (args_len > 0) {
         oket_descriptor d;
 
         free(e->path);
-        e->path = dup_arg(args, args_len);
+        e->path = oket_dup(args, args_len);
         describe(e, &d); /* the buffer takes the name it was written under */
         api->submit(api, self, s->doc, s->gen, NULL, 0, &d);
     }
