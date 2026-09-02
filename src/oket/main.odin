@@ -4,6 +4,8 @@ import "core:fmt"
 import "core:os"
 import "vendor:glfw"
 import "../gfx"
+import "../store"
+import "../view"
 
 WIDTH :: 1200
 HEIGHT :: 760
@@ -78,12 +80,19 @@ main :: proc() {
     grid: gfx.Grid
     defer gfx.grid_destroy(&grid)
 
+    // One hardcoded surface until stage 5's ring; the descriptor is what makes it renderable
+    // without a kind of its own in here.
+    docs: store.Store
+    defer store.store_destroy(&docs)
+    id := listing_open(&docs, ".")
+    v: view.View
+
     for !glfw.WindowShouldClose(window) {
         w, h := glfw.GetFramebufferSize(window)
         cols, rows := gfx.painter_fit(&painter, w, h)
         gfx.grid_resize(&grid, cols, rows)
 
-        screen_draw(&grid, theme, &painter.atlas)
+        surface_draw(&grid, theme, &painter.atlas, &docs, id, v)
 
         gfx.gl_clear(w, h, theme[.Bg])
         gfx.painter_draw(&painter, &grid, w, h)
