@@ -1,57 +1,107 @@
 # oket
 
-A document kernel. Odin, native plugins, one visible surface at a time.
+Graphical text editing kernel, .so plugins. One visible surface at a time.
 
-**Everything is a document. A descriptor says how it behaves.**
-**Reads are memory. Writes are transactions.**
+Everything on screen is a document: a file, a directory listing, a shell session, the command
+line. A document is text plus a descriptor — data the kernel reads to decide how to draw it and
+where a keystroke goes. The kernel owns the renderer, the viewport, the cursors, undo and the
+bind table. Plugins produce documents. They never draw.
 
-One renderer, owned by the kernel. Plugins never draw.
+## The ring
 
-## Status
+One lane per kind of document, each numbered. `alt+1`..`alt+9` address slots in the lane you
+are looking at, so three files and three listings are both on `alt+1..3`.
 
-Stage 8 of 13. The kernel opens a window, keeps a store of documents, and draws one of them
-through its descriptor. Input funnels through one bind table that answers for keys and clicks
-alike. There is a numbered ring per document kind, a command line, and command chains: a chord
-can run a shell pipeline over the file under the pointer with no plugin and no build.
+| | |
+|---|---|
+| `alt+f` `alt+t` `alt+e` | files, terminal, editor |
+| `alt+0` | N0, where a command's output lands |
+| ``alt+` `` | back to where you just were, across lanes |
+| `alt+q` | close this slot; its number is never reused while others live |
 
-`alt+t` opens a terminal session. A session is a document like any other: its scrollback and
-live grid are its lines, so the kernel's own viewport scrolls it, a drag selects it and
-`ctrl+shift+c` copies. Colour arrives as style runs the renderer paints. The command line runs
-its shell steps in that same kind of session, so a command that asks a question is one you can
+A listing draws its rows through the same renderer a file does, and `enter` opens the one you
+are standing on. `alt+t` is a real PTY: scrollback and the live grid are the document's lines,
+so the kernel's own scroll, drag-select and `ctrl+shift+c` work on it with no terminal-specific
+code behind them.
+
+## The command line
+
+`alt+c` opens it, `alt+;` opens it with the `:` already typed. A bare line goes to the shell, a
+leading `:` is a builtin, `&&` chains them and "|" works via bash. Shell steps run in a session you can see and
 answer.
 
-Plugins are `.so` files, `dlopen`'d in-process. The seam is six messages, and reads are not
-among them: a plugin walks a snapshot by pointer. It registers kinds, commands and bind
-requests; it produces a document and a descriptor, and the kernel's one renderer draws it.
-Every registration goes in a ledger, and unloading walks it backwards. The helper library is
-linked into each plugin with LTO, so a helper inlines into your loop and the half you never
-call is stripped.
-
-```sh
-./plugins/stage.sh plugins/hello build/plugins   # or `:pluginify plugins/hello`
+```
+:open src/oket/app.odin 3     # into slot 3 of the editor's lane
+make && :ls
+:sel | sort -u | :put         # the selection, out through a pipeline, back at point
 ```
 
-The editor is a plugin, and the kernel has no text kind of its own: `:open` hands a regular
-file to whoever registered the `edit` kind, and with nothing loaded it says so. The seam held.
+`|` between two shell steps is bash's own — the chain hands it over whole. The two ends are
+ours: `:sel` puts the selection on the next step's stdin, `:put` replaces it with what came
+back.
+
+## Binds
+
+`binds.conf` sits beside the binary. A section is a context or a kind's name, and the narrower
+one wins where it applies.
+
+```conf
+[files]
+enter       = exec :open <path>
+right-click = stage :open <path>
+
+[global]
+alt+g = exec git diff -- <path> | :put
+```
+
+A value is a verb's name, or `exec`/`stage` and a command line. `<name>` holes fill from the
+fields of the line under point, so a bind acts on document data with no callback into the
+plugin that drew it. A click is a chord like any other, and hovering underlines the field a
+bound click would act on. `f1` then any chord says what it does and where it was bound.
+
+## Plugins
+
+One `.so`, `dlopen`'d in-process, trusted. The seam is six messages — `register`, `submit`,
+`reveal`, `event`, `open`, `close` — and reads are not among them: a plugin walks a document's
+snapshot by pointer, with no lock and no call back into the kernel, and writes by submitting a
+batch against the generation it read.
+
+```c
+#include "oket_helpers.h"
+
+OKET_MAIN {
+    static const oket_kind_spec SPEC = {"notes", 5, "text", 4, {open_note, close_note, event}};
+    NOTES = api->register_kind(api, self, &SPEC);
+    api->register_command(api, self, "note", 4, "start one", 9, note_cmd);
+    api->request_bind(api, self, "global", 6, "alt+n", 5, "exec :note", 10);
+    return 0;
+}
+```
+
+A chord is never claimed, only requested: the row lands in `binds.conf` and the file decides
+from then on. Every registration goes in a ledger, and unloading walks it backwards.
 
 ```sh
-:plug load edit        # or :pluginify plugins/edit while you are working on it
+./plugins/stage.sh plugins/hello build/plugins   # or `:pluginify plugins/hello` while it runs
+```
+
+That one step compiles the helper library in with `-flto`, so a snapshot walk inlines into your
+loop and the half you never call is stripped. `:plug load|unload|reload <name>` does the rest.
+
+## Editing
+
+The editor is a plugin, and the kernel has no text kind of its own. `:open` on a regular file
+hands the path to whoever registered the `edit` kind.
+
+```sh
+:plug load edit
 :open src/oket/app.odin
 ```
 
-What the plugin owns is what is genuinely an editor's: reading a file in, writing it back with
-`:w`, what a typed rune means, and the two verbs that are policy rather than storage — a
-newline that keeps the indent and a Tab that lands on the next stop. Both are ordinary rows it
-ASKED for, sitting in `binds.conf` under `[edit]` and shadowing the kernel's plain ones.
-
-Everything else an editor needs it gets for free, because the kernel already owns it for every
-document: motion, selection, the viewport, undo, and the plain delete verbs. A rune is the one
-input the bind table never sees, so it is the one thing the kernel refuses to interpret — a
-kernel self-insert would be an editing policy no row names and nothing can rebind.
-
-Oket supersedes `../okette`, which works and is kept beside this tree as the source of the
-salvage. The reasoning behind the split, the build order and the open questions are in
-`docs/PLAN.md`, which is not tracked.
+It owns what is genuinely an editor's: reading the file, `:w`, what a typed rune means, and the
+verbs that are policy rather than storage — a newline that keeps the indent, a Tab that lands
+on the next stop. Motion, selection, the viewport, undo and the plain delete verbs are the
+kernel's, for every document. Swap in your own by registering the same kind.
 
 ## Build
 
@@ -62,7 +112,7 @@ salvage. The reasoning behind the split, the build order and the open questions 
 odin test src/tests -define:GLFW_SHARED=false
 ```
 
-Needs Odin and Zig. `mise install` gets both. `zig cc` builds the vendored C and the plugins.
+Needs Odin and Zig. `zig cc` builds the vendored C and the plugins.
 
 ## Licence
 
