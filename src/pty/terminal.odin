@@ -10,7 +10,6 @@ import "core:sys/posix"
 import "core:thread"
 import "core:time"
 import vt "../libvterm"
-import "../txt"
 
 // A terminal session: the libvterm VT state machine plus the PTY and child shell. A
 // per-session reader thread does the one blocking read() on the master fd; vterm_* stays
@@ -52,24 +51,16 @@ Terminal :: struct {
     exit_id:    u64,
     exit_code:  int,
 
-    // Scrollback + the keyboard's row-only copy cursor. `sb_total` counts every line ever
-    // pushed, giving each a stable absolute number: scrollback[i] is sb_total-len+i, live row
-    // r is sb_total+r.
+    // Scrollback. `sb_total` counts every line ever pushed, giving each a stable absolute
+    // number: scrollback[i] is sb_total-len+i, live row r is sb_total+r. There is no view and
+    // no copy cursor here — the kernel's viewport and cursors are the document's (§11).
     callbacks:  vt.ScreenCallbacks,
     sb_ctx:     runtime.Context, // context the sb_* "c" callbacks allocate under
     scrollback: [dynamic]ScrollLine,
     sb_total:   int,
-    sel_active: bool, // line-select / scroll mode on (cursor shown)
-    sel_head:   int, // absolute line of the copy cursor (the moving edge)
-    sel_anchor: int, // absolute line the selection is pinned at (== head: no span)
-    view_top:   int, // absolute line drawn at the top row while scrolled
-    // The wheel cut the view loose from the live bottom. Cleared by any keystroke reaching
-    // the shell, or a notch back down.
-    view_detached: bool,
 
-    // A TUI on the alt buffer owns its own scrolling, so these route scroll input there.
-    on_altscreen: bool,
-    mouse_on:     bool, // the TUI enabled mouse tracking
+    on_altscreen: bool, // a TUI owns the screen; there is no scrollback to scroll into
+    mouse_on:     bool, // the TUI enabled mouse tracking, so clicks are its input
 }
 
 // The host's frame-loop waker, called from reader threads; main points it at glfw, tests
@@ -121,15 +112,14 @@ terminal_vt_destroy :: proc(t: ^Terminal) {
 
 // Called from draw; no-op when unchanged. TIOCSWINSZ makes the shell reflow (SIGWINCH).
 terminal_resize :: proc(t: ^Terminal, rows, cols: int) {
-    rows, cols := max(rows, 1), max(cols, 1)
-    if rows == t.rows && cols == t.cols {
+    r, w := max(rows, 1), max(cols, 1)
+    if r == t.rows && w == t.cols {
         return
     }
-    t.rows = rows
-    t.cols = cols
-    vt.set_size(t.term, c.int(rows), c.int(cols))
+    t.rows, t.cols = r, w
+    vt.set_size(t.term, c.int(r), c.int(w))
     if t.pty >= 0 {
-        terminal_set_winsize(t, rows, cols)
+        terminal_set_winsize(t, r, w)
     }
 }
 
@@ -193,9 +183,10 @@ vt_color :: proc(rgb: [3]f32) -> vt.Color {
     }
 }
 
-// --- scrollback view + keyboard line-selection ---
-// An absolute-numbered space: [oldest, sb_total) is scrollback, [sb_total, bottom] the live
-// grid. A row-only copy cursor walks it and the view follows; Esc / typing snap to the bottom.
+// --- lines ---
+// An absolute-numbered space: [oldest, sb_total) is captured scrollback and [sb_total, bottom]
+// the live grid. The kernel reads it a line at a time and the document IS those lines, so
+// nothing here holds a view, a top row or a selection.
 
 terminal_oldest :: proc(t: ^Terminal) -> int {
     return t.sb_total - len(t.scrollback)
@@ -206,7 +197,7 @@ terminal_bottom :: proc(t: ^Terminal) -> int {
 }
 
 // From the live grid when `n` is on-screen, else from captured scrollback.
-terminal_view_cell :: proc(t: ^Terminal, n, col: int) -> (cell: vt.ScreenCell, ok: bool) {
+terminal_line_cell :: proc(t: ^Terminal, n, col: int) -> (cell: vt.ScreenCell, ok: bool) {
     if n >= t.sb_total {
         return terminal_cell(t, n - t.sb_total, col)
     }
@@ -221,25 +212,8 @@ terminal_view_cell :: proc(t: ^Terminal, n, col: int) -> (cell: vt.ScreenCell, o
     return line.cells[col], true
 }
 
-// The scrolled position while selecting, else the live grid top.
-terminal_view_top :: proc(t: ^Terminal) -> int {
-    top := t.sel_active || t.view_detached ? t.view_top : t.sb_total
-    return clamp(top, terminal_oldest(t), t.sb_total)
-}
-
-// The scroll verbs move the view only, so a selection survives a scroll.
-terminal_scroll_by :: proc(t: ^Terminal, delta: int) {
-    if delta == 0 {
-        return
-    }
-    t.view_top = clamp(terminal_view_top(t) + delta, terminal_oldest(t), t.sb_total)
-    // Detached means parked above the live bottom: a notch back onto the bottom means
-    // follow again.
-    t.view_detached = t.view_top < t.sb_total
-}
-
 // A captured line keeps its capture width, a live row is the current grid width. One
-// definition: the copy walk, the clamp and the blank trim all need it to agree.
+// definition, so the line build and the blank trim agree about where a row ends.
 terminal_line_width :: proc(t: ^Terminal, n: int) -> int {
     if n >= t.sb_total {
         return t.cols
@@ -267,111 +241,6 @@ terminal_continuation :: proc(t: ^Terminal, n: int) -> bool {
         return false
     }
     return t.scrollback[idx].continuation
-}
-
-// Half-open [lo, hi), lo==hi being the bare copy cursor: the cursor is a boundary, not a
-// line. Inclusive would pick up the line the anchor left.
-terminal_sel_range :: proc(t: ^Terminal) -> (lo, hi: int) {
-    return min(t.sel_anchor, t.sel_head), max(t.sel_anchor, t.sel_head)
-}
-
-// Negative delta goes into history; the first move off the live bottom enters select mode.
-// `extend` (Shift) keeps the anchor. Returning to the bottom with no span leaves select mode.
-terminal_sel_move :: proc(t: ^Terminal, delta: int, extend: bool) {
-    if !t.sel_active {
-        // Read before sel_active flips — terminal_view_top answers differently once set.
-        // Seeding from the on-screen bottom stops a wheel-scrolled view snapping back.
-        top := terminal_view_top(t)
-        t.sel_active = true
-        t.sel_head = clamp(top + t.rows - 1, terminal_oldest(t), terminal_bottom(t))
-        t.sel_anchor = t.sel_head
-        t.view_top = top
-    }
-    t.view_detached = false // the keyboard owns the view again
-    // On the alt screen the history is the TUI's, so the floor is the top live row and pushing
-    // past an edge tells the TUI to scroll.
-    floor := terminal_oldest(t)
-    if t.on_altscreen {
-        floor = t.sb_total
-        if t.sel_head + delta < t.sb_total {
-            terminal_scroll_tui(t, -1)
-        } else if t.sel_head + delta > terminal_bottom(t) {
-            terminal_scroll_tui(t, 1)
-        }
-    }
-    t.sel_head = clamp(t.sel_head + delta, floor, terminal_bottom(t))
-    if !extend {
-        t.sel_anchor = t.sel_head
-    }
-    // Bottom with nothing selected: nothing to copy, so leave select mode.
-    if t.sel_head == terminal_bottom(t) && t.sel_anchor == terminal_bottom(t) {
-        t.sel_active = false
-        return
-    }
-    if t.sel_head < t.view_top {
-        t.view_top = t.sel_head
-    } else if t.sel_head > t.view_top + t.rows - 1 {
-        t.view_top = t.sel_head - t.rows + 1
-    }
-    t.view_top = clamp(t.view_top, floor, t.sb_total)
-}
-
-// Esc, or any real keystroke to the shell: hide the cursor and snap back to the live bottom.
-terminal_sel_reset :: proc(t: ^Terminal) {
-    t.sel_active = false
-    t.view_detached = false
-}
-
-// Caller owns the result. The keyboard's row range becomes the pair of boundaries spanning
-// whole lines.
-terminal_selection_text :: proc(t: ^Terminal, alloc := context.allocator) -> string {
-    if !t.sel_active {
-        return ""
-    }
-    // [lo, hi) in lines: the whole of hi-1 is the last thing in it.
-    lo, hi := terminal_sel_range(t)
-    if lo == hi {
-        return ""
-    }
-    return terminal_range_text(t, txt.Pos{lo, 0}, txt.Pos{hi - 1, terminal_line_width(t, hi - 1)}, alloc)
-}
-
-// Clipped per line and joined by newlines, except a flow continuation which joins with
-// nothing, or a wrapped shell line comes back unpasteable. The trailing-blank trim applies
-// only where a segment runs to the row's edge.
-terminal_range_text :: proc(t: ^Terminal, lo, hi: txt.Pos, alloc := context.allocator) -> string {
-    b := strings.builder_make(alloc)
-    if hi.line < lo.line {
-        return strings.to_string(b)
-    }
-    for n in lo.line ..= hi.line {
-        w := terminal_line_width(t, n)
-        start := n == lo.line ? clamp(lo.col, 0, w) : 0
-        end := n == hi.line ? clamp(hi.col, 0, w) : w
-        if end >= w {
-            last := start - 1 // last visible glyph
-            for col in start ..< w {
-                if r := terminal_view_rune(t, n, col); r > 0x20 {
-                    last = col
-                }
-            }
-            end = last + 1
-        }
-        for col in start ..< end {
-            r := terminal_view_rune(t, n, col)
-            strings.write_rune(&b, r >= 0x20 ? r : ' ')
-        }
-        if n < hi.line && !terminal_continuation(t, n + 1) {
-            strings.write_byte(&b, '\n')
-        }
-    }
-    return strings.to_string(b)
-}
-
-@(private = "file")
-terminal_view_rune :: proc(t: ^Terminal, n, col: int) -> rune {
-    cell := terminal_view_cell(t, n, col) or_else vt.ScreenCell{}
-    return rune(cell.chars[0])
 }
 
 // --- PTY + child shell --- Pure core:sys/posix; TIOCSWINSZ is the one foreign bit.
@@ -554,7 +423,6 @@ terminal_paste :: proc(t: ^Terminal, text: string) {
     if len(bytes) == 0 {
         return
     }
-    terminal_sel_reset(t) // a paste is input
     vt.keyboard_start_paste(t.term)
     terminal_write(t, bytes)
     vt.keyboard_end_paste(t.term)
@@ -659,20 +527,6 @@ term_settermprop_cb :: proc "c" (prop: c.int, val: rawptr, user: rawptr) -> c.in
     return 1
 }
 
-// Button 4/5 when the TUI tracks the mouse, else the page key. Others send arrows, gated on
-// DECSET 1007, which libvterm lacks.
-terminal_scroll_tui :: proc(t: ^Terminal, dir: int) {
-    if t.pty < 0 {
-        return
-    }
-    if t.mouse_on {
-        vt.mouse_move(t.term, c.int(dir < 0 ? 0 : t.rows - 1), 0, vt.MOD_NONE)
-        vt.mouse_button(t.term, dir < 0 ? 4 : 5, true, vt.MOD_NONE)
-    } else {
-        vt.keyboard_key(t.term, dir < 0 ? .PageUp : .PageDown, vt.MOD_NONE)
-    }
-}
-
 // Clone the scrolled-off cells and bump the running total so absolute numbers stay stable,
 // trimming the oldest in a batch past the cap. "c" callback — needs a context to alloc.
 @(private = "file")
@@ -686,14 +540,7 @@ term_sb_pushline_cb :: proc "c" (cols: c.int, cells: [^]vt.ScreenCell, continuat
     }
     copy(line.cells, cells[:n])
     append(&t.scrollback, line)
-    // A view at the live bottom rides with it. `view_top` is absolute and sb_total is about
-    // to move, so leaving it alone drops the view a line behind per scrolled-off line and the
-    // pane freezes. A view parked above the bottom is below sb_total and keeps its line.
-    following := t.view_top >= t.sb_total
     t.sb_total += 1
-    if following {
-        t.view_top = t.sb_total
-    }
     if len(t.scrollback) > SCROLLBACK_MAX + SCROLLBACK_TRIM {
         for i in 0 ..< SCROLLBACK_TRIM {
             delete(t.scrollback[i].cells)
@@ -835,19 +682,30 @@ terminal_alive :: proc(t: ^Terminal) -> bool {
 }
 
 // From the host's char feed. Shift is already baked into the codepoint, so the modifier is
-// none. Typing returns to the live bottom.
+// none.
 terminal_input_rune :: proc(t: ^Terminal, r: rune) {
-    terminal_sel_reset(t)
     vt.keyboard_unichar(t.term, u32(r), vt.MOD_NONE)
 }
 
 terminal_input_key :: proc(t: ^Terminal, key: vt.Key, mod: vt.Modifier) {
-    terminal_sel_reset(t)
     vt.keyboard_key(t.term, key, mod)
+}
+
+// A cell and a button to the TUI, encoded to whatever tracking mode it turned on — SGR 1006
+// where the program asked for it, X10 where it did not. libvterm owns the encoding (§8's
+// terminal forwarding) and writes it through the output callback.
+//
+// The move goes first whether or not a button follows: a TUI reads motion reports off the same
+// stream, and a button with no position is a click at wherever the last one was.
+terminal_mouse_move :: proc(t: ^Terminal, row, col: int, mod: vt.Modifier) {
+    vt.mouse_move(t.term, c.int(row), c.int(col), mod)
+}
+
+terminal_mouse_button :: proc(t: ^Terminal, button: int, pressed: bool, mod: vt.Modifier) {
+    vt.mouse_button(t.term, c.int(button), pressed, mod)
 }
 
 // Ctrl+letter as a control unichar (Ctrl+C -> 0x03); GLFW emits no char event for these.
 terminal_input_ctrl :: proc(t: ^Terminal, letter: rune) {
-    terminal_sel_reset(t)
     vt.keyboard_unichar(t.term, u32(letter), vt.MOD_CTRL)
 }
