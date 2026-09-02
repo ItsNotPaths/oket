@@ -78,6 +78,10 @@ One `.so`, `dlopen`'d in-process, trusted. The seam is six messages: `register`,
 snapshot by pointer, with no lock and no call back into the kernel, and writes by submitting a
 batch against the generation it read.
 
+A plugin that draws nothing asks to be told about documents it did not open, and a handler that
+answers "not finished" is called again next frame. That is the whole of how long work is spread
+without a thread.
+
 ```c
 #include "oket_helpers.h"
 
@@ -103,6 +107,34 @@ loop and the half you never call is stripped. `:plug load|unload|reload <name>` 
 Every `.so` in `plugins/` loads at startup. One that faults, or stops returning, is unloaded
 where it stands and named in the bar: the kernel keeps its documents and carries on drawing
 them. `oket --no-plugins` starts with none of them, for the day that is not enough.
+
+## Syntax
+
+Colour is a span layer: a byte range with a style token on it, stored per document and per
+publisher. A parser, a linter and a search each write their own layer, the kernel merges them in
+one fixed order, and the renderer paints the answer. Nothing that publishes colour knows what a
+theme is — it names a token, and the palette decides.
+
+`plugins/syntax` is a tree-sitter plugin that draws nothing and opens nothing. It asks to be
+told about every document, picks a grammar off the file's extension, and publishes what its
+highlights query captures. A parse too big for one frame says so and resumes on the next, so a
+megabyte colours from the top down without a dropped frame and without a thread.
+
+Grammars are not shipped. Building one is a shell script, and reaching it is a command line:
+
+```sh
+:oket-grammar rust https://github.com/tree-sitter/tree-sitter-rust && :grammar ready rust
+```
+
+A shell step and a plugin command, chained — the seam grows nothing for it. `oket-grammar` ships
+beside `oket`, so it is on `PATH` wherever oket is. The grammar lands in `grammars/` beside the
+binary as `<name>.so` plus its `<name>.scm` query, and an open file takes its colours on the next
+frame. `:grammar status` says where it is looking; `:grammar dir <path>` moves it. Point it at a
+directory instead of a URL to build a checkout you already have.
+
+The name is what an extension selects, and the extension IS the name unless the plugin knows
+better: `.rs` wants `rust`, `.json` wants `json`. A language nobody listed works as soon as its
+grammar is built under the name of its own extension.
 
 ## Editing
 
