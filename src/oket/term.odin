@@ -6,10 +6,10 @@ import "vendor:glfw"
 import "../desc"
 import "../input"
 import vt "../libvterm"
+import "../plug"
 import "../pty"
 import "../store"
 import "../txt"
-import "../view"
 
 // The terminal kind (§7: the kernel may implement a document, it may not have a second way to
 // be one). A session is a PTY, a libvterm state machine, and a DOCUMENT: scrollback lines
@@ -17,8 +17,9 @@ import "../view"
 //
 // That is the whole of why there is no terminal scroll code. The kernel's viewport scrolls it
 // like anything else, `follow: tail` is the live bottom, point is the caret, and a drag selects
-// for copy. What is left that a text document does not have is colour, and that arrives as
-// view.Style runs, which is §5's span layer at the one place that needs it now.
+// for copy. What is left that a text document does not have is colour, and that goes into the
+// span store like everybody else's (store/spans.odin) — on the `syntax` layer, which is where
+// what the CONTENT says it looks like lives, whether that is an SGR or a keyword.
 //
 // The descriptor says the rest: `render: grid`, `input: raw` so an unclaimed chord reaches the
 // shell, and `mouse: events` while a TUI has tracking on.
@@ -30,7 +31,10 @@ Term :: struct {
     // Everything past `fixed` is the live grid and is rewritten on every pump.
     base:   int,
     fixed:  int,
-    styles: [dynamic]view.Style,
+    // Last pump's runs, in DOCUMENT bytes, kept so a rewrite can replace the tail without
+    // re-measuring the scrollback above it. The store holds the same list; this is what the
+    // next publish is built from.
+    spans:  [dynamic]store.Span,
     // The mouse mode the descriptor was last published with, so a pump republishes only when
     // the TUI actually turns tracking on or off.
     events: bool,
@@ -63,14 +67,14 @@ term_close :: proc(a: ^App, id: store.Id) {
     }
     delete_key(&a.terms, id)
     pty.terminal_close(&tm.t)
-    delete(tm.styles)
+    delete(tm.spans)
     free(tm)
 }
 
 terms_destroy :: proc(a: ^App) {
     for _, tm in a.terms {
         pty.terminal_close(&tm.t)
-        delete(tm.styles)
+        delete(tm.spans)
         free(tm)
     }
     delete(a.terms)
@@ -86,13 +90,6 @@ term_of :: proc(a: ^App, id: store.Id) -> ^Term {
 term_active :: proc(a: ^App) -> ^Term {
     s := active(a)
     return s == nil ? nil : a.terms[s.doc]
-}
-
-// The style runs the renderer paints this document with. Empty for everything that is not a
-// session, so surface_draw asks without knowing what it is drawing.
-term_styles :: proc(a: ^App, id: store.Id) -> []view.Style {
-    tm := a.terms[id]
-    return tm == nil ? nil : tm.styles[:]
 }
 
 // --- the frame ---
@@ -137,18 +134,24 @@ term_trim :: proc(a: ^App, tm: ^Term, doc: ^txt.Doc) {
     if drop <= 0 {
         return
     }
-    txt.doc_apply(doc, {{0, txt.doc_off(doc, {min(drop, txt.doc_line_count(doc)), 0}), "", 0}})
+    cut := txt.doc_off(doc, {min(drop, txt.doc_line_count(doc)), 0})
+    txt.doc_apply(doc, {{0, cut, "", 0}})
     tm.base += drop
     tm.fixed = max(tm.fixed - drop, 0)
     kept := 0
-    for st in tm.styles {
-        if st.line >= drop {
-            tm.styles[kept] = st
-            tm.styles[kept].line -= drop
+    for sp in tm.spans {
+        if sp.lo >= cut {
+            tm.spans[kept] = sp
+            tm.spans[kept].lo -= cut
+            tm.spans[kept].hi -= cut
             kept += 1
         }
     }
-    resize(&tm.styles, kept)
+    resize(&tm.spans, kept)
+    // The whole list, because every run that survived moved. This is the one path that
+    // republishes frozen scrollback, and it runs only when the cap is crossed.
+    store.store_spans_publish(&a.docs, tm.doc,
+                              {layer = .Syntax, lo = 0, hi = max(int), list = tm.spans[:]})
 }
 
 // Everything from the first line that is not yet frozen: the scrollback lines pushed since the
@@ -157,13 +160,18 @@ term_trim :: proc(a: ^App, tm: ^Term, doc: ^txt.Doc) {
 @(private = "file")
 term_rewrite :: proc(a: ^App, tm: ^Term, doc: ^txt.Doc) {
     from := tm.fixed
-    b := strings.builder_make(context.temp_allocator)
-    for st, i in tm.styles {
-        if st.line >= from {
-            resize(&tm.styles, i)
+    // Where the rewrite starts, taken FIRST: a run is document bytes, so the offset the rows
+    // below are measured from has to be the one they will land at.
+    lo := txt.doc_off(doc, {min(from, txt.doc_line_count(doc)), 0})
+    frozen := 0
+    for sp in tm.spans {
+        if sp.lo >= lo {
             break
         }
+        frozen += 1 // below the rewrite, so it was published in an earlier pass
     }
+    resize(&tm.spans, frozen)
+    b := strings.builder_make(context.temp_allocator)
     // The cursor's own cell is something you can see, so the blank trim below stops short of
     // it: a prompt's caret sits one past the last glyph, and trimming there would draw it on
     // top of the prompt instead.
@@ -173,28 +181,34 @@ term_rewrite :: proc(a: ^App, tm: ^Term, doc: ^txt.Doc) {
         if n > tm.base + from {
             strings.write_byte(&b, '\n')
         }
-        term_line(a, tm, n, &b, n - tm.base, strings.builder_len(b), n == cursor ? ccol + 1 : 0)
+        term_line(a, tm, n, &b, lo, n == cursor ? ccol + 1 : 0)
     }
-    lo := txt.doc_off(doc, {min(from, txt.doc_line_count(doc)), 0})
     txt.doc_apply(doc, {{lo, txt.doc_len(doc), strings.to_string(b), 0}})
     tm.fixed = len(tm.t.scrollback)
+    // To the END and not to the new length: a screen that shrank must not leave the runs that
+    // were under what it dropped.
+    store.store_spans_publish(&a.docs, tm.doc,
+                              {layer = .Syntax, lo = lo, hi = max(int),
+                               list = tm.spans[frozen:]})
 }
 
 // One physical row as text plus its style runs. Trailing blanks go only where they carry the
 // default background: what you cannot see is not worth copying, and a TUI's full-width bar is
 // exactly what you would lose by trimming on the rune alone.
+// `base` is where the builder's first byte lands in the document, so a run's offsets are the
+// document's own: a colour is stored against bytes, never against a line and a column.
 @(private = "file")
-term_line :: proc(a: ^App, tm: ^Term, n: int, b: ^strings.Builder, line, start, keep: int) {
+term_line :: proc(a: ^App, tm: ^Term, n: int, b: ^strings.Builder, base, keep: int) {
     end := max(term_line_end(a, tm, n), min(keep, pty.terminal_line_width(&tm.t, n)))
-    run := view.Style{line = line, lo = strings.builder_len(b^) - start}
+    run := store.Span{lo = base + strings.builder_len(b^)}
     open := false
     for col := 0; col < end; {
         cell, ok := pty.terminal_line_cell(&tm.t, n, col)
         if !ok {
             break
         }
-        at := strings.builder_len(b^) - start
-        st := term_style(a, tm, cell, line, at)
+        at := base + strings.builder_len(b^)
+        st := term_style(a, tm, cell, at)
         if !open || st.fg != run.fg || st.bg != run.bg || st.attrs != run.attrs {
             term_close_run(a, tm, &run, at)
             run, open = st, true
@@ -203,17 +217,17 @@ term_line :: proc(a: ^App, tm: ^Term, n: int, b: ^strings.Builder, line, start, 
         strings.write_rune(b, r >= 0x20 ? r : ' ')
         col += max(int(cell.width), 1)
     }
-    term_close_run(a, tm, &run, strings.builder_len(b^) - start)
+    term_close_run(a, tm, &run, base + strings.builder_len(b^))
 }
 
 // A run reaches the styles only if it has cells in it and says something the theme does not
 // already say — a screen of plain output publishes nothing at all.
 @(private = "file")
-term_close_run :: proc(a: ^App, tm: ^Term, run: ^view.Style, at: int) {
+term_close_run :: proc(a: ^App, tm: ^Term, run: ^store.Span, at: int) {
     run.hi = at
-    plain := run.fg == a.theme[.Fg] && run.bg == a.theme[.Bg] && run.attrs == {}
+    plain := run.fg == a.theme[.Fg] && run.bg == a.theme[.Bg] && run.attrs == 0
     if run.hi > run.lo && !plain {
-        append(&tm.styles, run^)
+        append(&tm.spans, run^)
     }
     run.lo = at
 }
@@ -222,8 +236,8 @@ term_close_run :: proc(a: ^App, tm: ^Term, run: ^view.Style, at: int) {
 // the swap and not an attribute: the caret and the selection are the renderer's own reverse, and
 // two of them over one cell cancel out.
 @(private = "file")
-term_style :: proc(a: ^App, tm: ^Term, cell: vt.ScreenCell, line, at: int) -> view.Style {
-    st := view.Style{line = line, lo = at}
+term_style :: proc(a: ^App, tm: ^Term, cell: vt.ScreenCell, at: int) -> store.Span {
+    st := store.Span{lo = at}
     fg, fdef := pty.terminal_color(&tm.t, cell.fg)
     bg, bdef := pty.terminal_color(&tm.t, cell.bg)
     st.fg = fdef ? a.theme[.Fg] : fg
@@ -232,13 +246,13 @@ term_style :: proc(a: ^App, tm: ^Term, cell: vt.ScreenCell, line, at: int) -> vi
         st.fg, st.bg = st.bg, st.fg
     }
     if cell.attrs.bold {
-        st.attrs += {.Bold}
+        st.attrs |= u8(plug.Attr.Bold)
     }
     if cell.attrs.italic {
-        st.attrs += {.Italic}
+        st.attrs |= u8(plug.Attr.Italic)
     }
     if cell.attrs.underline != 0 {
-        st.attrs += {.Underline}
+        st.attrs |= u8(plug.Attr.Underline)
     }
     return st
 }

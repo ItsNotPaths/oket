@@ -174,6 +174,15 @@ the_kernel_viewport_scrolls_a_session :: proc(t: ^testing.T) {
     testing.expect_value(t, s.view.top, max(txt.doc_line_count(doc) - a.body.h, 0))
 }
 
+// Every run in the session's document, read back out of the SPAN STORE — the one door every
+// document's colours come through (§5). A session has no second path.
+@(private = "file")
+term_all_styles :: proc(a: ^app.App, tm: ^app.Term) -> []view.Style {
+    snap := store.store_snapshot(&a.docs, tm.doc)
+    defer txt.snapshot_release(snap)
+    return app.doc_styles(a, tm.doc, &snap.text, 0, txt.text_line_count(&snap.text))
+}
+
 // Colour is style runs (§5's span layer), not a second renderer. libvterm's colours are already
 // resolved against the theme here, so nothing below the kernel knows what an SGR is.
 @(test)
@@ -190,7 +199,7 @@ a_session_publishes_its_colours_as_style_runs :: proc(t: ^testing.T) {
         return
     }
     runs := 0
-    for st in app.term_styles(&a, tm.doc) {
+    for st in term_all_styles(&a, tm) {
         if st.line != line {
             continue
         }
@@ -231,7 +240,7 @@ the_scrollback_cap_moves_lines_and_styles_together :: proc(t: ^testing.T) {
     // The shell's late prompt can share the mark's row, so find the mark's own bytes.
     off := strings.index(string(txt.doc_line(doc, line)), "mark")
     kept := false
-    for st in app.term_styles(&a, tm.doc) {
+    for st in term_all_styles(&a, tm) {
         kept ||= st.line == line && st.lo == off && st.hi == off + len("mark")
     }
     testing.expect(t, kept, "the mark's style run names the wrong cells")

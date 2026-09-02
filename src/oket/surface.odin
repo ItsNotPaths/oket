@@ -36,7 +36,8 @@ surface_draw :: proc(a: ^App) {
     gfx.grid_clear(g, th[.Fg], th[.Bg])
 
     b := a.body
-    view.draw(g, th, &snap.text, d, s.view, b.x, b.y, b.w, b.h, term_styles(a, s.doc))
+    view.draw(g, th, &snap.text, d, s.view, b.x, b.y, b.w, b.h,
+              doc_styles(a, s.doc, &snap.text, s.view.top, b.h))
     if a.hover.on {
         view.underline(g, &snap.text, d, s.view, b.x, b.y, b.w, b.h,
                        a.hover.line, a.hover.lo, a.hover.hi)
