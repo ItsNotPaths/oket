@@ -18,9 +18,14 @@ App :: struct {
     theme:        gfx.Theme,
     docs:         store.Store,
     ring:         Ring,
+    // Every live PTY session, by the document it drives. A terminal is a kernel-implemented
+    // document (§7), so what a session needs past text and a descriptor lives here and not in
+    // the store.
+    terms:        map[store.Id]^Term,
     cl:           Cmdline,
     chain:        Chain,
     job:          Job,
+    sys_seq:      u64, // the last injection into N#; a report carrying another is stale
     binds:        [dynamic]input.Bind,
     reqs:         [dynamic]Bind_Request,
     clashes:      [dynamic]Bind_Clash,
@@ -61,6 +66,7 @@ app_destroy :: proc(a: ^App) {
     chain_clear(a)
     cl_destroy(a)
     ring_destroy(a)
+    terms_destroy(a)
     store.store_destroy(&a.docs)
     input.binds_destroy(&a.binds)
     binds_requests_destroy(a)

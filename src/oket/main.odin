@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:os"
 import "vendor:glfw"
 import "../gfx"
+import "../pty"
 import "../store"
 
 WIDTH :: 1200
@@ -70,8 +71,8 @@ main :: proc() {
     app_init(&a)
     defer app_destroy(&a)
 
-    // A shell step finishing has to reach the frame loop, which is parked in WaitEvents.
-    wake = proc() {glfw.PostEmptyEvent()}
+    // A session's reader thread has to reach the frame loop, which is parked in WaitEvents.
+    pty.wake = proc() {glfw.PostEmptyEvent()}
 
     // The ring opens on a listing of the working directory. The descriptor is what makes it
     // renderable without a kind of its own in here.
@@ -82,8 +83,9 @@ main :: proc() {
         cols, rows := gfx.painter_fit(&a.painter, w, h)
         gfx.grid_resize(&a.grid, cols, rows)
 
-        // Writes land at one point in the frame (§6), and a finished shell step advances the
-        // chain that was waiting on it.
+        // Writes land at one point in the frame (§6): every session's output into its
+        // document first, then the exit code that advances a chain waiting on one.
+        term_pump(&a)
         sh_pump(&a)
         chain_pump(&a)
         store.store_drain(&a.docs)
@@ -95,7 +97,6 @@ main :: proc() {
         glfw.SwapBuffers(a.window)
         free_all(context.temp_allocator) // the frame's cell tables and bar text
 
-        // Idle until an event; stage 6's terminal is the first thing to need a deadline here.
-        glfw.WaitEvents()
+        glfw.WaitEvents() // idle until a key, a click, a resize, or a session's reader
     }
 }

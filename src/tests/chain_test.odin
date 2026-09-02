@@ -18,7 +18,9 @@ import app "../oket"
 run_line :: proc(a: ^app.App, line: string) {
     app.cl_exec(a, line)
     for i := 0; app.chain_busy(a) && i < 5000; i += 1 {
+        app.term_pump(a) // N# is a PTY: nothing reports until its bytes reach the parser
         app.sh_pump(a)
+        store.store_drain(&a.docs)
         time.sleep(2 * time.Millisecond)
     }
 }
@@ -54,6 +56,14 @@ the_chain_splits_the_way_a_shell_would :: proc(t: ^testing.T) {
     // `||` is the shell's or-else and `|&` its pipe-with-stderr. One `|` alone is ours.
     testing.expect_value(t, segs("false || echo x"), "&false || echo x")
     testing.expect_value(t, segs("a |& b"), "&a |& b")
+
+    // A comment ends the line and is dropped: a step is injected with its exit report after it
+    // on the same line, so a comment carried through would swallow the report.
+    testing.expect_value(t, segs("echo hi # note && :ls"), "&echo hi ")
+    testing.expect_value(t, segs("# all of it"), "&")
+    // Only where a word starts, and never inside quotes.
+    testing.expect_value(t, segs("echo a#b"), "&echo a#b")
+    testing.expect_value(t, segs(`echo '# not a comment'`), `&echo '# not a comment'`)
 }
 
 // Two shell steps in a row are ONE command with its operator put back, so bash does its own
@@ -148,17 +158,43 @@ a_shell_step_reports_to_the_system_session :: proc(t: ^testing.T) {
     app.ring_add(&a, app.text_open(&a.docs, "note", "x"))
     run_line(&a, "echo out && echo more")
 
+    // N# is a real session, so the transcript is the shell's: the line it was handed, echoed by
+    // its own line editor, and the output under it.
     sys := app.sys_slot(&a).doc
     text := doc_text(&a, sys)
-    testing.expect(t, strings.contains(text, "$ echo out && echo more"), text)
+    testing.expect(t, strings.contains(text, "echo out && echo more"), text)
     testing.expect(t, strings.contains(text, "out\nmore"), text)
     testing.expect(t, a.ring.focused != app.SLOT_SYSTEM, "a run that worked surfaces nothing")
 
     // && short-circuits, and the failure is what brings N# forward. The second step is a
-    // BUILTIN, so this is our chain stopping and not bash's own &&.
-    run_line(&a, "exit 3 && :close")
+    // BUILTIN, so this is our chain stopping and not bash's own &&. The subshell is the test's:
+    // a bare `exit` at the top level ends the session's shell, which is a different failure.
+    run_line(&a, "(exit 3) && :close")
     testing.expect_value(t, a.ring.focused, app.SLOT_SYSTEM)
     testing.expect(t, app.lane_first(&a.ring, 0) != 0, ":close never ran")
+}
+
+// A bare `exit` ends the session's shell itself: a step is not wrapped in a subshell (`cd`
+// must work at the top level), so the report never comes and the death is the answer. The
+// chain stops, N# surfaces its last screen, and the next step gets a fresh shell.
+@(test)
+a_step_that_kills_the_shell_stops_the_chain :: proc(t: ^testing.T) {
+    a, ok := bare_app(60, 6)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    app.ring_add(&a, app.text_open(&a.docs, "note", "x"))
+    run_line(&a, "exit 0 && :close")
+    testing.expect_value(t, a.message, "the system session's shell exited mid-step")
+    testing.expect_value(t, a.ring.focused, app.SLOT_SYSTEM)
+    testing.expect(t, !a.job.live, "the job never came back to rest")
+    testing.expect(t, app.lane_first(&a.ring, 0) != 0, ":close ran past a dead shell")
+
+    run_line(&a, "echo revived")
+    testing.expect(t, strings.contains(doc_text(&a, app.sys_slot(&a).doc), "revived"),
+                   "no fresh shell answered")
 }
 
 // The sigil promised a builtin, so an unknown one stops the chain and says so rather than

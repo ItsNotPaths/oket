@@ -66,6 +66,13 @@ button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mods: i3
     }
     px, py := glfw.GetCursorPos(window)
     cx, cy := cell_at(a, px, py)
+    // A document that took the mouse over reads the button itself (§5, §8): a TUI with tracking
+    // on wants the press AND the release, and neither is a chord.
+    if tm := mouse_events_target(a); tm != nil {
+        term_mouse(a, tm, input.MOUSE_BUTTONS[button], cx, cy, glfw_mods(mods),
+                   action == glfw.PRESS)
+        return
+    }
     if action == glfw.PRESS {
         // Point first, then the chord (§8): holes fill from point exactly as they do for a key.
         point_place(a, cx, cy)
@@ -85,6 +92,10 @@ cursor_callback :: proc "c" (window: glfw.WindowHandle, px, py: f64) {
         return
     }
     cx, cy := cell_at(a, px, py)
+    if tm := mouse_events_target(a); tm != nil {
+        term_mouse_at(a, tm, cx, cy, glfw_mods_now(window))
+        return
+    }
     if input.mouse_motion(&a.mouse, cx, cy) {
         point_drag(a, cx, cy)
         return
@@ -107,6 +118,12 @@ scroll_callback :: proc "c" (window: glfw.WindowHandle, xoff, yoff: f64) {
     case yoff == 0 && xoff < 0:
         wheel = .Wheel_Left
     case yoff == 0:
+        return
+    }
+    if tm := mouse_events_target(a); tm != nil {
+        px, py := glfw.GetCursorPos(window)
+        cx, cy := cell_at(a, px, py)
+        term_mouse(a, tm, wheel, cx, cy, glfw_mods_now(window), true)
         return
     }
     handle_chord(a, input.Chord{input.mouse_code(wheel), glfw_mods_now(window)})

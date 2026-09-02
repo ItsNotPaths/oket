@@ -59,6 +59,8 @@ Command :: enum u8 {
     Select_Expand,
     View_Scroll_Up,
     View_Scroll_Down,
+    View_Page_Up,
+    View_Page_Down,
     Cut,
     Copy,
     Paste,
@@ -84,10 +86,6 @@ Command :: enum u8 {
     Surface_Send,
     Term_Copy,
     Term_Paste,
-    Term_Scroll_Up,
-    Term_Scroll_Down,
-    Term_Sel_Up,
-    Term_Sel_Down,
     Font_Bigger,
     Font_Smaller,
     Font_Reset,
@@ -179,6 +177,8 @@ COMMANDS := [Command]Command_Info {
     .Select_Expand       = {"select.expand", "select what point sits in, at the document's own granularity", {.Text, .Surface}},
     .View_Scroll_Up      = {"view.scroll_up", "scroll the view toward the start; point stays put", {.Global}},
     .View_Scroll_Down    = {"view.scroll_down", "scroll the view toward the end; point stays put", {.Global}},
+    .View_Page_Up        = {"view.page_up", "scroll the view back one screenful; point stays put", {.Global}},
+    .View_Page_Down      = {"view.page_down", "scroll the view on one screenful; point stays put", {.Global}},
     .Cut                 = {"edit.cut", "cut the selection, or the line, to the kill ring", {.Text, .Surface}},
     .Copy                = {"edit.copy", "copy the selection, or the line, to the kill ring", {.Text, .Surface}},
     .Paste               = {"edit.paste", "insert the newest kill-ring entry", {.Text, .Surface}},
@@ -202,12 +202,8 @@ COMMANDS := [Command]Command_Info {
     .CL_Open             = {"cl.open", "open the command line", {.Global}},
     .CL_Sigil            = {"cl.sigil", "open the command line with the builtin : typed", {.Global}},
     .Surface_Send        = {"surface.send", "send the key to the focused surface's own job", {.Terminal, .Surface}},
-    .Term_Copy           = {"term.copy", "copy the selected lines to the clipboard", {.Terminal}},
+    .Term_Copy           = {"term.copy", "copy the selection, or the line point is on, to the system clipboard", {.Terminal}},
     .Term_Paste          = {"term.paste", "paste the clipboard as bracketed input", {.Terminal}},
-    .Term_Scroll_Up      = {"term.scroll_up", "scroll the view a page into history", {.Terminal}},
-    .Term_Scroll_Down    = {"term.scroll_down", "scroll the view a page toward the bottom", {.Terminal}},
-    .Term_Sel_Up         = {"term.sel_up", "move the copy cursor up a line", {.Terminal}},
-    .Term_Sel_Down       = {"term.sel_down", "move the copy cursor down a line", {.Terminal}},
     .Font_Bigger         = {"font.bigger", "one step up in cell size; the grid holds fewer", {.Global}},
     .Font_Smaller        = {"font.smaller", "one step down in cell size; the grid holds more", {.Global}},
     .Font_Reset          = {"font.reset", "back to the size the system asked for", {.Global}},
@@ -339,6 +335,7 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     // the dispatch — which is the whole reason `:ring` exists as a builtin.
     bind_line(&b, "AD03", {.Alt}, ":ring text") // alt+e
     bind_line(&b, "AC04", {.Alt}, ":ring files") // alt+f
+    bind_line(&b, "AD05", {.Alt}, ":ring term") // alt+t
 
     // The mouse, as ordinary rows (§8). A button chord has none: the kernel moves point before
     // it dispatches one, so `click` with nothing bound already does the thing a click does, and
@@ -352,10 +349,10 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     bind_put(&b, "ESC", {}, .Surface_Send)
     bind_put(&b, "AB03", {.Ctrl, .Shift}, .Term_Copy) // ctrl+shift+c
     bind_put(&b, "AB04", {.Ctrl, .Shift}, .Term_Paste) // ctrl+shift+v
-    bind_put(&b, "PGUP", {.Shift}, .Term_Scroll_Up)
-    bind_put(&b, "PGDN", {.Shift}, .Term_Scroll_Down)
-    bind_put(&b, "UP", {.Ctrl}, .Term_Sel_Up)
-    bind_put(&b, "DOWN", {.Ctrl}, .Term_Sel_Down)
+    // Scrolling a session is the KERNEL's viewport over its document (§11), so these are the
+    // same two verbs every other document has and there is no terminal scroll code to bind to.
+    bind_put(&b, "PGUP", {.Shift}, .View_Page_Up)
+    bind_put(&b, "PGDN", {.Shift}, .View_Page_Down)
     return b
 }
 

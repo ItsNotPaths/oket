@@ -33,6 +33,14 @@ Chain :: struct {
     fed:     bool, // a step has produced text; "" is a legitimate value, so this is not len()
 }
 
+// Is a step after this one opened by a `|` — a `:put` waiting for what the shell is about to
+// write. The one thing that makes the kernel stage a step's stdout (sh_run) rather than leave
+// it on screen.
+chain_wants_feed :: proc(a: ^App) -> bool {
+    next := a.chain.idx + 1
+    return next < len(a.chain.steps) && a.chain.steps[next].piped
+}
+
 chain_busy :: proc(a: ^App) -> bool {
     return a.chain.waiting || len(a.chain.steps) > 0
 }
@@ -104,13 +112,21 @@ cl_split_chain :: proc(s: string, alloc := context.temp_allocator) -> []CL_Seg {
     tick: bool // inside `...`
     start, i := 0, 0
     piped := false // did a `|` open the segment being scanned
+    word := true // a `#` is only a comment where a word starts
     for i < len(s) {
         c := s[i]
         switch {
         case c == '\'' || c == '"':
             _, n, ok := quoted_span(s[i:])
             i += ok ? n : len(s) - i
+            word = false
             continue
+        // The rest of the line is the shell's comment, and it is DROPPED rather than passed on:
+        // a step is injected on one line with its exit report after it (job.odin), so a comment
+        // carried through would take the report with it and the chain would wait forever.
+        case c == '#' && word && !tick && depth == 0:
+            append(&out, CL_Seg{s[start:i], piped})
+            return out[:]
         case c == '\\':
             i += 1 // escapes anything, `&` and `|` included
         case c == '`':
@@ -121,7 +137,7 @@ cl_split_chain :: proc(s: string, alloc := context.temp_allocator) -> []CL_Seg {
             depth = max(depth - 1, 0)
         case c == '&' && !tick && depth == 0 && i + 1 < len(s) && s[i + 1] == '&':
             append(&out, CL_Seg{s[start:i], piped})
-            piped = false
+            piped, word = false, true
             i += 2
             start = i
             continue
@@ -130,13 +146,14 @@ cl_split_chain :: proc(s: string, alloc := context.temp_allocator) -> []CL_Seg {
         case c == '|' && !tick && depth == 0 &&
              (i + 1 >= len(s) || s[i + 1] != '|' && s[i + 1] != '&'):
             append(&out, CL_Seg{s[start:i], piped})
-            piped = true
+            piped, word = true, true
             i += 1
             start = i
             continue
         case c == '|':
             i += 1 // the second byte of `||` or `|&`, skipped with the first
         }
+        word = c == ' ' || c == '\t'
         i += 1
     }
     append(&out, CL_Seg{s[start:], piped})

@@ -52,17 +52,24 @@ Ring :: struct {
     system:  Slot, // N#; dead until the first thing runs there
 }
 
+// The document a slot holds, and the session behind it if it had one. Every close goes through
+// here, so a slot cannot drop a PTY on the floor.
+doc_close :: proc(a: ^App, id: store.Id) {
+    term_close(a, id)
+    store.store_close(&a.docs, id)
+}
+
 ring_destroy :: proc(a: ^App) {
     for &l in a.ring.lanes {
         for &s in l.slots {
             if s.live {
-                store.store_close(&a.docs, s.doc)
+                doc_close(a, s.doc)
             }
         }
         delete(l.slots)
     }
     if a.ring.system.live {
-        store.store_close(&a.docs, a.ring.system.doc)
+        doc_close(a, a.ring.system.doc)
     }
     delete(a.ring.lanes)
     a.ring = {}
@@ -186,7 +193,7 @@ ring_put :: proc(a: ^App, id: store.Id, slot: int) {
     }
     old := &l.slots[slot - 1]
     if old.live {
-        store.store_close(&a.docs, old.doc)
+        doc_close(a, old.doc)
     }
     old^ = Slot{id, {}, true}
     ring_move(&a.ring, {lane, slot})
@@ -234,7 +241,7 @@ ring_close :: proc(a: ^App, id: int) {
     if s == nil || id == SLOT_SYSTEM { // N# never closes; its shell is the kernel's
         return
     }
-    store.store_close(&a.docs, s.doc)
+    doc_close(a, s.doc)
     s^ = {}
     l := lane_current(r) // never nil: ring_get proved r.lane is in range
     if l.prev == id {

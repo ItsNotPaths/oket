@@ -23,10 +23,11 @@ Kind_Info :: struct {
 }
 
 @(rodata)
-KINDS := [?]Kind_Info{{"text", .Text}, {"files", .Surface}}
+KINDS := [?]Kind_Info{{"text", .Text}, {"files", .Surface}, {"term", .Terminal}}
 
 KIND_TEXT :: input.Kind(1)
 KIND_FILES :: input.Kind(2)
+KIND_TERM :: input.Kind(3)
 
 kind_named :: proc(name: string) -> (input.Kind, bool) {
     for k, i in KINDS {
@@ -54,7 +55,7 @@ kind_info :: proc(kind: input.Kind) -> Kind_Info {
 }
 
 // A fresh document of a kind, for `alt+N` on an empty slot: the lane already names the kind, so
-// the kernel picks nothing (§5). Both arms here are the kernel's own; a plugin kind answers
+// the kernel picks nothing (§5). All three arms here are the kernel's own; a plugin kind answers
 // this with the `open` message at stage 7.
 kind_fresh :: proc(a: ^App, kind: input.Kind) -> (store.Id, bool) {
     switch kind {
@@ -62,6 +63,8 @@ kind_fresh :: proc(a: ^App, kind: input.Kind) -> (store.Id, bool) {
         return text_open(&a.docs, ""), true
     case KIND_FILES:
         return listing_open(&a.docs, "."), true
+    case KIND_TERM:
+        return term_open(a)
     }
     return {}, false
 }

@@ -60,6 +60,7 @@ close_app :: proc(a: ^app.App) {
     app.chain_clear(a)
     app.cl_destroy(a)
     app.ring_destroy(a)
+    app.terms_destroy(a)
     store.store_destroy(&a.docs)
     input.binds_destroy(&a.binds)
     app.binds_requests_destroy(a)

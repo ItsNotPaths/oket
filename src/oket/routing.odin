@@ -25,14 +25,21 @@ active_rect :: proc(a: ^App) -> Rect {
     return cl_active(a) ? a.bar : a.body
 }
 
+// The active slot and its descriptor, which is what every routing question below reads its
+// answer off. The caller releases the descriptor; both nil for an empty ring or a closed doc.
+@(private = "file")
+active_desc :: proc(a: ^App) -> (^Slot, ^desc.Descriptor) {
+    s := active(a)
+    if s == nil {
+        return nil, nil
+    }
+    return s, store.store_descriptor(&a.docs, s.doc)
+}
+
 // The focused document names its own context, and the descriptor is where it says so (§5). An
 // empty store leaves only Global.
 bind_ctx :: proc(a: ^App) -> (input.Bind_Ctx, input.Kind) {
-    s := active(a)
-    if s == nil {
-        return .Global, 0
-    }
-    d := store.store_descriptor(&a.docs, s.doc)
+    _, d := active_desc(a)
     if d == nil {
         return .Global, 0
     }
@@ -69,7 +76,13 @@ handle_chord :: proc(a: ^App, chord: input.Chord) {
     ctx, kind := bind_ctx(a)
     b, extend, ok := input.bind_lookup(a.binds[:], chord, ctx, kind)
     if !ok {
-        return // the miss rule needs a surface with its own key job; stage 6
+        // The miss rule (§8, §14): a context whose documents have a job of their own forwards,
+        // and everything else stays quiet. A chord that IS bound and does nothing is the thing
+        // that section exists to prevent; an unbound one is just an unbound one.
+        if input.ctx_miss(ctx) == .Surface_Send {
+            surface_send(a, chord)
+        }
+        return
     }
     if line, is_line := b.target.(input.Bind_Line); is_line {
         bind_line_fire(a, line)
@@ -101,6 +114,21 @@ handle_chord :: proc(a: ^App, chord: input.Chord) {
         scroll_by(a, -WHEEL_LINES)
     case .View_Scroll_Down:
         scroll_by(a, +WHEEL_LINES)
+    case .View_Page_Up:
+        scroll_by(a, -max(active_rect(a).h - 1, 1))
+    case .View_Page_Down:
+        scroll_by(a, +max(active_rect(a).h - 1, 1))
+    case .Surface_Send:
+        // A ROW named this, so a document with no job of its own has to say so: a bound chord
+        // that quietly does nothing is the one thing §8 exists to prevent. The miss path above
+        // stays silent, because an unbound chord was never a promise.
+        if !surface_send(a, chord) {
+            message_set(a, "this document has no job of its own")
+        }
+    case .Term_Copy:
+        term_copy(a)
+    case .Term_Paste:
+        term_paste(a)
     case .Select_Expand:
         select_expand(a)
     case .Select_All:
@@ -201,11 +229,7 @@ edit_command :: proc(a: ^App, cmd: input.Command) -> bool {
 // The active document, but only when its descriptor says typing reaches it.
 @(private = "file")
 writable :: proc(a: ^App) -> ^txt.Doc {
-    s := active(a)
-    if s == nil {
-        return nil
-    }
-    d := store.store_descriptor(&a.docs, s.doc)
+    s, d := active_desc(a)
     if d == nil {
         return nil
     }
@@ -214,18 +238,54 @@ writable :: proc(a: ^App) -> ^txt.Doc {
 }
 
 // A rune, not a chord (§8): binds see chords and never see an `a` on its way into a document.
-// Only the command line takes typing at stage 5; the terminal's raw feed joins it at stage 6
-// and the editor plugin's at stage 8.
+// The command line takes typing, and `input: raw` sends it to the document's own job — which is
+// the terminal, and is the whole of what that field is for. The editor plugin joins at stage 8.
 text_input :: proc(a: ^App, r: rune) {
-    if !cl_active(a) {
+    if cl_active(a) {
+        doc := store.store_doc(&a.docs, a.cl.doc)
+        if doc == nil {
+            return
+        }
+        txt.doc_insert_rune(doc, r)
+        point_sync(a)
         return
     }
-    doc := store.store_doc(&a.docs, a.cl.doc)
-    if doc == nil {
-        return
+    if tm := raw_target(a); tm != nil {
+        term_text(tm, r)
     }
-    txt.doc_insert_rune(doc, r)
-    point_sync(a)
+}
+
+// The focused document's own job, when its descriptor says input reaches it (§5). False is not
+// a refusal to report: the caller decides, because a miss and a bound row answer it differently.
+surface_send :: proc(a: ^App, chord: input.Chord) -> bool {
+    tm := raw_target(a)
+    if tm == nil {
+        return false
+    }
+    term_send(a, tm, chord)
+    return true
+}
+
+@(private = "file")
+raw_target :: proc(a: ^App) -> ^Term {
+    s, d := active_desc(a)
+    if d == nil {
+        return nil
+    }
+    defer desc.release(d)
+    return d.input == .Raw ? term_of(a, s.doc) : nil
+}
+
+// Does a click over this document belong to the document rather than to the kernel (§5, §8).
+// The one thing the mouse funnel has to ask before it moves point, and the answer is data on
+// the descriptor rather than a kind the funnel would have to know the name of.
+mouse_events_target :: proc(a: ^App) -> ^Term {
+    s, d := active_desc(a)
+    if d == nil {
+        return nil
+    }
+    defer desc.release(d)
+    return d.mouse == .Events ? term_of(a, s.doc) : nil
 }
 
 // The line arm of a bind (§8): holes filled from point, then run or staged as the file said.
