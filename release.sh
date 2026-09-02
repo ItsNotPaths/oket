@@ -8,9 +8,10 @@ BIN_NAME="oket"
 
 usage() {
     cat <<EOF
-usage: $(basename "$0") [--local] [--public --version vX.Y.Z [--notes "text"]]
+usage: $(basename "$0") [--local [--asan]] [--public --version vX.Y.Z [--notes "text"]]
 
   --local               build locally into build/ inside the project (gitignored)
+  --asan                with --local: build the kernel AND the plugins with AddressSanitizer
   --public              trigger release.yml workflow via gh CLI
   --version <tag>       required when --public is used
   --notes <text>        optional release notes
@@ -19,12 +20,14 @@ EOF
 
 DO_LOCAL=0
 DO_PUBLIC=0
+DO_ASAN=0
 VERSION=""
 NOTES=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --local)   DO_LOCAL=1; shift ;;
+        --asan)    DO_ASAN=1; shift ;;
         --public)  DO_PUBLIC=1; shift ;;
         --version) VERSION="${2:?--version needs a value}"; shift 2 ;;
         --notes)   NOTES="${2:?--notes needs a value}"; shift 2 ;;
@@ -47,10 +50,21 @@ if [ $DO_LOCAL -eq 1 ]; then
     # GLFW_SHARED=false links vendor/glfw/lib/libglfw3.a, so the binary needs no system
     # libglfw. OKET_VERSION is quoted because -define parses its value: a bare tag like 2.0
     # would arrive as a float.
-    odin build "$PROJECT_DIR/src/oket" -out:"$RELEASE_DIR/$BIN_NAME" \
-        -o:speed -define:GLFW_SHARED=false -define:OKET_VERSION='"dev-local"'
-    # release.yml strips too, so a local build matches the download.
-    strip --strip-all "$RELEASE_DIR/$BIN_NAME"
+    # §10's development build: a plugin's wild write is caught AT THE WRITE, with a stack
+    # trace, instead of at the crash four frames later inside kernel code. It costs a shipped
+    # build nothing, because you do not ship one. Not stripped and not optimised — the trace is
+    # the whole point.
+    if [ $DO_ASAN -eq 1 ]; then
+        echo "==> AddressSanitizer build"
+        odin build "$PROJECT_DIR/src/oket" -out:"$RELEASE_DIR/$BIN_NAME" \
+            -sanitize:address -debug -define:GLFW_SHARED=false \
+            -define:OKET_VERSION='"dev-local-asan"'
+    else
+        odin build "$PROJECT_DIR/src/oket" -out:"$RELEASE_DIR/$BIN_NAME" \
+            -o:speed -define:GLFW_SHARED=false -define:OKET_VERSION='"dev-local"'
+        # release.yml strips too, so a local build matches the download.
+        strip --strip-all "$RELEASE_DIR/$BIN_NAME"
+    fi
     # Themes are data, beside the binary like config.conf. Grammars are NOT: one is fetched
     # and built on the machine that wants it.
     if [ -d "$PROJECT_DIR/themes" ]; then
@@ -65,10 +79,13 @@ if [ $DO_LOCAL -eq 1 ]; then
     cp "$PROJECT_DIR"/src/plug/oket.h "$PROJECT_DIR"/src/helpers/*.h \
        "$PROJECT_DIR"/src/helpers/*.c "$RELEASE_DIR/helpers/"
     cp "$PROJECT_DIR/plugins/stage.sh" "$RELEASE_DIR/stage.sh"
+    PLUGIN_FLAGS=""
+    [ $DO_ASAN -eq 1 ] && PLUGIN_FLAGS="--asan"
     for src in "$PROJECT_DIR"/plugins/*/; do
         [ -d "$src" ] || continue
         echo "==> Plugin: $(basename "$src")"
-        "$RELEASE_DIR/stage.sh" "$src" "$RELEASE_DIR/plugins"
+        # shellcheck disable=SC2086
+        "$RELEASE_DIR/stage.sh" "$src" "$RELEASE_DIR/plugins" $PLUGIN_FLAGS
     done
     echo "==> Local done: $RELEASE_DIR"
 fi
