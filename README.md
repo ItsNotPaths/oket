@@ -88,13 +88,17 @@ from then on. Every registration goes in a ledger, and unloading walks it backwa
 That one step compiles the helper library in with `-flto`, so a snapshot walk inlines into your
 loop and the half you never call is stripped. `:plug load|unload|reload <name>` does the rest.
 
+Every `.so` in `plugins/` loads at startup. One that faults, or stops returning, is unloaded
+where it stands and named in the bar: the kernel keeps its documents and carries on drawing
+them. `oket --no-plugins` starts with none of them, for the day that is not enough.
+
 ## Editing
 
 The editor is a plugin, and the kernel has no text kind of its own. `:open` on a regular file
-hands the path to whoever registered the `edit` kind.
+hands the path to whoever registered the `edit` kind, which is a plugin like any other and
+loads at startup like any other.
 
 ```sh
-:plug load edit
 :open src/oket/app.odin
 ```
 
@@ -106,11 +110,15 @@ kernel's, for every document. Swap in your own by registering the same kind.
 ## Build
 
 ```sh
-./download-deps.sh     # once: libvterm, glfw, stb, tree-sitter into vendor/
-./release.sh --local   # builds into build/
+./download-deps.sh          # once: libvterm, glfw, stb, tree-sitter into vendor/
+./release.sh --local        # builds into build/
+./release.sh --local --asan # the same, kernel and plugins under AddressSanitizer
 
 odin test src/tests -define:GLFW_SHARED=false
 ```
+
+Write a plugin against the ASan build. A wild write is caught at the write, with a stack trace,
+instead of at the crash four frames later inside kernel code.
 
 Needs Odin and Zig. `zig cc` builds the vendored C and the plugins.
 
