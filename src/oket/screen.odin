@@ -1,6 +1,7 @@
 package main
 
 import "../gfx"
+import "../input"
 
 // The kernel's own screen, drawn with zero plugins loaded: the recovery floor (§7, §13) and
 // where kernel-level notices live. A document like any other once §5 exists.
@@ -31,11 +32,16 @@ screen_draw :: proc(g: ^gfx.Grid, th: gfx.Theme, a: ^gfx.Atlas) {
     for s, i in SAMPLES {
         gfx.grid_write(g, 4, y + 1 + i, s, th[.Fg], th[.Bg])
     }
-
-    gfx.grid_write(g, 0, g.rows - 1, bar_text(), th[.Dim], th[.Bg])
 }
 
-// The bar's one row (§11); one line until a ring or pending state outranks it.
-bar_text :: proc() -> string {
-    return "esc quits"
+// The bar's one row (§11). A pending state outranks a message, because a capture the user
+// cannot see is invisible modality; a message outranks the resting line.
+bar_text :: proc(a: ^App) -> string {
+    if label := input.pending_describe(a.pending); label != "" {
+        return label
+    }
+    if a.message != "" {
+        return a.message
+    }
+    return "esc quits, f1 describes a chord"
 }

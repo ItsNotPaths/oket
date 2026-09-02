@@ -1,0 +1,71 @@
+package main
+
+import "core:os"
+import "core:path/filepath"
+import "core:strings"
+import "vendor:glfw"
+import "../gfx"
+import "../input"
+import "../store"
+import "../view"
+
+// The kernel's whole mutable state at stage 4: one window, one document, one bind table. Stage 5
+// turns the single surface into a ring and nothing else in here changes shape.
+
+App :: struct {
+    window:       glfw.WindowHandle,
+    painter:      gfx.Painter,
+    grid:         gfx.Grid,
+    theme:        gfx.Theme,
+    docs:         store.Store,
+    id:           store.Id,
+    view:         view.View,
+    binds:        [dynamic]input.Bind,
+    reqs:         [dynamic]Bind_Request,
+    clashes:      [dynamic]Bind_Clash,
+    pending:      input.Pending,
+    mouse:        input.Mouse_State,
+    hover:        Hover,
+    hand:         glfw.CursorHandle, // the pointer over a field a click would act on
+    // Where the document was drawn last frame. A click is placed against it, so the hit test
+    // reads the layout the eye saw rather than recomputing one.
+    body:         Rect,
+    message:      string, // owned; lives until the next keystroke
+    home:         string, // owned; where binds.conf lives, empty in a test
+    quit:         bool,
+}
+
+Rect :: struct {
+    x, y, w, h: int,
+}
+
+// The field under the pointer that a bound click would act on (§8). Underlined, and no surface
+// writes a line of it: the bind table is asked what a click there would do.
+Hover :: struct {
+    line, lo, hi: int,
+    on:           bool,
+}
+
+app_init :: proc(a: ^App) {
+    a.theme = gfx.DEFAULT_THEME
+    a.hand = glfw.CreateStandardCursor(glfw.HAND_CURSOR)
+    a.home = filepath.dir(os.args[0]) // beside the binary
+    binds_sync(a)
+}
+
+app_destroy :: proc(a: ^App) {
+    store.store_destroy(&a.docs)
+    input.binds_destroy(&a.binds)
+    binds_requests_destroy(a)
+    message_set(a, "")
+    delete(a.home)
+    glfw.DestroyCursor(a.hand)
+    gfx.grid_destroy(&a.grid)
+    gfx.painter_destroy(&a.painter) // the atlas and its faces go with it
+}
+
+// Echo style: a message lives until the next keystroke clears it.
+message_set :: proc(a: ^App, text: string) {
+    delete(a.message)
+    a.message = text == "" ? "" : strings.clone(text)
+}

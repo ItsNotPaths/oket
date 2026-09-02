@@ -74,23 +74,20 @@ listing_draws_through_the_descriptor :: proc(t: ^testing.T) {
     }
     defer os.remove_all(dir)
 
-    s: store.Store
-    defer store.store_destroy(&s)
-    id := app.listing_open(&s, dir)
+    // The frame, not the renderer: the body and the bar together, which is what a click is
+    // placed against.
+    a: app.App
+    defer store.store_destroy(&a.docs)
+    defer gfx.grid_destroy(&a.grid)
+    a.theme = gfx.DEFAULT_THEME
+    testing.expect(t, gfx.grid_init(&a.grid, 50, 3))
+    a.id = app.listing_open(&a.docs, dir)
 
-    g: gfx.Grid
-    testing.expect(t, gfx.grid_init(&g, 50, 3))
-    defer gfx.grid_destroy(&g)
-
-    a, atlas_ok := gfx.atlas_fallback()
-    testing.expect(t, atlas_ok)
-    defer gfx.atlas_destroy(&a)
-
-    app.surface_draw(&g, gfx.DEFAULT_THEME, &a, &s, id, view.View{})
-    snap := gfx.grid_snapshot(&g)
+    app.surface_draw(&a)
+    snap := gfx.grid_snapshot(&a.grid)
     defer delete(snap)
 
     testing.expect_value(t, snap, `1 alpha.txt                    file         3
 2 beta.txt                     file         3
-esc quits`)
+esc quits, f1 describes a chord`)
 }

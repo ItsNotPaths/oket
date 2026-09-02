@@ -39,7 +39,7 @@ screen_snapshot :: proc(t: ^testing.T) {
   └────────────────────────────────┘
 
 
-esc quits`,
+`,
     )
 }
 
