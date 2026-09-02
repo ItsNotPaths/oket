@@ -126,6 +126,7 @@ plug_app :: proc(t: ^testing.T, name: string, plugins: ..string) -> (a: app.App,
 
 close_plug_app :: proc(a: ^app.App) {
     app.plug_destroy(a)
+    app.tokens_destroy(a) // a plugin interns style-token names, and they are the App's
     delete(a.home)
     a.home = ""
     close_app(a)
