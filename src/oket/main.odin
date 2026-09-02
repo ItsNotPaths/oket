@@ -110,7 +110,10 @@ main :: proc() {
         sh_pump(&a)
         chain_pump(&a)
         docs_settle(&a)
-        plug_pump(&a) // whose generation moved, told once the drain has settled
+        // Whose generation moved, told once the drain has settled. A plugin that answered
+        // "not finished" is the one thing no keystroke and no reader thread will wake, so the
+        // frame after it is polled rather than waited for (§9).
+        latched := plug_pump(&a)
 
         surface_draw(&a)
 
@@ -119,6 +122,10 @@ main :: proc() {
         glfw.SwapBuffers(a.window)
         free_all(context.temp_allocator) // the frame's cell tables and bar text
 
-        glfw.WaitEvents() // idle until a key, a click, a resize, or a session's reader
+        if latched {
+            glfw.PollEvents() // a parse is mid-slice; the next frame is its next slice
+        } else {
+            glfw.WaitEvents() // idle until a key, a click, a resize, or a session's reader
+        }
     }
 }

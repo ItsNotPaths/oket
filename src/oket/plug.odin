@@ -37,12 +37,31 @@ Plugin :: struct {
     live:    bool,
     faulted: bool, // it died in its own code; nothing of it is called again (§10)
     ledger:  [dynamic]Record,
+    // A plugin that draws nothing asks to be told about documents it did not open (§9). `seen`
+    // is what it has been told, per document, so a moved generation is reported once.
+    watch:   plug.Event_Fn,
+    seen:    map[store.Id]Watch,
+}
+
+// What a handler was last told about one document; an instance's owner and a watcher keep the
+// same record. `latch` is cooperative slicing: a `.Moved` that answered non-zero is called
+// again next frame whether or not anything moved, which is how a cold parse too big for one
+// frame spreads over several with no thread (§9).
+Watch :: struct {
+    gen:   u64,
+    // Its own transaction, still waiting on the drain (rule 3). A generation this moved is not
+    // reported back, or a plugin that re-reads on `moved` would answer its own write forever.
+    // The TAG and not a flag: a submit that loses the race is dropped, and that case is exactly
+    // when the holder has to be told.
+    tag:   u64,
+    latch: bool,
 }
 
 Record_Kind :: enum u8 {
     Kind,
     Command,
     Bind,
+    Watch,
 }
 
 Record :: struct {
@@ -71,15 +90,10 @@ Plug_Cmd :: struct {
 // A document a plugin opened. The instance pointer is the plugin's; the text and the descriptor
 // are the kernel's, and anyone may write them (§7).
 Plug_Inst :: struct {
-    owner: int,
-    kind:  input.Kind,
-    inst:  rawptr,
-    gen:   u64, // last generation this instance was told about
-    // The owner's own transaction, still waiting on the drain. A generation this moved is not
-    // reported back, or a plugin that re-reads on `moved` would answer its own write forever.
-    // The TAG and not a flag: a submit that loses the race is dropped, and that case is exactly
-    // when the owner has to be told.
-    tag:   u64,
+    owner:      int,
+    kind:       input.Kind,
+    inst:       rawptr,
+    using told: Watch, // what its owner was last told, the same record a watcher keeps
 }
 
 // The api vtable, with the kernel around it. A plugin holds `&a.api.api`, and that pointer is
@@ -102,6 +116,8 @@ plug_init :: proc(a: ^App) {
             register_kind = api_register_kind,
             register_command = api_register_command,
             request_bind = api_request_bind,
+            register_token = api_register_token,
+            register_watch = api_register_watch,
             submit = api_submit,
             reveal = api_reveal,
             snapshot = api_snapshot,
@@ -120,6 +136,7 @@ plug_destroy :: proc(a: ^App) {
         delete(p.name)
         delete(p.path)
         delete(p.ledger)
+        delete(p.seen)
     }
     delete(a.plugs)
     for k in a.kinds {
@@ -221,6 +238,9 @@ plug_unload :: proc(a: ^App, i: int) -> bool {
             if r.idx < len(a.reqs) {
                 a.reqs[r.idx].dead = true
             }
+        case .Watch:
+            p.watch = nil
+            clear(&p.seen)
         }
     }
     clear(&p.ledger)
@@ -326,7 +346,7 @@ plug_open :: proc(a: ^App, kind: input.Kind, args := "") -> (store.Id, bool) {
         txt.doc_reset_cursor(doc, {})
     }
     gen, _ = store.store_gen(&a.docs, id) // where `open` left it, so nothing is reported back
-    a.insts[id] = {k.owner, kind, r.inst, gen, 0}
+    a.insts[id] = {k.owner, kind, r.inst, {gen = gen}}
     return id, true
 }
 
@@ -391,22 +411,30 @@ plug_event :: proc(a: ^App, id: store.Id, ev: plug.Event, text: string) -> bool 
 // rewrote can re-read and repair its own editable span. Nothing ELSE needs telling: a read is a
 // snapshot and a write against a stale one is refused at the drain, which is what makes "anyone
 // may write anyone's buffer" safe without a gate (§7).
-plug_pump :: proc(a: ^App) {
+// The return is whether anybody asked to be called again (§9). A latched plugin is the one
+// case the frame loop must not idle in: nothing external is coming to wake it, and the work is
+// half done.
+plug_pump :: proc(a: ^App) -> (latched: bool) {
+    return plug_pump_insts(a) | plug_pump_watch(a)
+}
+
+// A document a plugin OPENED, whose generation moved. It hears through its kind's `event`.
+@(private = "file")
+plug_pump_insts :: proc(a: ^App) -> (latched: bool) {
     // Who to tell is decided first: a `moved` handler that faults unloads its plugin, and that
     // DELETES from `insts` — walking a map while it is being written is a different bug every
     // time. Same rule as plug_unload's.
     moved := make([dynamic]store.Id, 0, len(a.insts), context.temp_allocator)
+    landed := store.store_landed(&a.docs)
     for id, &inst in a.insts {
         gen, live := store.store_gen(&a.docs, id)
-        if !live || gen == inst.gen {
+        if !live {
             continue
         }
-        mine := inst.tag != 0 && slice.contains(store.store_landed(&a.docs), inst.tag)
-        inst.gen = gen
-        inst.tag = 0
-        if !mine {
+        if watch_due(inst.told, gen, landed) {
             append(&moved, id)
         }
+        inst.told = {gen = gen}
     }
     for id in moved {
         inst, held := a.insts[id]
@@ -419,7 +447,79 @@ plug_pump :: proc(a: ^App) {
         }
         at, free_view := plug_at(a, inst.owner, id)
         defer view_free(free_view)
-        _, _ = plug_dispatch(a, inst.owner, {what = .Event, vt = k.vt, at = &at, ev = .Moved})
+        r, live := plug_dispatch(a, inst.owner, {what = .Event, vt = k.vt, at = &at, ev = .Moved})
+        if live {
+            if held := &a.insts[id]; held != nil {
+                held.latch = r.code != 0
+                latched |= held.latch
+            }
+        }
+    }
+    return
+}
+
+// A document a WATCHER did not open. It is told about every one it has not seen at the
+// generation the document is at now, which is the open notice and the moved notice in one rule
+// (§9). A non-zero return is the latch, same as above.
+@(private = "file")
+plug_pump_watch :: proc(a: ^App) -> (latched: bool) {
+    ids := store.store_ids(&a.docs)
+    landed := store.store_landed(&a.docs)
+    for i in 0 ..< len(a.plugs) {
+        if !a.plugs[i].live || a.plugs[i].watch == nil {
+            continue
+        }
+        // Decided before any of them is dispatched, for plug_pump_insts' reason: a fault in
+        // here clears `seen` out from under the walk.
+        tell := make([dynamic]store.Id, 0, len(ids), context.temp_allocator)
+        for id in ids {
+            gen, _ := store.store_gen(&a.docs, id)
+            w, told := a.plugs[i].seen[id]
+            if !told || watch_due(w, gen, landed) {
+                append(&tell, id)
+            }
+            a.plugs[i].seen[id] = {gen = gen}
+        }
+        watch_prune(a, i, ids)
+        for id in tell {
+            if !a.plugs[i].live {
+                break // it faulted on an earlier document in this same loop
+            }
+            fn := a.plugs[i].watch
+            at, free_view := plug_at(a, i, id)
+            defer view_free(free_view)
+            r, live := plug_dispatch(a, i, {what = .Watch, fn_ev = fn, at = &at, ev = .Moved})
+            if live {
+                if w, held := &a.plugs[i].seen[id]; held {
+                    w.latch = r.code != 0
+                    latched |= w.latch
+                }
+            }
+        }
+    }
+    return
+}
+
+// Whether the record's holder must hear `.Moved`: it latched, or the generation moved under it
+// and not by its own landed write.
+@(private = "file")
+watch_due :: proc(w: Watch, gen: u64, landed: []u64) -> bool {
+    mine := w.tag != 0 && slice.contains(landed, w.tag)
+    return w.latch || (gen != w.gen && !mine)
+}
+
+// A document that closed leaves a dead key behind, and an Id is a slot plus a seq, so the slot
+// coming back as somebody else's document reads as unseen — which is what it is.
+@(private = "file")
+watch_prune :: proc(a: ^App, i: int, ids: []store.Id) {
+    dead := make([dynamic]store.Id, 0, len(a.plugs[i].seen), context.temp_allocator)
+    for id in a.plugs[i].seen {
+        if !slice.contains(ids, id) {
+            append(&dead, id)
+        }
+    }
+    for id in dead {
+        delete_key(&a.plugs[i].seen, id)
     }
 }
 
@@ -473,11 +573,13 @@ Plug_Call :: struct {
         Open,
         Close,
         Event,
+        Watch,
         Command,
     },
     entry: plug.Entry_Fn,
     vt:    plug.Kind_Vt,
     fn:    plug.Command_Fn,
+    fn_ev: plug.Event_Fn, // a watcher's, which belongs to no kind
     doc:   plug.Doc,
     at:    ^plug.At,
     inst:  rawptr,
@@ -529,6 +631,8 @@ plug_run :: proc(a: ^App, i: int, c: Plug_Call) -> (r: Plug_Ret) {
         c.vt.close(api, self, c.doc, c.inst)
     case .Event:
         r.code = c.vt.event(api, self, c.at, c.ev, raw_data(c.data), len(c.data))
+    case .Watch:
+        r.code = c.fn_ev(api, self, c.at, c.ev, raw_data(c.data), len(c.data))
     case .Command:
         r.code = c.fn(api, self, c.at, raw_data(c.data), len(c.data))
     }
@@ -603,8 +707,37 @@ api_request_bind :: proc "c" (api: ^plug.Api, self: plug.Self, ctx: [^]u8, ctx_l
 }
 
 @(private = "file")
+api_register_token :: proc "c" (api: ^plug.Api, self: plug.Self, name: [^]u8,
+                                name_len: uint) -> plug.Token {
+    a, _, ok := api_app(api, self)
+    defer api_done()
+    if !ok {
+        return plug.Token(plug.Style.Fg)
+    }
+    context = a.api.ctx
+    return token_intern(a, string(name[:name_len]))
+}
+
+@(private = "file")
+api_register_watch :: proc "c" (api: ^plug.Api, self: plug.Self, fn: plug.Event_Fn) {
+    a, i, ok := api_app(api, self)
+    defer api_done()
+    if !ok || fn == nil {
+        return
+    }
+    context = a.api.ctx
+    p := &a.plugs[i]
+    if p.watch == nil { // registering twice replaces, and leaves one ledger record
+        append(&p.ledger, Record{.Watch, 0})
+    }
+    p.watch = fn
+    clear(&p.seen)
+}
+
+@(private = "file")
 api_submit :: proc "c" (api: ^plug.Api, self: plug.Self, doc: plug.Doc, gen: u64,
-                        edits: [^]plug.Edit, nedits: uint, d: ^plug.Descriptor) {
+                        edits: [^]plug.Edit, nedits: uint, d: ^plug.Descriptor,
+                        spans: ^plug.Span_Pub) {
     a, i, ok := api_app(api, self)
     defer api_done()
     if !ok {
@@ -618,9 +751,39 @@ api_submit :: proc "c" (api: ^plug.Api, self: plug.Self, doc: plug.Doc, gen: u64
     }
     nd := d != nil ? plug_desc_take(a, id, d) : nil
     defer desc.release(nd)
-    tag := store.store_submit(&a.docs, id, gen, own, nd)
+    tag := store.store_submit(&a.docs, id, gen, own, nd, plug_spans_take(a, spans))
     if inst, held := &a.insts[id]; held && inst.owner == i {
         inst.tag = tag
+    }
+    if w, held := &a.plugs[i].seen[id]; held {
+        w.tag = tag
+    }
+}
+
+// A published layer, with its tokens RESOLVED against the palette on the way in (tokens.odin).
+// The seam speaks tokens and the store speaks colours, the same split plug_desc_take makes for
+// a descriptor: a plugin that named a colour would break every theme, and the renderer that
+// looked one up per cell would do it per frame instead of per publish.
+@(private = "file")
+plug_spans_take :: proc(a: ^App, pub: ^plug.Span_Pub) -> Maybe(store.Spans) {
+    if pub == nil {
+        return nil
+    }
+    list := make([]store.Span, pub.nspans, context.temp_allocator)
+    for sp, n in pub.spans[:pub.nspans] {
+        list[n] = {
+            lo    = int(min(sp.lo, uint(max(int)))),
+            hi    = int(min(sp.hi, uint(max(int)))),
+            fg    = token_color(a, sp.tok),
+            bg    = a.theme[.Bg],
+            attrs = sp.attrs,
+        }
+    }
+    return store.Spans{
+        layer = pub.layer,
+        lo    = int(min(pub.lo, uint(max(int)))),
+        hi    = int(min(pub.hi, uint(max(int)))),
+        list  = list,
     }
 }
 

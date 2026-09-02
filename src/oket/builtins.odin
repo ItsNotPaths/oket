@@ -254,7 +254,7 @@ plug_list :: proc(a: ^App) -> bool {
                 kinds += 1
             case .Command:
                 cmds += 1
-            case .Bind:
+            case .Bind, .Watch:
             }
         }
         sys_println(a, fmt.tprintf("%s  %d kind(s), %d command(s)  %s", p.name, kinds, cmds,
