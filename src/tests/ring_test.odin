@@ -23,27 +23,27 @@ alt_n_addresses_the_lane_you_are_in :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    one := app.text_open(&a.docs, "one.txt", "one")
-    two := app.text_open(&a.docs, "two.txt", "two")
+    one := app.text_open(&a, "one.txt", "one")
+    two := app.text_open(&a, "two.txt", "two")
     app.ring_add(&a, one)
     app.ring_add(&a, two)
     testing.expect_value(t, a.ring.focused, 2)
 
     // A document of another kind opens in its own lane, at slot 1 of it: the open IS the focus
     // change, so you always see where it went.
-    app.ring_add(&a, app.listing_open(&a.docs, "."))
+    app.ring_add(&a, app.listing_open(&a, "."))
     testing.expect_value(t, a.ring.focused, 1)
-    testing.expect_value(t, app.kind_name(app.doc_kind(&a, app.ring_focused(&a.ring).doc)), "files")
+    testing.expect_value(t, app.kind_name(&a, app.doc_kind(&a, app.ring_focused(&a.ring).doc)), "files")
 
     // alt+1 in the files lane is the listing, not the first text document.
     app.handle_chord(&a, alt("AE01"))
     testing.expect_value(t, a.ring.focused, 1)
-    testing.expect_value(t, app.kind_name(app.doc_kind(&a, app.ring_focused(&a.ring).doc)), "files")
+    testing.expect_value(t, app.kind_name(&a, app.doc_kind(&a, app.ring_focused(&a.ring).doc)), "files")
 
     // And alt+2 there opens a SECOND listing rather than reaching the text lane's slot 2.
     app.handle_chord(&a, alt("AE02"))
     testing.expect_value(t, a.ring.focused, 2)
-    testing.expect_value(t, app.kind_name(app.doc_kind(&a, app.ring_focused(&a.ring).doc)), "files")
+    testing.expect_value(t, app.kind_name(&a, app.doc_kind(&a, app.ring_focused(&a.ring).doc)), "files")
 }
 
 // Numbered slots exist for muscle memory, and renumbering destroys the one thing they are for.
@@ -57,7 +57,7 @@ a_closed_slot_leaves_a_gap :: proc(t: ^testing.T) {
     defer close_app(&a)
 
     for name in ([?]string{"a", "b", "c"}) {
-        app.ring_add(&a, app.text_open(&a.docs, name, name))
+        app.ring_add(&a, app.text_open(&a, name, name))
     }
     app.handle_chord(&a, alt("AE02"))
     testing.expect_value(t, a.ring.focused, 2)
@@ -90,9 +90,9 @@ the_alternate_crosses_lanes_and_the_shift_one_does_not :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    app.ring_add(&a, app.text_open(&a.docs, "a", "a"))
-    app.ring_add(&a, app.text_open(&a.docs, "b", "b"))
-    app.ring_add(&a, app.listing_open(&a.docs, "."))
+    app.ring_add(&a, app.text_open(&a, "a", "a"))
+    app.ring_add(&a, app.text_open(&a, "b", "b"))
+    app.ring_add(&a, app.listing_open(&a, "."))
 
     // alt+` goes back to the text lane's slot 2, across the lane boundary.
     app.handle_chord(&a, alt("TLDE"))
@@ -114,7 +114,7 @@ the_system_slot_is_outside_the_rotation :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    app.ring_add(&a, app.text_open(&a.docs, "a", "a"))
+    app.ring_add(&a, app.text_open(&a, "a", "a"))
     app.sys_println(&a, "hello")
 
     // Nothing in 1..9 addresses it.
@@ -142,12 +142,12 @@ a_default_row_switches_lanes_by_kind_name :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    app.ring_add(&a, app.text_open(&a.docs, "a", "a"))
+    app.ring_add(&a, app.text_open(&a, "a", "a"))
 
     // alt+f opens the files lane even though nothing has been in it: a lane with nothing in it
     // still opens, which is what makes the chord useful before the first listing.
     app.handle_chord(&a, alt("AC04"))
-    testing.expect_value(t, app.kind_name(app.doc_kind(&a, app.ring_focused(&a.ring).doc)), "files")
+    testing.expect_value(t, app.kind_name(&a, app.doc_kind(&a, app.ring_focused(&a.ring).doc)), "files")
 
     app.handle_chord(&a, alt("AD03")) // alt+e, back to where the text lane was left
     testing.expect_value(t, app.doc_title(&a, app.ring_focused(&a.ring).doc), "a")
@@ -165,8 +165,8 @@ a_kind_section_narrows_over_its_context :: proc(t: ^testing.T) {
 
     app.binds_parse(&a, "[surface]\n@AC03 = exec :ls\n[files]\n@AC03 = exec :open <path>\n",
                     "binds.conf")
-    answer := input.describe_chord(a.binds[:], chord("AC03"), .Surface, nil, {}, app.KIND_FILES,
-                                   app.kind_name)
+    answer := input.describe_chord(a.binds[:], chord("AC03"), .Surface, nil, app.names(&a),
+                                   app.KIND_FILES)
     defer delete(answer)
     testing.expect(t, strings.contains(answer, ":open <path>"), answer)
     testing.expect(t, strings.contains(answer, "[files,"), answer)
@@ -187,8 +187,8 @@ closing_the_last_slot_leaves_the_lane :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    app.ring_add(&a, app.text_open(&a.docs, "a", "a"))
-    app.ring_add(&a, app.listing_open(&a.docs, "."))
+    app.ring_add(&a, app.text_open(&a, "a", "a"))
+    app.ring_add(&a, app.listing_open(&a, "."))
 
     app.handle_chord(&a, alt("AD01")) // the files lane empties; focus crosses to the text lane
     testing.expect_value(t, app.doc_title(&a, app.ring_focused(&a.ring).doc), "a")
@@ -209,8 +209,8 @@ a_slot_keeps_its_viewport :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    app.ring_add(&a, app.text_open(&a.docs, "long", "1\n2\n3\n4\n5\n6\n7\n8"))
-    app.ring_add(&a, app.text_open(&a.docs, "short", "one"))
+    app.ring_add(&a, app.text_open(&a, "long", "1\n2\n3\n4\n5\n6\n7\n8"))
+    app.ring_add(&a, app.text_open(&a, "short", "one"))
 
     app.handle_chord(&a, alt("AE01"))
     app.scroll_by(&a, 4)

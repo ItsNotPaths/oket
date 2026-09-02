@@ -38,6 +38,9 @@ Bind_Request :: struct {
     ctx:   string, // owned
     chord: string, // owned
     line:  string, // owned
+    // The plugin that asked has unloaded. The strings stay owned by this list — what goes is
+    // the ASKING, so a later writeback does not put the row back for a plugin that is gone.
+    dead:  bool,
 }
 
 // A requested chord that met something. `shadows` separates a note from a refusal: a narrower
@@ -81,6 +84,7 @@ binds_request :: proc(a: ^App, owner, ctx, chord, line: string) {
             strings.clone(ctx == "" ? "global" : ctx),
             strings.clone(chord),
             strings.clone(line),
+            false,
         },
     )
 }
@@ -108,7 +112,7 @@ binds_parse :: proc(a: ^App, text, origin_name: string) {
     }
     for row in rows {
         section := row.section == "" ? "global" : row.section
-        ctx, kind, known := binds_ctx(section)
+        ctx, kind, known := binds_ctx(a, section)
         if !known {
             binds_complain(a, origin_name, row.line,
                            fmt.tprintf("[%s] names no context or surface kind", section))
@@ -119,7 +123,7 @@ binds_parse :: proc(a: ^App, text, origin_name: string) {
             binds_complain(a, origin_name, row.line, fmt.tprintf("%s is not a chord", row.key))
             continue
         }
-        target, made := binds_target(row.value)
+        target, made := binds_target(a, row.value)
         if !made {
             binds_complain(a, origin_name, row.line, fmt.tprintf("%s is not a verb", row.value))
             continue
@@ -137,21 +141,21 @@ binds_complain :: proc(a: ^App, origin_name: string, line: int, why: string) {
 }
 
 // The four kernel contexts, then the kinds. A kind's section binds in that kind's own context
-// and narrows to it, so the two tiers come out of one lookup; a plugin's kind joins the table
-// at stage 7 and nothing here changes.
-binds_ctx :: proc(name: string) -> (ctx: input.Bind_Ctx, kind: input.Kind, ok: bool) {
+// and narrows to it, so the two tiers come out of one lookup; a plugin's kind answers through
+// the same lookup.
+binds_ctx :: proc(a: ^App, name: string) -> (ctx: input.Bind_Ctx, kind: input.Kind, ok: bool) {
     if c, found := input.ctx_named(name); found {
         return c, 0, true
     }
-    if k, found := kind_named(name); found {
-        return kind_ctx(k), k, true
+    if k, found := kind_named(a, name); found {
+        return kind_ctx(a, k), k, true
     }
     return .Global, 0, false
 }
 
-// `exec <line>` and `stage <line>` are command lines; anything else names a verb. Those two
-// words are the whole grammar.
-binds_target :: proc(value: string) -> (input.Bind_Target, bool) {
+// `exec <line>` and `stage <line>` are command lines; anything else names a verb — a kernel
+// one, or one a plugin registered. Those two words are the whole grammar.
+binds_target :: proc(a: ^App, value: string) -> (input.Bind_Target, bool) {
     if rest, cut := cut_word(value, "exec"); cut {
         return input.Bind_Line{strings.clone(rest), false}, true
     }
@@ -160,6 +164,9 @@ binds_target :: proc(value: string) -> (input.Bind_Target, bool) {
     }
     if cmd, found := input.command_named(value); found {
         return cmd, true
+    }
+    if slot, found := plug_cmd_named(a, value); found {
+        return slot, true
     }
     return input.Command.None, false
 }
@@ -204,6 +211,9 @@ binds_writeback :: proc(a: ^App, path: string) -> bool {
     // the same batch, so the file alone would let the second silently shadow the first.
     seen := make(map[string]string, 0, context.temp_allocator)
     for r in a.reqs {
+        if r.dead {
+            continue
+        }
         if done[r.owner] || strings.contains(text, binds_header(r.owner)) {
             done[r.owner] = true
             continue
@@ -224,7 +234,7 @@ binds_writeback :: proc(a: ^App, path: string) -> bool {
 binds_write_rows :: proc(a: ^App, b: ^strings.Builder, owner: string, seen: ^map[string]string) {
     section := ""
     for row in a.reqs {
-        if row.owner != owner {
+        if row.dead || row.owner != owner {
             continue
         }
         if section != row.ctx {
@@ -263,7 +273,7 @@ binds_write_rows :: proc(a: ^App, b: ^strings.Builder, owner: string, seen: ^map
 // lookup reads a wider default as a collision and refuses the narrower row that wins at runtime.
 @(private = "file")
 binds_held :: proc(a: ^App, ctx_name, chord_text: string) -> (string, bool) {
-    ctx, kind, ok := binds_ctx(ctx_name)
+    ctx, kind, ok := binds_ctx(a, ctx_name)
     chord, parsed := input.chord_parse(chord_text, key_layout_code)
     if !ok || !parsed {
         return "", false
@@ -272,7 +282,7 @@ binds_held :: proc(a: ^App, ctx_name, chord_text: string) -> (string, bool) {
     if !found {
         return "", false
     }
-    name, _ := input.target_info(b.target, {})
+    name, _ := input.target_info(b.target, names(a))
     return name, true
 }
 
@@ -280,7 +290,7 @@ binds_held :: proc(a: ^App, ctx_name, chord_text: string) -> (string, bool) {
 // written; this only names what it will cover.
 @(private = "file")
 binds_shadowed :: proc(a: ^App, ctx_name, chord_text: string) -> (string, bool) {
-    ctx, kind, ok := binds_ctx(ctx_name)
+    ctx, kind, ok := binds_ctx(a, ctx_name)
     chord, parsed := input.chord_parse(chord_text, key_layout_code)
     if !ok || !parsed || kind == 0 && ctx == .Global {
         return "", false // nothing is wider than a global row
@@ -289,7 +299,7 @@ binds_shadowed :: proc(a: ^App, ctx_name, chord_text: string) -> (string, bool) 
     if !found {
         return "", false
     }
-    name, _ := input.target_info(b.target, {})
+    name, _ := input.target_info(b.target, names(a))
     return name, true
 }
 

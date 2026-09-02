@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import "core:os"
+import "core:path/filepath"
 import "core:strconv"
 import "core:strings"
 import "../desc"
@@ -34,9 +35,18 @@ cl_builtin :: proc(a: ^App, step: CL_Step) -> bool {
             return false
         }
         ring_close(a, a.ring.focused)
+    case "plug":
+        return builtin_plug(a, args)
+    case "pluginify":
+        return builtin_pluginify(a, args)
     case "q":
         a.quit = true
     case:
+        // Past the core set the registry answers, so a plugin's command is typed exactly the
+        // way a builtin is and nothing downstream can tell which it was (§12).
+        if slot, registered := plug_cmd_named(a, name); registered {
+            return plug_command(a, slot, args)
+        }
         message_set(a, fmt.tprintf("%s: not a builtin (drop the : to run it in the shell)", name))
         return false
     }
@@ -85,14 +95,14 @@ open_path :: proc(a: ^App, path: string) -> (store.Id, bool) {
         return {}, false
     }
     if info.type == .Directory {
-        return listing_open(&a.docs, path), true
+        return listing_open(a, path), true
     }
     raw, rerr := os.read_entire_file(path, context.temp_allocator)
     if rerr != nil {
         message_set(a, fmt.tprintf(":open: cannot read %s: %v", path, rerr))
         return {}, false
     }
-    return text_open(&a.docs, path, string(raw)), true
+    return text_open(a, path, string(raw)), true
 }
 
 // `:ring <kind>`: go to that kind's lane (§5). What a `[global] alt+e = exec :ring text` row
@@ -103,7 +113,7 @@ builtin_ring :: proc(a: ^App, args: string) -> bool {
     _, name := first_arg(args)
     if name == "" {
         for l, i in a.ring.lanes {
-            sys_println(a, fmt.tprintf("%s%s", i == a.ring.lane ? "> " : "  ", kind_name(l.kind)))
+            sys_println(a, fmt.tprintf("%s%s", i == a.ring.lane ? "> " : "  ", kind_name(a, l.kind)))
         }
         ring_show_system(a)
         return true
@@ -132,7 +142,7 @@ builtin_ls :: proc(a: ^App) -> bool {
                 continue // a gap keeps its number; it just has nothing in it
             }
             here := lane == a.ring.lane && i + 1 == a.ring.focused
-            sys_println(a, fmt.tprintf("%s%s %d %s", here ? "> " : "  ", kind_name(l.kind),
+            sys_println(a, fmt.tprintf("%s%s %d %s", here ? "> " : "  ", kind_name(a, l.kind),
                                        i + 1, doc_title(a, s.doc)))
             n += 1
         }
@@ -196,3 +206,106 @@ builtin_put :: proc(a: ^App, step: CL_Step) -> bool {
     s.view.point = doc.cursors[doc.primary]
     return true
 }
+
+// --- the plugin seam (§7) ---
+
+// `:plug [load|unload|reload] <name>`, and bare `:plug` lists what is in. A plugin is one `.so`
+// under `plugins/` beside the binary; the name is its file's stem, and it is also the section
+// header its bind requests land under in binds.conf.
+@(private = "file")
+builtin_plug :: proc(a: ^App, args: string) -> bool {
+    raw, verb := first_arg(args)
+    _, name := first_arg(strings.trim_space(args[len(raw):]))
+    if verb != "" && name == "" {
+        message_set(a, ":plug [load|unload|reload] <name>")
+        return false
+    }
+    switch verb {
+    case "":
+        return plug_list(a)
+    case "load":
+        return plug_load(a, plug_path(a, name))
+    case "unload":
+        if i := plug_find(a, name); i >= 0 {
+            return plug_unload(a, i)
+        }
+        message_set(a, fmt.tprintf(":plug: %s is not loaded", name))
+        return false
+    case "reload":
+        return plug_reload(a, name)
+    }
+    message_set(a, ":plug [load|unload|reload] <name>")
+    return false
+}
+
+@(private = "file")
+plug_list :: proc(a: ^App) -> bool {
+    n := 0
+    for p in a.plugs {
+        if !p.live {
+            continue
+        }
+        kinds, cmds := 0, 0
+        for r in p.ledger {
+            switch r.what {
+            case .Kind:
+                kinds += 1
+            case .Command:
+                cmds += 1
+            case .Bind:
+            }
+        }
+        sys_println(a, fmt.tprintf("%s  %d kind(s), %d command(s)  %s", p.name, kinds, cmds,
+                                   p.path))
+        n += 1
+    }
+    if n == 0 {
+        sys_println(a, "no plugins are loaded")
+    }
+    ring_show_system(a)
+    return true
+}
+
+// `:pluginify <dir>`: build a plugin directory and load what came out. It hands the chain a
+// command line rather than running a compiler itself, so an error lands in N# where `enter`
+// over a `file:line` opens the file. The recipe is plugins/stage.sh and nothing else:
+// release.sh and the gate tests run the same script, so this build is the shipped build.
+@(private = "file")
+builtin_pluginify :: proc(a: ^App, args: string) -> bool {
+    raw, dir := first_arg(args)
+    flags := strings.trim_space(args[len(raw):])
+    if dir == "" {
+        message_set(a, ":pluginify <dir> [--asan]")
+        return false
+    }
+    if flags != "" && flags != "--asan" {
+        message_set(a, fmt.tprintf(":pluginify: %s is not a flag it knows", flags))
+        return false
+    }
+    if !os.is_dir(dir) {
+        message_set(a, fmt.tprintf(":pluginify: %s is not a directory", dir))
+        return false
+    }
+    abs, _ := filepath.abs(dir, context.temp_allocator)
+    if abs == "" {
+        abs = dir
+    }
+    script, _ := filepath.join({a.home, PLUGINIFY_SCRIPT}, context.temp_allocator)
+    if !os.exists(script) {
+        message_set(a, fmt.tprintf(":pluginify: no build script at %s", script))
+        return false
+    }
+    out, _ := filepath.join({a.home, PLUGIN_DIR}, context.temp_allocator)
+    name := filepath.base(abs)
+    // Reloaded rather than loaded when it is already in: rebuilding the plugin you are running
+    // is the loop this verb exists for, and `:plug load` refuses a name it already has.
+    verb := plug_find(a, name) >= 0 ? "reload" : "load"
+    cl_exec(a, fmt.tprintf("%s %s %s%s && :plug %s %s",
+                           sh_quote(script, context.temp_allocator),
+                           sh_quote(abs, context.temp_allocator),
+                           sh_quote(out, context.temp_allocator),
+                           flags == "" ? "" : " --asan", verb, name))
+    return true
+}
+
+PLUGINIFY_SCRIPT :: "stage.sh"

@@ -102,10 +102,6 @@ ctx_miss :: proc(ctx: Bind_Ctx) -> Command {
     return .None
 }
 
-// A kind's config name, lent by the caller: `input` holds kind IDENTITY and never the table
-// that names one, so describe borrows the name the way it borrows a plugin command's.
-Kind_Name :: proc(kind: Kind) -> string
-
 // A registry slot, opaque here: `input` sits below the registry and never reads it.
 Slot :: distinct u32
 
@@ -433,22 +429,23 @@ bind_lookup :: proc(
     return {}, false, false
 }
 
-// Total over chords: every code, named or not, bound or not, gets an answer (§6). The layout
-// spelling first, the physical spelling always, then what it runs and who bound it.
-// describe stays total over plugin verbs (§6), so the caller lends it a registry reader.
-Slot_Namer :: struct {
+// The registry, lent by the caller. `input` holds a Slot and a Kind as IDENTITY and never the
+// table that names either, so describe borrows both readers rather than reaching for one. A
+// zero value names nothing, and every reader below stays total without it (§6).
+Names :: struct {
     user: rawptr,
-    fn:   proc(user: rawptr, slot: Slot) -> (name, doc: string),
+    slot: proc(user: rawptr, slot: Slot) -> (name, doc: string),
+    kind: proc(user: rawptr, kind: Kind) -> string,
 }
 
 // Not file-private: the bind file's clash note names what a chord runs already.
-target_info :: proc(t: Bind_Target, namer: Slot_Namer) -> (name, doc: string) {
+target_info :: proc(t: Bind_Target, names: Names) -> (name, doc: string) {
     switch v in t {
     case Command:
         return COMMANDS[v].name, COMMANDS[v].doc
     case Slot:
-        if namer.fn != nil {
-            return namer.fn(namer.user, v)
+        if names.slot != nil {
+            return names.slot(names.user, v)
         }
         return "?", "a registered command this caller cannot name"
     case Bind_Line:
@@ -469,14 +466,15 @@ origin_label :: proc(o: Origin) -> string {
     return "?"
 }
 
+// Total over chords: every code, named or not, bound or not, gets an answer (§6). The layout
+// spelling first, the physical spelling always, then what it runs and who bound it.
 describe_chord :: proc(
     binds: []Bind,
     chord: Chord,
     ctx: Bind_Ctx,
     layout: Layout_Name,
-    namer: Slot_Namer = {},
+    names: Names = {},
     kind: Kind = 0,
-    kind_name: Kind_Name = nil,
     allocator := context.allocator,
 ) -> string {
     spelling := chord_format(chord, layout, context.temp_allocator)
@@ -512,12 +510,12 @@ describe_chord :: proc(
         }
         return fmt.aprintf("%s%s is unbound", spelling, phys, allocator = allocator)
     }
-    name, doc := target_info(b.target, namer)
+    name, doc := target_info(b.target, names)
     // The tier the row actually won on. A kind row is narrower than its context, and saying
     // `surface` for one would be describe lying about which of two rows answered.
     claimed := CTX_NAMES[.Global in b.ctx ? Bind_Ctx.Global : ctx]
-    if b.kind != 0 && kind_name != nil {
-        if n := kind_name(b.kind); n != "" {
+    if b.kind != 0 && names.kind != nil {
+        if n := names.kind(names.user, b.kind); n != "" {
             claimed = n
         }
     }

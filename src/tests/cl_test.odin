@@ -27,7 +27,7 @@ two_chords_open_the_line_and_one_of_them_types_the_sigil :: proc(t: ^testing.T) 
         return
     }
     defer close_app(&a)
-    app.ring_add(&a, app.text_open(&a.docs, "note", "x"))
+    app.ring_add(&a, app.text_open(&a, "note", "x"))
 
     app.handle_chord(&a, chord("AB03", {.Alt})) // alt+c
     testing.expect(t, app.cl_active(&a))
@@ -50,7 +50,7 @@ the_line_is_a_document_like_any_other :: proc(t: ^testing.T) {
         return
     }
     defer close_app(&a)
-    app.ring_add(&a, app.text_open(&a.docs, "note", "x"))
+    app.ring_add(&a, app.text_open(&a, "note", "x"))
 
     app.cl_show(&a)
     type(&a, ":lsx")
@@ -75,7 +75,7 @@ enter_submits_and_the_arrows_walk_history :: proc(t: ^testing.T) {
         return
     }
     defer close_app(&a)
-    app.ring_add(&a, app.text_open(&a.docs, "note", "x"))
+    app.ring_add(&a, app.text_open(&a, "note", "x"))
 
     app.cl_show(&a)
     type(&a, ":ring text")
@@ -139,7 +139,7 @@ a_hole_value_cannot_break_out_of_its_line :: proc(t: ^testing.T) {
         return
     }
     defer close_app(&a)
-    app.ring_add(&a, app.listing_open(&a.docs, dir))
+    app.ring_add(&a, app.listing_open(&a, dir))
     app.surface_draw(&a)
     app.point_place(&a, 2, 0) // the row whose name holds the operator
 

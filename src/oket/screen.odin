@@ -48,7 +48,7 @@ bar_text :: proc(a: ^App) -> string {
         return "N#  the system session"
     }
     if s := ring_focused(&a.ring); s != nil {
-        return fmt.tprintf("%s %s  %s", kind_name(doc_kind(a, s.doc)),
+        return fmt.tprintf("%s %s  %s", kind_name(a, doc_kind(a, s.doc)),
                            slot_tag(a.ring.focused), doc_title(a, s.doc))
     }
     return "esc quits, f1 describes a chord, alt+c opens the command line"

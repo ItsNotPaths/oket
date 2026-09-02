@@ -97,7 +97,7 @@ a_session_is_a_document :: proc(t: ^testing.T) {
     defer close_app(&a)
 
     testing.expect(t, pty.terminal_alive(&tm.t))
-    testing.expect_value(t, app.kind_name(app.doc_kind(&a, tm.doc)), "term")
+    testing.expect_value(t, app.kind_name(&a, app.doc_kind(&a, tm.doc)), "term")
 
     d := store.store_descriptor(&a.docs, tm.doc)
     defer desc.release(d)

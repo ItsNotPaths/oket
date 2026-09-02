@@ -59,8 +59,8 @@ pending_take :: proc(a: ^App, chord: input.Chord) -> bool {
             return true
         }
         ctx, kind := bind_ctx(a)
-        answer := input.describe_chord(a.binds[:], chord, ctx, key_layout_name, {}, kind,
-                                       kind_name, context.temp_allocator)
+        answer := input.describe_chord(a.binds[:], chord, ctx, key_layout_name, names(a), kind,
+                                       context.temp_allocator)
         message_set(a, answer)
         a.pending = nil
         return true
@@ -88,11 +88,11 @@ handle_chord :: proc(a: ^App, chord: input.Chord) {
         bind_line_fire(a, line)
         return
     }
-    cmd, kernel := input.bind_command(b)
-    if !kernel {
-        message_set(a, "registered commands arrive with the plugin seam")
+    if slot, registered := b.target.(input.Slot); registered {
+        plug_command(a, slot, "")
         return
     }
+    cmd, _ := input.bind_command(b) // the line and slot arms returned, so a Command is all that is left
     // The line answers four chords for itself; everything else acts on it because `active`
     // says it is the document now.
     if cl_active(a) && cl_take(a, cmd) {
@@ -250,30 +250,41 @@ text_input :: proc(a: ^App, r: rune) {
         point_sync(a)
         return
     }
-    if tm := raw_target(a); tm != nil {
-        term_text(tm, r)
+    s, raw := raw_target(a)
+    if !raw {
+        return
     }
+    if tm := term_of(a, s.doc); tm != nil {
+        term_text(tm, r)
+        return
+    }
+    plug_type(a, s.doc, r)
 }
 
-// The focused document's own job, when its descriptor says input reaches it (§5). False is not
-// a refusal to report: the caller decides, because a miss and a bound row answer it differently.
+// The focused document's own job, when its descriptor says input reaches it (§5). A terminal
+// has a PTY, a plugin's document has an `event`, and the descriptor is what says either — the
+// funnel never learns which kind it is looking at. False is not a refusal to report: the caller
+// decides, because a miss and a bound row answer it differently.
 surface_send :: proc(a: ^App, chord: input.Chord) -> bool {
-    tm := raw_target(a)
-    if tm == nil {
+    s, raw := raw_target(a)
+    if !raw {
         return false
     }
-    term_send(a, tm, chord)
-    return true
+    if tm := term_of(a, s.doc); tm != nil {
+        term_send(a, tm, chord)
+        return true
+    }
+    return plug_send(a, s.doc, chord)
 }
 
 @(private = "file")
-raw_target :: proc(a: ^App) -> ^Term {
+raw_target :: proc(a: ^App) -> (^Slot, bool) {
     s, d := active_desc(a)
     if d == nil {
-        return nil
+        return nil, false
     }
     defer desc.release(d)
-    return d.input == .Raw ? term_of(a, s.doc) : nil
+    return s, d.input == .Raw
 }
 
 // Does a click over this document belong to the document rather than to the kernel (§5, §8).

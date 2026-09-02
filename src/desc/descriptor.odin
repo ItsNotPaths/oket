@@ -16,7 +16,10 @@ import "../rc"
 Render :: enum u8 {
     Text,  // a line is text; wrap, tabs and line numbers apply
     Grid,  // a line is a physical row — the terminal (stage 6)
-    Cells, // the plugin paints (stage 7)
+    // The escape hatch (§5): a plugin that genuinely paints. RESERVED AND NOT BUILT — a
+    // renderer arm for it is a drawing API, the line §12 draws, so the seam refuses it
+    // rather than drawing it as text.
+    Cells,
 }
 
 Wrap :: enum u8 {

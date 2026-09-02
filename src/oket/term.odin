@@ -316,7 +316,7 @@ term_publish :: proc(a: ^App, tm: ^Term) {
     d := desc.new_from(
         {
             render = .Grid,
-            ctx = kind_ctx(KIND_TERM),
+            ctx = kind_ctx(a, KIND_TERM),
             kind = KIND_TERM,
             selection = .Char,
             follow = .Tail,

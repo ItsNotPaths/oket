@@ -1,0 +1,211 @@
+package main
+
+import "core:c"
+import "core:slice"
+import "../desc"
+import "../plug"
+import "../store"
+import "../txt"
+
+// The read half of the seam (§6). A plugin reads text, the line index, cursors and the
+// descriptor by POINTER, with no lock and no call back into the kernel — so what crosses is a
+// header naming the kernel's own arrays, never a copy of the document.
+//
+// The piece list, the line index and the text blocks are handed over UNCOPIED: their layouts
+// are identical on both sides and the asserts below are what keeps that true. Only the
+// descriptor's columns and fields are rebuilt, because desc's own structs carry Odin strings
+// and the seam carries pointer plus length.
+
+#assert(size_of(txt.Piece) == size_of(plug.Piece))
+#assert(size_of(txt.Line_Seg) == size_of(plug.Seg))
+#assert(size_of([]u8) == size_of(plug.Block))
+#assert(size_of(txt.Cursor) == size_of(plug.Cursor))
+
+// The header, plus everything allocated to build it. `snap` is FIRST, so the pointer a plugin
+// holds casts straight back to this.
+Plug_View :: struct {
+    snap: plug.Snapshot,
+    dv:   plug.Descriptor,
+    src:  ^txt.Snapshot,
+    d:    ^desc.Descriptor,
+    cols: []plug.Column,
+    flds: []plug.Field,
+    curs: []plug.Cursor,
+}
+
+// One reference to the text and one to the descriptor, taken together so the two name the same
+// generation. nil for a document that is not open.
+view_make :: proc(a: ^App, id: store.Id) -> ^Plug_View {
+    src := store.store_snapshot(&a.docs, id)
+    if src == nil {
+        return nil
+    }
+    v := new(Plug_View)
+    v.src = src
+    v.d = store.store_descriptor(&a.docs, id)
+
+    // Cursors come off the live document, not the snapshot: the caret a plugin should read is
+    // the one the renderer is drawing (§5).
+    primary: uint
+    if doc := store.store_doc(&a.docs, id); doc != nil {
+        v.curs = slice.clone(transmute([]plug.Cursor)doc.cursors[:])
+        primary = uint(doc.primary)
+    }
+    v.snap = {
+        desc     = view_desc(v),
+        blocks   = ([^]plug.Block)(raw_data(src.text.blocks)),
+        starts   = ([^]c.ptrdiff_t)(raw_data(src.text.starts)),
+        pieces   = ([^]plug.Piece)(raw_data(src.text.pieces[:])),
+        segs     = ([^]plug.Seg)(raw_data(src.text.segs[:])),
+        cursors  = raw_data(v.curs),
+        nblocks  = len(src.text.blocks),
+        nstarts  = len(src.text.starts),
+        npieces  = len(src.text.pieces),
+        nsegs    = len(src.text.segs),
+        ncursors = len(v.curs),
+        primary  = primary,
+        size     = uint(src.text.size),
+        lines    = uint(src.text.lines),
+        gen      = src.gen,
+        doc      = plug_doc(id),
+    }
+    return v
+}
+
+view_free :: proc(v: ^Plug_View) {
+    if v == nil {
+        return
+    }
+    txt.snapshot_release(v.src)
+    desc.release(v.d)
+    delete(v.cols)
+    delete(v.flds)
+    delete(v.curs)
+    free(v)
+}
+
+// The descriptor as the seam spells it. `ctx` is absent on purpose: a kind's context is fixed
+// where the kind is registered, so this direction cannot leak one either.
+@(private = "file")
+view_desc :: proc(v: ^Plug_View) -> ^plug.Descriptor {
+    d := v.d
+    if d == nil {
+        return nil
+    }
+    v.cols = make([]plug.Column, len(d.columns))
+    for c, i in d.columns {
+        v.cols[i] = {raw_data(c.name), len(c.name), i32(c.width), c.align, {}}
+    }
+    v.flds = make([]plug.Field, len(d.fields))
+    for f, i in d.fields {
+        v.flds[i] = {raw_data(f.name), len(f.name), i32(f.line), i32(f.lo), i32(f.hi), {}}
+    }
+    v.dv = {
+        file      = raw_data(d.file),
+        file_len  = len(d.file),
+        columns   = raw_data(v.cols),
+        ncolumns  = len(v.cols),
+        fields    = raw_data(v.flds),
+        nfields   = len(v.flds),
+        kind      = d.kind,
+        tab_width = i32(d.tab_width),
+        render    = d.render,
+        wrap      = d.wrap,
+        numbers   = d.numbers,
+        selection = d.selection,
+        follow    = d.follow,
+        input     = d.input,
+        mouse     = d.mouse,
+        editable  = b8(d.editable),
+    }
+    return &v.dv
+}
+
+// A descriptor a plugin published, as the kernel's own. The KIND decides the context, always:
+// a plugin cannot move its documents into another context's keys by publishing one (§5, §7).
+// Everything else is the plugin's to say, this being versioned state and not registration.
+plug_desc_take :: proc(a: ^App, id: store.Id, p: ^plug.Descriptor) -> ^desc.Descriptor {
+    render := p.render
+    if render == .Cells {
+        // Reserved and not built (descriptor.odin): refused loudly, never silently drawn as
+        // something else (§8).
+        message_set(a, "render: cells is reserved and not built yet")
+        render = .Text
+    }
+    kind := p.kind
+    if kind == 0 {
+        kind = doc_kind(a, id) // "leave it where it is" — the common case for a plain submit
+    }
+    cols := make([]desc.Column, p.ncolumns, context.temp_allocator)
+    for c, i in p.columns[:p.ncolumns] {
+        cols[i] = {string(c.name[:c.name_len]), int(c.width), c.align}
+    }
+    flds := make([]desc.Field, p.nfields, context.temp_allocator)
+    for f, i in p.fields[:p.nfields] {
+        flds[i] = {int(f.line), string(f.name[:f.name_len]), int(f.lo), int(f.hi)}
+    }
+    return desc.new_from(
+        {
+            render    = render,
+            wrap      = p.wrap,
+            numbers   = p.numbers,
+            ctx       = kind_ctx(a, kind),
+            kind      = kind,
+            file      = string(p.file[:p.file_len]),
+            selection = p.selection,
+            follow    = p.follow,
+            input     = p.input,
+            mouse     = p.mouse,
+            editable  = bool(p.editable),
+            tab_width = int(p.tab_width),
+            columns   = cols,
+            fields    = flds,
+        },
+    )
+}
+
+// `reveal` (§5, §11): a span, and where to put it in the viewport. The kernel owns the
+// viewport, so this moves `top` and nothing else — a plugin that wanted to scroll would
+// otherwise need a second way to say so.
+reveal_span :: proc(a: ^App, id: store.Id, lo, hi: int, at: plug.Reveal) {
+    s := ring_of_doc(a, id)
+    if s == nil {
+        return
+    }
+    snap := store.store_snapshot(&a.docs, id)
+    if snap == nil {
+        return
+    }
+    defer txt.snapshot_release(snap)
+    first := txt.text_line_at_off(&snap.text, max(lo, 0))
+    last := txt.text_line_at_off(&snap.text, max(hi, lo))
+    h := max(a.body.h, 1)
+
+    top := s.view.top
+    switch at {
+    case .Top:
+        top = first
+    case .Center:
+        top = first - h / 2
+    case .Nearest:
+        if first < top {
+            top = first
+        } else if last >= top + h {
+            top = last - h + 1
+        }
+    }
+    s.view.top = clamp(top, 0, max(snap.text.lines - 1, 0))
+}
+
+// The slot showing a document, if one is. A plugin's document that is not on screen still
+// takes writes; it just has no viewport to move.
+ring_of_doc :: proc(a: ^App, id: store.Id) -> ^Slot {
+    for &l in a.ring.lanes {
+        for &s in l.slots {
+            if s.live && s.doc == id {
+                return &s
+            }
+        }
+    }
+    return nil
+}

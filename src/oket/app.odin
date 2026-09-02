@@ -22,6 +22,14 @@ App :: struct {
     // document (§7), so what a session needs past text and a descriptor lives here and not in
     // the store.
     terms:        map[store.Id]^Term,
+    // The plugin seam (§7). One vtable behind one pointer, a table per registration, and the
+    // instance a plugin's document carries. Slots are tombstoned rather than compacted, so an
+    // id a bind row or a descriptor holds never means someone else.
+    api:          Api_Box,
+    plugs:        [dynamic]Plugin,
+    kinds:        [dynamic]Plug_Kind,
+    cmds:         [dynamic]Plug_Cmd,
+    insts:        map[store.Id]Plug_Inst,
     cl:           Cmdline,
     chain:        Chain,
     job:          Job,
@@ -57,12 +65,14 @@ app_init :: proc(a: ^App) {
     a.theme = gfx.DEFAULT_THEME
     a.hand = glfw.CreateStandardCursor(glfw.HAND_CURSOR)
     a.home = filepath.dir(os.args[0]) // beside the binary
+    plug_init(a) // before binds_sync: a row may name a kind or a command a plugin registers
     cl_init(a)
     binds_sync(a)
 }
 
 app_destroy :: proc(a: ^App) {
     job_destroy(a)
+    plug_destroy(a)
     chain_clear(a)
     cl_destroy(a)
     ring_destroy(a)

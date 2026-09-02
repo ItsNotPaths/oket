@@ -50,7 +50,7 @@ bare_app :: proc(cols := 50, rows := 4) -> (a: app.App, ok: bool) {
 listing_app :: proc(t: ^testing.T, name: string) -> (a: app.App, dir: string, ok: bool) {
     dir = scratch(t, name) or_return
     a = bare_app() or_return
-    app.ring_add(&a, app.listing_open(&a.docs, dir))
+    app.ring_add(&a, app.listing_open(&a, dir))
     app.surface_draw(&a) // the body rectangle a click is placed against
     return a, dir, true
 }

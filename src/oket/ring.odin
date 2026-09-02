@@ -55,6 +55,7 @@ Ring :: struct {
 // The document a slot holds, and the session behind it if it had one. Every close goes through
 // here, so a slot cannot drop a PTY on the floor.
 doc_close :: proc(a: ^App, id: store.Id) {
+    plug_inst_close(a, id) // the instance ends where its document does, whoever ended it
     term_close(a, id)
     store.store_close(&a.docs, id)
 }
@@ -299,7 +300,7 @@ ring_open :: proc(a: ^App, slot: int) {
     kind := l.kind // read before ring_put, which may append and move the lanes array
     id, made := kind_fresh(a, kind)
     if !made {
-        message_set(a, fmt.tprintf("%d: %s opened nothing", slot, kind_name(kind)))
+        message_set(a, fmt.tprintf("%d: %s opened nothing", slot, kind_name(a, kind)))
         return
     }
     ring_put(a, id, slot)
@@ -335,7 +336,7 @@ ring_lane_enter :: proc(a: ^App, lane: int) -> bool {
 // `:ring <kind>`. The name is resolved against the kind table, so the kernel matches a config
 // string against data and never against a literal of its own (§5).
 ring_lane_named :: proc(a: ^App, name: string) -> (int, bool) {
-    kind, found := kind_named(name)
+    kind, found := kind_named(a, name)
     if !found {
         return 0, false
     }

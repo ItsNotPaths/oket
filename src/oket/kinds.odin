@@ -14,8 +14,9 @@ import "../store"
 // below is the only thing that has to know there is more than one.
 //
 // input.Kind(0) is no kind — a document in no lane, and the wide tier of the bind table. The
-// kernel's own two are registered here in a fixed order so they are constants; a plugin's kind
-// appends past them at stage 7 and nothing about this shape changes.
+// kernel's own three are written here in a fixed order so they are constants: they are the boot
+// floor, and the kernel opens with them and no plugins at all (§7). A plugin's kind appends
+// past them into `a.kinds` (plug.odin) and nothing about this shape changes.
 
 Kind_Info :: struct {
     name: string,
@@ -29,10 +30,15 @@ KIND_TEXT :: input.Kind(1)
 KIND_FILES :: input.Kind(2)
 KIND_TERM :: input.Kind(3)
 
-kind_named :: proc(name: string) -> (input.Kind, bool) {
+kind_named :: proc(a: ^App, name: string) -> (input.Kind, bool) {
     for k, i in KINDS {
         if k.name == name {
             return input.Kind(i + 1), true
+        }
+    }
+    for k, i in a.kinds {
+        if k.owner >= 0 && k.name == name {
+            return input.Kind(len(KINDS) + i + 1), true
         }
     }
     return 0, false
@@ -40,33 +46,61 @@ kind_named :: proc(name: string) -> (input.Kind, bool) {
 
 // "" for no kind and for a kind nobody registered, which is what `:ls` prints for a document
 // that belongs to no lane.
-kind_name :: proc(kind: input.Kind) -> string {
-    return kind_info(kind).name
+kind_name :: proc(a: ^App, kind: input.Kind) -> string {
+    return kind_info(a, kind).name
 }
 
-kind_ctx :: proc(kind: input.Kind) -> input.Bind_Ctx {
-    return kind_info(kind).ctx
+kind_ctx :: proc(a: ^App, kind: input.Kind) -> input.Bind_Ctx {
+    return kind_info(a, kind).ctx
 }
 
 @(private = "file")
-kind_info :: proc(kind: input.Kind) -> Kind_Info {
+kind_info :: proc(a: ^App, kind: input.Kind) -> Kind_Info {
     i := int(kind) - 1
-    return i >= 0 && i < len(KINDS) ? KINDS[i] : Kind_Info{"", .Global}
+    if i >= 0 && i < len(KINDS) {
+        return KINDS[i]
+    }
+    if k, ok := plug_kind(a, kind); ok {
+        return {k.name, k.ctx}
+    }
+    return {"", .Global}
 }
 
 // A fresh document of a kind, for `alt+N` on an empty slot: the lane already names the kind, so
-// the kernel picks nothing (§5). All three arms here are the kernel's own; a plugin kind answers
-// this with the `open` message at stage 7.
+// the kernel picks nothing (§5). The three arms are the kernel's own; every other kind answers
+// this with the `open` message, which is the whole of what a plugin has to implement to own a
+// lane.
 kind_fresh :: proc(a: ^App, kind: input.Kind) -> (store.Id, bool) {
     switch kind {
     case KIND_TEXT:
-        return text_open(&a.docs, ""), true
+        return text_open(a, ""), true
     case KIND_FILES:
-        return listing_open(&a.docs, "."), true
+        return listing_open(a, "."), true
     case KIND_TERM:
         return term_open(a)
     }
-    return {}, false
+    return plug_open(a, kind)
+}
+
+// The App as a name table, lent to `input`, which holds a Kind and a Slot as identity and
+// never the tables that name them. One reader per table, one borrow. Both stay TOTAL: a kind
+// or a command whose plugin unloaded still has to answer, or describe would go quiet on the
+// one row a user is most likely to be asking about (§8).
+names :: proc(a: ^App) -> input.Names {
+    return {
+        user = a,
+        slot = proc(user: rawptr, slot: input.Slot) -> (name, doc: string) {
+            a := (^App)(user)
+            i := int(slot)
+            if i < 0 || i >= len(a.cmds) || a.cmds[i].owner < 0 {
+                return "?", "a command whose plugin is not loaded"
+            }
+            return a.cmds[i].name, a.cmds[i].doc
+        },
+        kind = proc(user: rawptr, kind: input.Kind) -> string {
+            return kind_name((^App)(user), kind)
+        },
+    }
 }
 
 // --- the table, applied to a document ---
@@ -88,5 +122,5 @@ doc_title :: proc(a: ^App, id: store.Id) -> string {
         return ""
     }
     defer desc.release(d)
-    return d.file != "" ? strings.clone(d.file, context.temp_allocator) : kind_name(d.kind)
+    return d.file != "" ? strings.clone(d.file, context.temp_allocator) : kind_name(a, d.kind)
 }

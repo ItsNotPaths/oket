@@ -22,13 +22,16 @@ listing_fields_name_their_own_text :: proc(t: ^testing.T) {
     }
     defer os.remove_all(dir)
 
-    s: store.Store
-    defer store.store_destroy(&s)
-    id := app.listing_open(&s, dir)
+    a, app_ok := bare_app()
+    if !app_ok {
+        return
+    }
+    defer close_app(&a)
+    id := app.listing_open(&a, dir)
 
-    snap := store.store_snapshot(&s, id)
+    snap := store.store_snapshot(&a.docs, id)
     defer txt.snapshot_release(snap)
-    d := store.store_descriptor(&s, id)
+    d := store.store_descriptor(&a.docs, id)
     defer desc.release(d)
 
     testing.expect_value(t, txt.text_line_count(snap), 2)
@@ -65,7 +68,7 @@ listing_draws_through_the_descriptor :: proc(t: ^testing.T) {
     defer gfx.grid_destroy(&a.grid)
     a.theme = gfx.DEFAULT_THEME
     testing.expect(t, gfx.grid_init(&a.grid, 50, 3))
-    app.ring_add(&a, app.listing_open(&a.docs, dir))
+    app.ring_add(&a, app.listing_open(&a, dir))
     defer app.ring_destroy(&a)
 
     app.surface_draw(&a)

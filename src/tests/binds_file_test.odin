@@ -93,7 +93,7 @@ binds_file_stages_as_well_as_runs :: proc(t: ^testing.T) {
     testing.expect(t, is_line && line.stage)
 
     // A word, never a prefix: a verb whose name starts with one of the two is still a verb.
-    _, made := app.binds_target("execute")
+    _, made := app.binds_target(&a, "execute")
     testing.expect(t, !made)
 }
 

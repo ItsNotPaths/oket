@@ -106,7 +106,7 @@ sel_pipes_a_selection_out_and_put_brings_it_back :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    id := app.text_open(&a.docs, "note", "hello\nworld")
+    id := app.text_open(&a, "note", "hello\nworld")
     app.ring_add(&a, id)
 
     // Nothing selected, so `:sel` takes the line under point — and selects it, so what `:put`
@@ -132,7 +132,7 @@ put_needs_something_piped_into_it :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    id := app.text_open(&a.docs, "note", "keep me")
+    id := app.text_open(&a, "note", "keep me")
     app.ring_add(&a, id)
 
     run_line(&a, "echo spam && :put")
@@ -140,7 +140,7 @@ put_needs_something_piped_into_it :: proc(t: ^testing.T) {
     testing.expect_value(t, a.message, ":put: nothing was piped into it")
 
     // And a listing does not take typing, so it refuses whatever the pipe carried.
-    app.ring_add(&a, app.listing_open(&a.docs, "."))
+    app.ring_add(&a, app.listing_open(&a, "."))
     run_line(&a, "echo spam | :put")
     testing.expect_value(t, a.message, ":put: this document does not take typing")
 }
@@ -155,7 +155,7 @@ a_shell_step_reports_to_the_system_session :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    app.ring_add(&a, app.text_open(&a.docs, "note", "x"))
+    app.ring_add(&a, app.text_open(&a, "note", "x"))
     run_line(&a, "echo out && echo more")
 
     // N# is a real session, so the transcript is the shell's: the line it was handed, echoed by
@@ -185,7 +185,7 @@ a_failure_the_chain_was_reading_reports_rather_than_surfaces :: proc(t: ^testing
     }
     defer close_app(&a)
 
-    id := app.text_open(&a.docs, "note", "keep me")
+    id := app.text_open(&a, "note", "keep me")
     app.ring_add(&a, id)
     run_line(&a, "false | :put")
 
@@ -205,7 +205,7 @@ a_step_that_kills_the_shell_stops_the_chain :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    app.ring_add(&a, app.text_open(&a.docs, "note", "x"))
+    app.ring_add(&a, app.text_open(&a, "note", "x"))
     run_line(&a, "exit 0 && :close")
     testing.expect_value(t, a.message, "the system session's shell exited mid-step")
     testing.expect_value(t, a.ring.focused, app.SLOT_SYSTEM)
@@ -227,7 +227,7 @@ an_unknown_builtin_stops_the_chain :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    id := app.text_open(&a.docs, "note", "x")
+    id := app.text_open(&a, "note", "x")
     app.ring_add(&a, id)
     run_line(&a, ":nope && :close")
 

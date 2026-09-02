@@ -21,7 +21,8 @@ COLUMNS :: [?]desc.Column{{"name", 28, .Left}, {"kind", 4, .Left}, {"size", 9, .
 // One row per entry, tab-separated, with each column's span recorded as a field. The separator
 // is arbitrary: the descriptor says where the fields are, so nothing downstream parses this
 // text again.
-listing_open :: proc(s: ^store.Store, dir: string) -> store.Id {
+listing_open :: proc(a: ^App, dir: string) -> store.Id {
+    s := &a.docs
     columns := COLUMNS
     text := strings.builder_make(context.temp_allocator)
     fields := make([dynamic]desc.Field, context.temp_allocator)
@@ -71,7 +72,7 @@ listing_open :: proc(s: ^store.Store, dir: string) -> store.Id {
     d := desc.new_from(
         {
             numbers = .Absolute,
-            ctx = kind_ctx(KIND_FILES),
+            ctx = kind_ctx(a, KIND_FILES),
             kind = KIND_FILES,
             file = dir,
             selection = .Line,

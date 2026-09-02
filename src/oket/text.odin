@@ -9,13 +9,14 @@ import "../store"
 
 // `editable` because the KERNEL edits it through its own text ops (§12); self-insert still waits
 // for stage 8's editor.
-text_open :: proc(s: ^store.Store, path: string, text := "") -> store.Id {
+text_open :: proc(a: ^App, path: string, text := "") -> store.Id {
+    s := &a.docs
     id := store.store_open(s, text)
     gen, _ := store.store_gen(s, id)
     d := desc.new_from(
         {
             numbers = .Absolute,
-            ctx = kind_ctx(KIND_TEXT),
+            ctx = kind_ctx(a, KIND_TEXT),
             kind = KIND_TEXT,
             file = path,
             selection = .Char,

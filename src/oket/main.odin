@@ -76,7 +76,7 @@ main :: proc() {
 
     // The ring opens on a listing of the working directory. The descriptor is what makes it
     // renderable without a kind of its own in here.
-    ring_add(&a, listing_open(&a.docs, "."))
+    ring_add(&a, listing_open(&a, "."))
 
     for !glfw.WindowShouldClose(a.window) && !a.quit {
         w, h := glfw.GetFramebufferSize(a.window)
@@ -89,6 +89,7 @@ main :: proc() {
         sh_pump(&a)
         chain_pump(&a)
         store.store_drain(&a.docs)
+        plug_pump(&a) // whose generation moved, told once the drain has settled
 
         surface_draw(&a)
 
