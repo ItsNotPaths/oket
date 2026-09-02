@@ -66,7 +66,16 @@ Descriptor :: struct {
     // The context a chord lands in while this document has the keys. The kernel must know it to
     // ROUTE, which is the test that puts it here rather than in plugin state (§5, §8).
     ctx:       input.Bind_Ctx,
+    // The ring lane, and the narrow tier of the bind table (§5). 0 is no kind: a document that
+    // belongs to no lane and whose keys are only its context's.
+    kind:      input.Kind,
+    // The file this document is, or "". What makes `:w` mean something, and what the bar and
+    // `:ls` name it by.
+    file:      string,
     selection: Selection,
+    // Does typing reach this document. A listing is not a text field, and at stage 5 only the
+    // command line says yes: nothing types into a document until the editor plugin does.
+    editable:  bool,
     tab_width: int,
     columns:   []Column,
     fields:    []Field,
@@ -91,6 +100,7 @@ new_from :: proc(d: Descriptor) -> ^Descriptor {
     if out.ctx == .Global { // no document is Global; the zero value means "unset"
         out.ctx = .Text
     }
+    out.file = strings.clone(d.file)
     out.columns = slice.clone(d.columns)
     for &c in out.columns {
         c.name = strings.clone(c.name)
@@ -117,6 +127,7 @@ release :: proc(d: ^Descriptor) {
     for f in d.fields {
         delete(f.name)
     }
+    delete(d.file)
     delete(d.columns)
     delete(d.fields)
     free(d)
