@@ -3,7 +3,7 @@
 Graphical text editing kernel, .so plugins. One visible surface at a time.
 
 Everything on screen is a document: a file, a directory listing, a shell session, the command
-line. A document is text plus a descriptor — data the kernel reads to decide how to draw it and
+line. A document is text plus a descriptor, data the kernel reads to decide how to draw it and
 where a keystroke goes. The kernel owns the renderer, the viewport, the cursors, undo and the
 bind table. Plugins produce documents. They never draw.
 
@@ -36,7 +36,7 @@ make && :ls
 :sel | sort -u | :put         # the selection, out through a pipeline, back at point
 ```
 
-`|` between two shell steps is bash's own — the chain hands it over whole. The two ends are
+`|` between two shell steps is bash's own, the chain hands it over whole. The two ends are
 ours: `:sel` puts the selection on the next step's stdin, `:put` replaces it with what came
 back.
 
@@ -61,8 +61,8 @@ bound click would act on. `f1` then any chord says what it does and where it was
 
 ## Plugins
 
-One `.so`, `dlopen`'d in-process, trusted. The seam is six messages — `register`, `submit`,
-`reveal`, `event`, `open`, `close` — and reads are not among them: a plugin walks a document's
+One `.so`, `dlopen`'d in-process, trusted. The seam is six messages: `register`, `submit`,
+`reveal`, `event`, `open`, `close`. Reads are not among them: a plugin walks a document's
 snapshot by pointer, with no lock and no call back into the kernel, and writes by submitting a
 batch against the generation it read.
 
@@ -99,7 +99,7 @@ hands the path to whoever registered the `edit` kind.
 ```
 
 It owns what is genuinely an editor's: reading the file, `:w`, what a typed rune means, and the
-verbs that are policy rather than storage — a newline that keeps the indent, a Tab that lands
+verbs that are policy rather than storage, a newline that keeps the indent, a Tab that lands
 on the next stop. Motion, selection, the viewport, undo and the plain delete verbs are the
 kernel's, for every document. Swap in your own by registering the same kind.
 
