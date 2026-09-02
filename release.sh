@@ -58,6 +58,17 @@ if [ $DO_LOCAL -eq 1 ]; then
         mkdir -p "$RELEASE_DIR/themes"
         cp "$PROJECT_DIR"/themes/*.toml "$RELEASE_DIR/themes/"
     fi
+    # The seam, shipped so `:pluginify` can build a plugin beside the binary; stage.sh finds
+    # the headers in either layout.
+    echo "==> Plugin toolchain"
+    mkdir -p "$RELEASE_DIR/helpers"
+    cp "$PROJECT_DIR"/src/helpers/*.h "$PROJECT_DIR"/src/helpers/*.c "$RELEASE_DIR/helpers/"
+    cp "$PROJECT_DIR/plugins/stage.sh" "$RELEASE_DIR/stage.sh"
+    for src in "$PROJECT_DIR"/plugins/*/; do
+        [ -d "$src" ] || continue
+        echo "==> Plugin: $(basename "$src")"
+        "$RELEASE_DIR/stage.sh" "$src" "$RELEASE_DIR/plugins"
+    done
     echo "==> Local done: $RELEASE_DIR"
 fi
 
