@@ -169,6 +169,10 @@ doc_maintain :: proc(d: ^Doc) {
     doc_drop_snap(d)
 }
 
+doc_len :: proc(d: ^Doc) -> int {
+    return d.pt.size
+}
+
 doc_line_count :: proc(d: ^Doc) -> int {
     return text_line_count(&d.pt)
 }

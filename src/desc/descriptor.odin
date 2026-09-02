@@ -36,6 +36,29 @@ Align :: enum u8 {
     Right,
 }
 
+// Where the viewport sits as the document grows (§5, §11). `tail` is the terminal's live
+// bottom; the kernel's viewport is the only scroll code a session has.
+Follow :: enum u8 {
+    None,
+    Tail,
+}
+
+// Where a chord the bind table did not claim, and a typed rune, go (§5, §8). `raw` is the
+// terminal: the document has a job of its own and the miss falls through to it. Anything else
+// reports, because a silent no-op is the thing §8 exists to prevent.
+Input :: enum u8 {
+    Bound,
+    Raw,
+}
+
+// Who reads a click (§5, §8). `bound` is the default and needs no code at all: the kernel moves
+// point and the bind table answers. `events` is a document that took the mouse over — a TUI
+// that enabled tracking — and gets the button, the cell and the wheel raw.
+Mouse :: enum u8 {
+    Bound,
+    Events,
+}
+
 // The drag granularity, and what an empty selection looks like (§5, §8): a browser selects
 // rows, an editor selects characters. `block` arrives with block editing.
 Selection :: enum u8 {
@@ -73,6 +96,9 @@ Descriptor :: struct {
     // `:ls` name it by.
     file:      string,
     selection: Selection,
+    follow:    Follow,
+    input:     Input,
+    mouse:     Mouse,
     // Does typing reach this document. A listing is not a text field, and at stage 5 only the
     // command line says yes: nothing types into a document until the editor plugin does.
     editable:  bool,

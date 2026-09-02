@@ -26,6 +26,19 @@ columnar :: proc(d: ^desc.Descriptor) -> bool {
     return len(d.columns) > 0
 }
 
+// A run of cells that draw in colours of their own. Byte offsets from the line's start, like a
+// Field, and sorted by line so a lookup is a binary search and a short scan.
+//
+// This is §5's `spans` at the one place that needs it now. The terminal publishes it —
+// libvterm's colours already resolved against the theme — so nothing below here knows what an
+// SGR is, and stage 11 moves where the runs are STORED rather than inventing the mechanism.
+Style :: struct {
+    line:   int,
+    lo, hi: int,
+    fg, bg: [3]f32,
+    attrs:  gfx.Attrs,
+}
+
 // Bytes [lo,hi) of one document line. A line that does not wrap is one row; `first` is what
 // carries the line number, so a wrapped continuation has a blank gutter.
 Row :: struct {
@@ -41,6 +54,7 @@ draw :: proc(
     d: ^desc.Descriptor,
     v: View,
     x, y, w, h: int,
+    styles: []Style = nil,
 ) {
     gut := gutter_width(t, d)
     body := w - gut
@@ -56,8 +70,51 @@ draw :: proc(
         clipped := scrolled(r, src, v.left, d.tab_width)
         put_number(g, th, d, v, x, y + i, gut, r)
         run(g, x + gut, y + i, src[clipped.lo:clipped.hi], body, d.tab_width, th[.Fg], th[.Bg])
+        restyle(g, d, x + gut, y + i, body, clipped, src, styles)
         mark_point(g, d, v, x + gut, y + i, body, clipped, src)
     }
+}
+
+// The style runs covering one drawn row, painted over what `run` just placed. Before
+// mark_point, so the caret and the selection still read on top of a coloured cell.
+@(private)
+restyle :: proc(
+    g: ^gfx.Grid,
+    d: ^desc.Descriptor,
+    x, y, width: int,
+    r: Row,
+    src: []u8,
+    styles: []Style,
+) {
+    row := src[r.lo:r.hi]
+    for st in line_styles(styles, r.line) {
+        a := clamp(st.lo, r.lo, r.hi) - r.lo
+        b := clamp(st.hi, r.lo, r.hi) - r.lo
+        for cell in cell_of(row, a, d.tab_width) ..< min(cell_of(row, b, d.tab_width), width) {
+            if c := gfx.grid_at(g, x + cell, y); c != nil {
+                c.fg, c.bg, c.attrs = st.fg, st.bg, st.attrs
+            }
+        }
+    }
+}
+
+// Every run on one line, in the order they were published.
+@(private)
+line_styles :: proc(styles: []Style, line: int) -> []Style {
+    lo, hi := 0, len(styles)
+    for lo < hi {
+        mid := (lo + hi) / 2
+        if styles[mid].line < line {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
+    }
+    hi = lo
+    for hi < len(styles) && styles[hi].line == line {
+        hi += 1
+    }
+    return styles[lo:hi]
 }
 
 // The visual rows a document lays out to, from `from`, at most `limit` of them. `wrap: none`
