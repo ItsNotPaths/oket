@@ -1,0 +1,5 @@
+[tools]
+odin = "latest"
+# Pinned: `zig cc` is the C toolchain (§4) and the cross-compile story rides on it.
+# 0.x releases break the driver flags between versions.
+zig = "0.16.0"

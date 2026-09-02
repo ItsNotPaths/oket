@@ -1,0 +1,10 @@
+vendor/
+/build/
+docs/
+
+# The built binary at the repo root. Anchored: an unanchored `oket` also matches src/oket/.
+/oket
+
+# Crash reports and recovery journals (§10). Written under oket_home(), which is the repo
+# root when you run the binary from here.
+/dumplogs/
