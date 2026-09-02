@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:os"
 import "vendor:glfw"
 import "../gfx"
+import "../store"
 
 WIDTH :: 1200
 HEIGHT :: 760
@@ -69,14 +70,23 @@ main :: proc() {
     app_init(&a)
     defer app_destroy(&a)
 
-    // One hardcoded surface until stage 5's ring; the descriptor is what makes it renderable
-    // without a kind of its own in here.
-    a.id = listing_open(&a.docs, ".")
+    // A shell step finishing has to reach the frame loop, which is parked in WaitEvents.
+    wake = proc() {glfw.PostEmptyEvent()}
+
+    // The ring opens on a listing of the working directory. The descriptor is what makes it
+    // renderable without a kind of its own in here.
+    ring_add(&a, listing_open(&a.docs, "."))
 
     for !glfw.WindowShouldClose(a.window) && !a.quit {
         w, h := glfw.GetFramebufferSize(a.window)
         cols, rows := gfx.painter_fit(&a.painter, w, h)
         gfx.grid_resize(&a.grid, cols, rows)
+
+        // Writes land at one point in the frame (§6), and a finished shell step advances the
+        // chain that was waiting on it.
+        sh_pump(&a)
+        chain_pump(&a)
+        store.store_drain(&a.docs)
 
         surface_draw(&a)
 

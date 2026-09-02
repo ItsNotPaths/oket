@@ -1,5 +1,6 @@
 package main
 
+import "core:fmt"
 import "../gfx"
 import "../input"
 
@@ -43,5 +44,12 @@ bar_text :: proc(a: ^App) -> string {
     if a.message != "" {
         return a.message
     }
-    return "esc quits, f1 describes a chord"
+    if a.ring.focused == SLOT_SYSTEM {
+        return "N#  the system session"
+    }
+    if s := ring_focused(&a.ring); s != nil {
+        return fmt.tprintf("%s %s  %s", kind_name(doc_kind(a, s.doc)),
+                           slot_tag(a.ring.focused), doc_title(a, s.doc))
+    }
+    return "esc quits, f1 describes a chord, alt+c opens the command line"
 }

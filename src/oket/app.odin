@@ -7,10 +7,9 @@ import "vendor:glfw"
 import "../gfx"
 import "../input"
 import "../store"
-import "../view"
 
-// The kernel's whole mutable state at stage 4: one window, one document, one bind table. Stage 5
-// turns the single surface into a ring and nothing else in here changes shape.
+// The kernel's whole mutable state: one window, a store of documents, the ring that says which
+// one is on screen, one bind table, and the command line.
 
 App :: struct {
     window:       glfw.WindowHandle,
@@ -18,8 +17,10 @@ App :: struct {
     grid:         gfx.Grid,
     theme:        gfx.Theme,
     docs:         store.Store,
-    id:           store.Id,
-    view:         view.View,
+    ring:         Ring,
+    cl:           Cmdline,
+    chain:        Chain,
+    job:          Job,
     binds:        [dynamic]input.Bind,
     reqs:         [dynamic]Bind_Request,
     clashes:      [dynamic]Bind_Clash,
@@ -27,9 +28,10 @@ App :: struct {
     mouse:        input.Mouse_State,
     hover:        Hover,
     hand:         glfw.CursorHandle, // the pointer over a field a click would act on
-    // Where the document was drawn last frame. A click is placed against it, so the hit test
-    // reads the layout the eye saw rather than recomputing one.
-    body:         Rect,
+    // Where each was drawn last frame. A click is placed against them, so the hit test reads
+    // the layout the eye saw rather than recomputing one.
+    body:         Rect, // the focused document
+    bar:          Rect, // the command line's row, past the prompt
     message:      string, // owned; lives until the next keystroke
     home:         string, // owned; where binds.conf lives, empty in a test
     quit:         bool,
@@ -50,10 +52,15 @@ app_init :: proc(a: ^App) {
     a.theme = gfx.DEFAULT_THEME
     a.hand = glfw.CreateStandardCursor(glfw.HAND_CURSOR)
     a.home = filepath.dir(os.args[0]) // beside the binary
+    cl_init(a)
     binds_sync(a)
 }
 
 app_destroy :: proc(a: ^App) {
+    job_destroy(a)
+    chain_clear(a)
+    cl_destroy(a)
+    ring_destroy(a)
     store.store_destroy(&a.docs)
     input.binds_destroy(&a.binds)
     binds_requests_destroy(a)

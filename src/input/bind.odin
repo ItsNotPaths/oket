@@ -1,6 +1,7 @@
 package input
 
 import "core:fmt"
+import "core:strings"
 
 // The one place a chord is written down, keyed on physical codes. Contexts are declared now
 // (the ring and editables arrive in later steps) but only Global has keys to claim yet.
@@ -102,6 +103,10 @@ ctx_miss :: proc(ctx: Bind_Ctx) -> Command {
     }
     return .None
 }
+
+// A kind's config name, lent by the caller: `input` holds kind IDENTITY and never the table
+// that names one, so describe borrows the name the way it borrows a plugin command's.
+Kind_Name :: proc(kind: Kind) -> string
 
 // A registry slot, opaque here: `input` sits below the registry and never reads it.
 Slot :: distinct u32
@@ -329,6 +334,12 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     bind_put(&b, "AB03", {.Alt}, .CL_Open) // alt+c
     bind_put(&b, "AC10", {.Alt}, .CL_Sigil) // alt+;
 
+    // Switching lanes is its own key, not a walk through the numbers (§5). These are LINES, so
+    // the kind is named in a command line the user can read and rebind, and never in a case in
+    // the dispatch — which is the whole reason `:ring` exists as a builtin.
+    bind_line(&b, "AD03", {.Alt}, ":ring text") // alt+e
+    bind_line(&b, "AC04", {.Alt}, ":ring files") // alt+f
+
     // The mouse, as ordinary rows (§8). A button chord has none: the kernel moves point before
     // it dispatches one, so `click` with nothing bound already does the thing a click does, and
     // a row is what a surface adds to make it do more.
@@ -346,6 +357,15 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     bind_put(&b, "UP", {.Ctrl}, .Term_Sel_Up)
     bind_put(&b, "DOWN", {.Ctrl}, .Term_Sel_Down)
     return b
+}
+
+// `text` is the line WITHOUT the `exec` or `stage` word: those two spell the choice in a config
+// row, and here it is the `stage` argument.
+@(private = "file")
+bind_line :: proc(b: ^[dynamic]Bind, key: string, mods: Mods, text: string, stage := false) {
+    code, ok := key_code(key)
+    assert(ok, "a kernel default names a key that is not in the table")
+    bind_add(b, {code, mods}, Bind_Line{strings.clone(text), stage}, {.Global})
 }
 
 @(private = "file")
@@ -459,6 +479,7 @@ describe_chord :: proc(
     layout: Layout_Name,
     namer: Slot_Namer = {},
     kind: Kind = 0,
+    kind_name: Kind_Name = nil,
     allocator := context.allocator,
 ) -> string {
     spelling := chord_format(chord, layout, context.temp_allocator)
@@ -495,7 +516,14 @@ describe_chord :: proc(
         return fmt.aprintf("%s%s is unbound", spelling, phys, allocator = allocator)
     }
     name, doc := target_info(b.target, namer)
-    claimed := .Global in b.ctx ? Bind_Ctx.Global : ctx
+    // The tier the row actually won on. A kind row is narrower than its context, and saying
+    // `surface` for one would be describe lying about which of two rows answered.
+    claimed := CTX_NAMES[.Global in b.ctx ? Bind_Ctx.Global : ctx]
+    if b.kind != 0 && kind_name != nil {
+        if n := kind_name(b.kind); n != "" {
+            claimed = n
+        }
+    }
     verb := "runs"
     if line, is_line := b.target.(Bind_Line); is_line && line.stage {
         verb = "stages"
@@ -511,7 +539,7 @@ describe_chord :: proc(
         name,
         doc,
         extend ? ", extending the selection" : "",
-        CTX_NAMES[claimed],
+        claimed,
         origin_label(b.origin),
         allocator = allocator,
     )

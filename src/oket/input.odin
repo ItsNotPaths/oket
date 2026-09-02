@@ -27,6 +27,7 @@ input_init :: proc(a: ^App) {
     input_ready = true
     glfw.SetWindowUserPointer(a.window, a)
     glfw.SetKeyCallback(a.window, key_callback)
+    glfw.SetCharCallback(a.window, char_callback)
     glfw.SetMouseButtonCallback(a.window, button_callback)
     glfw.SetCursorPosCallback(a.window, cursor_callback)
     glfw.SetScrollCallback(a.window, scroll_callback)
@@ -45,6 +46,15 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
         return // a held modifier is not a chord; wait for what it qualifies
     }
     handle_chord(a, input.Chord{code, glfw_mods(mods)})
+}
+
+// Text is not keys (§8): a rune arrives on its own channel, so a bind never sees an `a` on its
+// way into a document and a document never has to guess which of the two it was handed.
+char_callback :: proc "c" (window: glfw.WindowHandle, codepoint: rune) {
+    context = runtime.default_context()
+    if a := (^App)(glfw.GetWindowUserPointer(window)); a != nil {
+        text_input(a, codepoint)
+    }
 }
 
 // A click is a chord, and it fires on RELEASE so a drag cancels it (§8).

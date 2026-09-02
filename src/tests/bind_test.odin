@@ -9,7 +9,7 @@ import "../input"
 @(test)
 describe_answers_every_chord :: proc(t: ^testing.T) {
     binds := input.binds_default()
-    defer delete(binds)
+    defer input.binds_destroy(&binds)
 
     for e in input.KEY_NAMES {
         for mods in ([?]input.Mods{{}, {.Ctrl}, {.Ctrl, .Alt, .Shift}}) {
@@ -30,7 +30,7 @@ describe_answers_every_chord :: proc(t: ^testing.T) {
 @(test)
 describe_names_the_command :: proc(t: ^testing.T) {
     binds := input.binds_default()
-    defer delete(binds)
+    defer input.binds_destroy(&binds)
     esc, _ := input.key_code("ESC")
 
     s := input.describe_chord(binds[:], {esc, {}}, .Global, nil)
@@ -48,7 +48,7 @@ describe_names_the_command :: proc(t: ^testing.T) {
 @(test)
 shift_extends_or_names_its_own_verb :: proc(t: ^testing.T) {
     binds := input.binds_default()
-    defer delete(binds)
+    defer input.binds_destroy(&binds)
     down, _ := input.key_code("DOWN")
     z, _ := input.key_code("AB01")
 
@@ -89,7 +89,7 @@ pending_states_always_have_a_label :: proc(t: ^testing.T) {
 @(test)
 terminal_esc_shadows_quit :: proc(t: ^testing.T) {
     binds := input.binds_default()
-    defer delete(binds)
+    defer input.binds_destroy(&binds)
     esc, _ := input.key_code("ESC")
 
     b, _, ok := input.bind_lookup(binds[:], {esc, {}}, .Terminal)

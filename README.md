@@ -9,8 +9,12 @@ One renderer, owned by the kernel. Plugins never draw.
 
 ## Status
 
-Stage 1 of 13. The salvaged packages are in `src/` with their tests green, and the kernel
-opens a window and paints a cell grid. Nothing edits anything yet.
+Stage 5 of 13. The kernel opens a window, keeps a store of documents, and draws one of them
+through its descriptor. Input funnels through one bind table that answers for keys and clicks
+alike. There is a numbered ring per document kind, a command line, and command chains: a chord
+can run a shell pipeline over the file under the pointer with no plugin and no build.
+
+No plugins, no terminal and no editing by keystroke yet — those are stages 6, 7 and 8.
 
 Oket supersedes `../okette`, which works and is kept beside this tree as the source of the
 salvage. The reasoning behind the split, the build order and the open questions are in

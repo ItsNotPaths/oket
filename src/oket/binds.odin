@@ -16,9 +16,10 @@ import "../input"
 //     click       = exec :open <path>
 //     right-click = stage :open <path>
 //
-// A section is a bind context: `global`, `text`, `surface`, `terminal`, or the name of a
-// registered surface kind once kinds exist (stage 7). A value is a verb's registry name, or
-// `exec`/`stage` and a command line whose `<name>` holes fill from point.
+// A section is a bind context: `global`, `text`, `surface`, `terminal`, or a KIND's name —
+// `[files]` is narrower than `[surface]` and wins where it applies, which is how `enter` means
+// one thing in a listing and another in the editor while both are surfaces. A value is a verb's
+// registry name, or `exec`/`stage` and a command line whose `<name>` holes fill from point.
 //
 // Appended, never rewritten: a rewrite would have to re-emit what it read, and that eats
 // comments and ordering.
@@ -135,11 +136,15 @@ binds_complain :: proc(a: ^App, origin_name: string, line: int, why: string) {
     message_set(a, fmt.tprintf("%s:%d: %s", origin_name, line, why))
 }
 
-// The four kernel contexts. Registered surface kinds join them at stage 7, which is why the Kind
-// is answered here rather than assumed to be 0 at the call sites.
+// The four kernel contexts, then the kinds. A kind's section binds in that kind's own context
+// and narrows to it, so the two tiers come out of one lookup; a plugin's kind joins the table
+// at stage 7 and nothing here changes.
 binds_ctx :: proc(name: string) -> (ctx: input.Bind_Ctx, kind: input.Kind, ok: bool) {
     if c, found := input.ctx_named(name); found {
         return c, 0, true
+    }
+    if k, found := kind_named(name); found {
+        return kind_ctx(k), k, true
     }
     return .Global, 0, false
 }

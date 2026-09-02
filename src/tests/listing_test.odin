@@ -1,7 +1,7 @@
 package tests
 
+import "core:fmt"
 import "core:os"
-import "core:path/filepath"
 import "core:testing"
 import "../desc"
 import "../gfx"
@@ -13,27 +13,6 @@ import app "../oket"
 // The kernel's hardcoded surface (stage 3). What is asserted is that the listing's spans line
 // up with its text, because a field whose bounds drift is a `<path>` that silently resolves to
 // the wrong thing.
-
-// A directory of its own per test: the runner is threaded, and two tests sharing one would
-// each be reading the other's setup.
-@(private = "file")
-scratch :: proc(t: ^testing.T, name: string) -> (dir: string, ok: bool) {
-    tmp, _ := os.temp_directory(context.temp_allocator)
-    dir, _ = filepath.join({tmp, name}, context.temp_allocator)
-    os.remove_all(dir)
-    if err := os.make_directory(dir); err != nil {
-        testing.expectf(t, false, "cannot make %s: %v", dir, err)
-        return "", false
-    }
-    for name in ([?]string{"beta.txt", "alpha.txt"}) {
-        path, _ := filepath.join({dir, name}, context.temp_allocator)
-        if err := os.write_entire_file(path, transmute([]u8)string("xyz")); err != nil {
-            testing.expectf(t, false, "cannot write %s: %v", path, err)
-            return "", false
-        }
-    }
-    return dir, true
-}
 
 @(test)
 listing_fields_name_their_own_text :: proc(t: ^testing.T) {
@@ -54,9 +33,14 @@ listing_fields_name_their_own_text :: proc(t: ^testing.T) {
 
     testing.expect_value(t, txt.text_line_count(snap), 2)
     for want, line in ([?]string{"alpha.txt", "beta.txt"}) { // sorted, not directory order
+        // The name is what the column shows; the path is the whole thing it is the tail of, and
+        // it is what a bind hands on.
+        shown, shown_ok := view.field_text(&snap.text, d, line, "name")
+        testing.expect(t, shown_ok)
+        testing.expect_value(t, shown, want)
         path, path_ok := view.field_text(&snap.text, d, line, "path")
         testing.expect(t, path_ok)
-        testing.expect_value(t, path, want)
+        testing.expect_value(t, path, fmt.tprintf("%s/%s", dir, want))
 
         kind, _ := view.field_text(&snap.text, d, line, "kind")
         testing.expect_value(t, kind, "file")
@@ -81,13 +65,15 @@ listing_draws_through_the_descriptor :: proc(t: ^testing.T) {
     defer gfx.grid_destroy(&a.grid)
     a.theme = gfx.DEFAULT_THEME
     testing.expect(t, gfx.grid_init(&a.grid, 50, 3))
-    a.id = app.listing_open(&a.docs, dir)
+    app.ring_add(&a, app.listing_open(&a.docs, dir))
+    defer app.ring_destroy(&a)
 
     app.surface_draw(&a)
     snap := gfx.grid_snapshot(&a.grid)
     defer delete(snap)
 
-    testing.expect_value(t, snap, `1 alpha.txt                    file         3
+    // The bar names where you are now that there is a ring to be somewhere in.
+    testing.expect_value(t, snap, fmt.tprintf(`1 alpha.txt                    file         3
 2 beta.txt                     file         3
-esc quits, f1 describes a chord`)
+files 1  %s`, dir))
 }
