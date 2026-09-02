@@ -184,7 +184,7 @@ COMMANDS := [Command]Command_Info {
     .Kill_To_Line_Start  = {"edit.kill_to_line_start", "kill from the caret back to the start of the line", {.Text, .Surface}},
     .Search_Next         = {"search.next", "the next match of the last search, wrapping", {.Text, .Surface}},
     .Search_Prev         = {"search.prev", "the match before it, wrapping the other way", {.Text, .Surface}},
-    .Save                = {"edit.save", "write the buffer to its file", {.Text, .Surface}},
+    .Save                = {"file.dump", "write the focused document beside the binary, whatever opened it", {.Text, .Surface}},
     .Undo                = {"edit.undo", "undo the last step", {.Text, .Surface}},
     .Redo                = {"edit.redo", "redo the last undone step", {.Text, .Surface}},
     .Reload              = {"file.reload", "drop unsaved edits and take the disk version", {.Text, .Surface}},
@@ -329,9 +329,13 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     // Switching lanes is its own key, not a walk through the numbers (§5). These are LINES, so
     // the kind is named in a command line the user can read and rebind, and never in a case in
     // the dispatch — which is the whole reason `:ring` exists as a builtin.
-    bind_line(&b, "AD03", {.Alt}, ":ring text") // alt+e
+    bind_line(&b, "AD03", {.Alt}, ":ring edit") // alt+e
     bind_line(&b, "AC04", {.Alt}, ":ring files") // alt+f
     bind_line(&b, "AD05", {.Alt}, ":ring term") // alt+t
+    // A listing's rows are paths, and `enter` is what opens one. Written at the SURFACE tier
+    // rather than for one kind: a surface whose lines carry no `path` reports that it cannot
+    // fill the hole, which is data rather than a refusal decided per call (§8).
+    bind_line(&b, "RTRN", {}, ":open <path>", ctx = {.Surface})
 
     // The mouse, as ordinary rows (§8). A button chord has none: the kernel moves point before
     // it dispatches one, so `click` with nothing bound already does the thing a click does, and
@@ -355,10 +359,11 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
 // `text` is the line WITHOUT the `exec` or `stage` word: those two spell the choice in a config
 // row, and here it is the `stage` argument.
 @(private = "file")
-bind_line :: proc(b: ^[dynamic]Bind, key: string, mods: Mods, text: string, stage := false) {
+bind_line :: proc(b: ^[dynamic]Bind, key: string, mods: Mods, text: string, stage := false,
+                  ctx := Bind_Ctxs{.Global}) {
     code, ok := key_code(key)
     assert(ok, "a kernel default names a key that is not in the table")
-    bind_add(b, {code, mods}, Bind_Line{strings.clone(text), stage}, {.Global})
+    bind_add(b, {code, mods}, Bind_Line{strings.clone(text), stage}, ctx)
 }
 
 @(private = "file")

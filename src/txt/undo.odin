@@ -48,6 +48,13 @@ undo_destroy :: proc(d: ^Doc) {
     d.undo = {}
 }
 
+// What a document ARRIVED with is not an edit. A load goes through the same funnel a keystroke
+// does, so without this the first undo takes a freshly opened buffer back to empty — and a
+// single-character insert would coalesce with the load and take it back in one step.
+doc_forget_undo :: proc(d: ^Doc) {
+    undo_destroy(d)
+}
+
 // A single-character insert extends the most recent step while that step's last inserted
 // character was not a break char and the caret is where the step left off.
 //

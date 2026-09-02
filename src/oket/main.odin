@@ -5,7 +5,6 @@ import "core:os"
 import "vendor:glfw"
 import "../gfx"
 import "../pty"
-import "../store"
 
 WIDTH :: 1200
 HEIGHT :: 760
@@ -88,7 +87,7 @@ main :: proc() {
         term_pump(&a)
         sh_pump(&a)
         chain_pump(&a)
-        store.store_drain(&a.docs)
+        docs_settle(&a)
         plug_pump(&a) // whose generation moved, told once the drain has settled
 
         surface_draw(&a)

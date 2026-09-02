@@ -1,7 +1,6 @@
 package tests
 
 import "core:os"
-import "core:path/filepath"
 import "core:strings"
 import "core:testing"
 import "../desc"
@@ -15,40 +14,7 @@ import app "../oket"
 // Stage 7's gate (§13): a plugin registers, opens, renders and unloads clean; the ledger
 // reverts everything; and a helper call inlines into the plugin under -flto.
 //
-// The subject is plugins/hello, built by plugins/stage.sh — the same script release.sh runs and
-// `:pluginify` writes a command line for, so what these tests exercise is what ships.
-
-REPO :: #directory + "../../"
-
-// The plugin, built once per test into a home of its own. The runner is threaded, so two tests
-// sharing an output directory would each be loading the other's build.
-@(require_results)
-plug_app :: proc(t: ^testing.T, name: string) -> (a: app.App, ok: bool) {
-    home := scratch(t, name) or_return
-    out, _ := filepath.join({home, app.PLUGIN_DIR}, context.temp_allocator)
-    script, _ := filepath.join({REPO, "plugins", "stage.sh"}, context.temp_allocator)
-    src, _ := filepath.join({REPO, "plugins", "hello"}, context.temp_allocator)
-
-    state, _, errs, err := os.process_exec(
-        {command = {script, src, out}},
-        context.temp_allocator,
-    )
-    if err != nil || !state.success {
-        testing.expectf(t, false, "stage.sh: %v %s", err, string(errs))
-        return {}, false
-    }
-    a = bare_app() or_return
-    a.home = strings.clone(home) // owned by the App, freed with it
-    return a, true
-}
-
-@(private = "file")
-close_plug_app :: proc(a: ^app.App) {
-    app.plug_destroy(a)
-    delete(a.home)
-    a.home = ""
-    close_app(a)
-}
+// The subject is plugins/hello, built by plug_app in support_test.odin.
 
 // The whole gate in one pass: it registers, it opens, what it opened renders through the
 // kernel's own renderer, and unloading reverts every registration.
@@ -68,7 +34,7 @@ a_plugin_registers_opens_renders_and_unloads :: proc(t: ^testing.T) {
     // --- register ---
     kind, named := app.kind_named(&a, "hello")
     testing.expect(t, named, "the kind it registered is not in the table")
-    testing.expect(t, int(kind) > 3, "a plugin kind appends PAST the kernel's three")
+    testing.expect(t, int(kind) > len(app.KINDS), "a plugin kind appends PAST the kernel's own")
     testing.expect_value(t, app.kind_name(&a, kind), "hello")
     _, is_cmd := app.plug_cmd_named(&a, "hello")
     testing.expect(t, is_cmd, ":hello did not register")
@@ -195,17 +161,17 @@ a_dropped_write_of_our_own_still_reports_the_move :: proc(t: ^testing.T) {
     app.ring_add(&a, id)
     app.plug_pump(&a)
 
-    // The plugin submits against the generation it read; a foreign splice moves it before the
-    // drain, so the plugin's transaction is dropped whole.
-    app.handle_chord(&a, chord("AD01"))
-    txt.doc_apply(store.store_doc(&a.docs, id), {{0, 4, "KIND", 0}})
-    applied, stale := store.store_drain(&a.docs)
-    testing.expect_value(t, applied, 0)
-    testing.expect_value(t, stale, 1)
+    // A foreign transaction is QUEUED first and the plugin's own goes on behind it, so the
+    // drain applies the foreign one and drops the plugin's whole. (The seam drains behind each
+    // call, so this is the shape a lost race has: two writers, one queue, one generation.)
+    gen, _ := store.store_gen(&a.docs, id)
+    store.store_submit(&a.docs, id, gen, {{0, 4, "KIND", 0}})
+    app.handle_chord(&a, chord("AD01")) // the plugin writes, and the drain behind it drops that
+    testing.expect(t, strings.contains(doc_text(&a, id), "KIND"), "the foreign write did not land")
+    testing.expect(t, !strings.contains(doc_text(&a, id), "1 chord(s)"), "the stale write landed")
     app.plug_pump(&a)
 
     app.handle_chord(&a, chord("AD01"))
-    store.store_drain(&a.docs)
     text := doc_text(&a, id)
     testing.expect(t, strings.contains(text, "1 foreign write(s)"), text)
 }
@@ -223,7 +189,7 @@ a_registered_command_runs_from_the_command_line :: proc(t: ^testing.T) {
     if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "hello")), a.message) {
         return
     }
-    app.ring_add(&a, app.text_open(&a, "note", "alpha\nbeta\ngamma"))
+    app.ring_add(&a, scratch_doc(&a, "note", "alpha\nbeta\ngamma"))
     doc := store.store_doc(&a.docs, app.ring_focused(&a.ring).doc)
     doc.cursors[doc.primary] = {{1, 0}, {1, 0}, 0}
 
@@ -279,26 +245,8 @@ helpers_inline_and_the_rest_are_stripped :: proc(t: ^testing.T) {
     }
     // Never called, and gone: nothing declares which helpers it wants, and the linker is what
     // decides. This is the half that would cost a shared library nothing to keep.
-    for gone in ([?]string{"oket_word_right", "oket_pair_close", "oket_col_bytes"}) {
+    for gone in ([?]string{"oket_word_right", "oket_pair_close", "oket_col_bytes",
+                           "oket_batch_edit", "oket_cursor_span"}) {
         testing.expectf(t, !strings.contains(syms, gone), "%s was not stripped", gone)
     }
-}
-
-// --- helpers ---
-
-@(private = "file")
-read_binds :: proc(a: ^app.App) -> string {
-    raw, _ := os.read_entire_file(app.binds_path(a), context.temp_allocator)
-    return string(raw)
-}
-
-@(private = "file")
-doc_text :: proc(a: ^app.App, id: store.Id) -> string {
-    doc := store.store_doc(&a.docs, id)
-    if doc == nil {
-        return ""
-    }
-    last := txt.text_line_count(&doc.pt) - 1
-    return txt.doc_text(doc, {0, 0}, {last, txt.text_line_len(&doc.pt, last)},
-                        context.temp_allocator)
 }

@@ -47,7 +47,7 @@ Record :: struct {
     idx:  int, // into a.kinds, a.cmds or a.reqs
 }
 
-// A kind a plugin registered, appended past the kernel's three (kinds.odin). `owner` goes to -1
+// A kind a plugin registered, appended past the kernel's own (kinds.odin). `owner` goes to -1
 // on unload and the name empties: the id stays valid and resolves to nothing.
 Plug_Kind :: struct {
     name:  string, // owned
@@ -260,7 +260,14 @@ plug_open :: proc(a: ^App, kind: input.Kind, args := "") -> (store.Id, bool) {
 
     arg := transmute([]u8)args
     inst := k.vt.open(&a.api.api, plug_self(a, k.owner), plug_doc(id), raw_data(arg), len(arg))
-    store.store_drain(&a.docs) // whatever `open` submitted, before anyone reads it
+    docs_settle(a) // whatever `open` submitted, before anyone reads it
+    // `open` FILLS a document; it does not EDIT one. The transaction that filled it went
+    // through the funnel a keystroke uses, so without this the caret sits at the end of what
+    // was loaded and the first undo takes the buffer back to empty.
+    if doc := store.store_doc(&a.docs, id); doc != nil {
+        txt.doc_forget_undo(doc)
+        txt.doc_reset_cursor(doc, {})
+    }
     gen, _ = store.store_gen(&a.docs, id) // where `open` left it, so nothing is reported back
     a.insts[id] = {k.owner, kind, inst, gen, 0}
     return id, true
@@ -308,8 +315,14 @@ plug_event :: proc(a: ^App, id: store.Id, ev: plug.Event, text: string) -> bool 
     bytes := transmute([]u8)text
     at, free_view := plug_at(a, inst.owner, id)
     defer view_free(free_view)
-    return k.vt.event(&a.api.api, plug_self(a, inst.owner), &at, ev,
-                      raw_data(bytes), len(bytes)) != 0
+    took := k.vt.event(&a.api.api, plug_self(a, inst.owner), &at, ev,
+                       raw_data(bytes), len(bytes))
+    // A plugin's transaction lands when its call RETURNS, the same way `open`'s does. Holding
+    // it to the end of the frame would drop the second of two keystrokes in one: both would be
+    // written against the generation the first has not moved yet, and the drain refuses a
+    // stale one whole (§6). Typing is two events, not one.
+    docs_settle(a)
+    return took != 0
 }
 
 // A generation that moved (§5). The owner is told, so a REPL whose transcript a formatter
@@ -353,7 +366,9 @@ plug_command :: proc(a: ^App, slot: input.Slot, args: string) -> bool {
     }
     defer view_free(view)
     bytes := transmute([]u8)args
-    return c.fn(&a.api.api, plug_self(a, c.owner), &at, raw_data(bytes), len(bytes)) == 0
+    code := c.fn(&a.api.api, plug_self(a, c.owner), &at, raw_data(bytes), len(bytes))
+    docs_settle(a) // what it wrote is landed before the next step of a chain reads it
+    return code == 0
 }
 
 plug_cmd_named :: proc(a: ^App, name: string) -> (input.Slot, bool) {

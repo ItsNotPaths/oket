@@ -10,13 +10,16 @@ import "../store"
 // cannot drift. No kernel code compares a kind NAME: it compares identity, and the name is a
 // display and config read.
 //
-// A kind's DOCUMENT is opened by a file of its own — text.odin, listing.odin — and `kind_fresh`
+// A kind's DOCUMENT is opened by a file of its own — listing.odin, term.odin — and `kind_fresh`
 // below is the only thing that has to know there is more than one.
 //
 // input.Kind(0) is no kind — a document in no lane, and the wide tier of the bind table. The
-// kernel's own three are written here in a fixed order so they are constants: they are the boot
+// kernel's own two are written here in a fixed order so they are constants: they are the boot
 // floor, and the kernel opens with them and no plugins at all (§7). A plugin's kind appends
 // past them into `a.kinds` (plug.odin) and nothing about this shape changes.
+//
+// There is no `text` here: a file in a buffer is an EDITOR, the editor is a plugin, and a
+// kernel kind that opened one would be the privileged path §7 forbids.
 
 Kind_Info :: struct {
     name: string,
@@ -24,11 +27,14 @@ Kind_Info :: struct {
 }
 
 @(rodata)
-KINDS := [?]Kind_Info{{"text", .Text}, {"files", .Surface}, {"term", .Terminal}}
+KINDS := [?]Kind_Info{{"files", .Surface}, {"term", .Terminal}}
 
-KIND_TEXT :: input.Kind(1)
-KIND_FILES :: input.Kind(2)
-KIND_TERM :: input.Kind(3)
+KIND_FILES :: input.Kind(1)
+KIND_TERM :: input.Kind(2)
+
+// The kind `:open` hands a regular file to. A NAME, not a privilege: whoever registers it gets
+// the files, and with nobody registered the kernel says so rather than opening one itself.
+KIND_EDIT :: "edit"
 
 kind_named :: proc(a: ^App, name: string) -> (input.Kind, bool) {
     for k, i in KINDS {
@@ -67,13 +73,11 @@ kind_info :: proc(a: ^App, kind: input.Kind) -> Kind_Info {
 }
 
 // A fresh document of a kind, for `alt+N` on an empty slot: the lane already names the kind, so
-// the kernel picks nothing (§5). The three arms are the kernel's own; every other kind answers
+// the kernel picks nothing (§5). The two arms are the kernel's own; every other kind answers
 // this with the `open` message, which is the whole of what a plugin has to implement to own a
 // lane.
 kind_fresh :: proc(a: ^App, kind: input.Kind) -> (store.Id, bool) {
     switch kind {
-    case KIND_TEXT:
-        return text_open(a, ""), true
     case KIND_FILES:
         return listing_open(a, "."), true
     case KIND_TERM:

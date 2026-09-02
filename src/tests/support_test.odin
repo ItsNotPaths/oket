@@ -2,7 +2,9 @@ package tests
 
 import "core:os"
 import "core:path/filepath"
+import "core:strings"
 import "core:testing"
+import "../desc"
 import "../gfx"
 import "../input"
 import "../store"
@@ -66,6 +68,79 @@ close_app :: proc(a: ^app.App) {
     app.binds_requests_destroy(a)
     app.message_set(a, "")
     gfx.grid_destroy(&a.grid)
+}
+
+// A document with a file and text in it, and no owner behind it. The kernel has no `text` kind
+// — a file in a buffer is the editor plugin's — so a test that only needs SOMETHING editable
+// in the ring builds one here rather than compiling a plugin for it.
+scratch_doc :: proc(a: ^app.App, file, text: string) -> store.Id {
+    id := store.store_open(&a.docs, text)
+    gen, _ := store.store_gen(&a.docs, id)
+    d := desc.new_from(
+        {
+            numbers = .Absolute,
+            ctx = .Text,
+            file = file,
+            selection = .Char,
+            editable = true,
+            tab_width = 4,
+        },
+    )
+    store.store_submit(&a.docs, id, gen, nil, d)
+    desc.release(d)
+    store.store_drain(&a.docs)
+    return id
+}
+
+// --- the plugin harness ---
+
+REPO :: #directory + "../../"
+
+// A kernel with a home of its own and one plugin built into it, by plugins/stage.sh — the same
+// script release.sh runs and `:pluginify` writes a command line for, so what a test exercises is
+// what ships. Built per test: the runner is threaded, and two tests sharing an output directory
+// would each be loading the other's build.
+@(require_results)
+plug_app :: proc(t: ^testing.T, name: string, plugin := "hello") -> (a: app.App, ok: bool) {
+    home := scratch(t, name) or_return
+    out, _ := filepath.join({home, app.PLUGIN_DIR}, context.temp_allocator)
+    script, _ := filepath.join({REPO, "plugins", "stage.sh"}, context.temp_allocator)
+    src, _ := filepath.join({REPO, "plugins", plugin}, context.temp_allocator)
+
+    state, _, errs, err := os.process_exec(
+        {command = {script, src, out}},
+        context.temp_allocator,
+    )
+    if err != nil || !state.success {
+        testing.expectf(t, false, "stage.sh: %v %s", err, string(errs))
+        return {}, false
+    }
+    a = bare_app() or_return
+    a.home = strings.clone(home) // owned by the App, freed with it
+    return a, true
+}
+
+close_plug_app :: proc(a: ^app.App) {
+    app.plug_destroy(a)
+    delete(a.home)
+    a.home = ""
+    close_app(a)
+}
+
+// A document's whole text, for a test that reads what a plugin wrote.
+doc_text :: proc(a: ^app.App, id: store.Id) -> string {
+    doc := store.store_doc(&a.docs, id)
+    if doc == nil {
+        return ""
+    }
+    last := txt.text_line_count(&doc.pt) - 1
+    return txt.doc_text(doc, {0, 0}, {last, txt.text_line_len(&doc.pt, last)},
+                        context.temp_allocator)
+}
+
+read_binds :: proc(a: ^app.App) -> string {
+    raw, _ := os.read_entire_file(app.binds_path(a), context.temp_allocator)
+    return string(raw)
 }
 
 // The caret the frame renders, which lives in the viewport of whatever the keys are aimed at.

@@ -202,7 +202,7 @@ an_unbuilt_verb_says_so :: proc(t: ^testing.T) {
     defer os.remove_all(dir)
     defer close_app(&a)
 
-    ctrl_s, _ := input.key_code("AC02")
-    app.handle_chord(&a, {ctrl_s, {.Ctrl}})
-    testing.expect_value(t, a.message, "edit.save is not built yet")
+    ctrl_c, _ := input.key_code("AB03")
+    app.handle_chord(&a, {ctrl_c, {.Ctrl}})
+    testing.expect_value(t, a.message, "edit.copy is not built yet")
 }

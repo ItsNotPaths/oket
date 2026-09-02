@@ -27,7 +27,7 @@ two_chords_open_the_line_and_one_of_them_types_the_sigil :: proc(t: ^testing.T) 
         return
     }
     defer close_app(&a)
-    app.ring_add(&a, app.text_open(&a, "note", "x"))
+    app.ring_add(&a, scratch_doc(&a, "note", "x"))
 
     app.handle_chord(&a, chord("AB03", {.Alt})) // alt+c
     testing.expect(t, app.cl_active(&a))
@@ -50,7 +50,7 @@ the_line_is_a_document_like_any_other :: proc(t: ^testing.T) {
         return
     }
     defer close_app(&a)
-    app.ring_add(&a, app.text_open(&a, "note", "x"))
+    app.ring_add(&a, scratch_doc(&a, "note", "x"))
 
     app.cl_show(&a)
     type(&a, ":lsx")
@@ -75,7 +75,7 @@ enter_submits_and_the_arrows_walk_history :: proc(t: ^testing.T) {
         return
     }
     defer close_app(&a)
-    app.ring_add(&a, app.text_open(&a, "note", "x"))
+    app.ring_add(&a, scratch_doc(&a, "note", "x"))
 
     app.cl_show(&a)
     type(&a, ":ring text")
@@ -103,12 +103,18 @@ exec_runs_a_bind_line_and_stage_aims_it :: proc(t: ^testing.T) {
     // The chord is spelled PHYSICALLY: a layout glyph needs the scancode base input_init sets,
     // and a test has no window to set it from.
     app.binds_parse(&a, "[files]\nenter = stage :open <path>\n", "binds.conf")
-    app.point_place(&a, 2, 1) // the beta.txt row
+    // A directory, because `:open` hands a FILE to the editor plugin and this test loads none:
+    // what is under test is the aiming, not what opens at the end of it.
+    sub, _ := filepath.join({dir, "sub"}, context.temp_allocator)
+    os.make_directory(sub)
+    app.ring_add(&a, app.listing_open(&a, dir))
+    app.surface_draw(&a)
+    app.point_place(&a, 2, 2) // the sub row, under the two files
 
     // stage: the expanded line is sitting in the command line, unrun and editable.
     app.handle_chord(&a, chord("RTRN"))
     testing.expect(t, app.cl_active(&a))
-    testing.expect_value(t, app.cl_line(&a), fmt.tprintf(":open %s/beta.txt", dir))
+    testing.expect_value(t, app.cl_line(&a), fmt.tprintf(":open %s/sub", dir))
 
     // The staged line can be aimed before it commits — the routing target is an argument.
     type(&a, " 3")
@@ -116,7 +122,7 @@ exec_runs_a_bind_line_and_stage_aims_it :: proc(t: ^testing.T) {
     testing.expect(t, !app.cl_active(&a))
     testing.expect_value(t, a.ring.focused, 3)
     title := app.doc_title(&a, app.ring_focused(&a.ring).doc)
-    testing.expect(t, strings.has_suffix(title, "beta.txt"), title)
+    testing.expect(t, strings.has_suffix(title, "sub"), title)
 }
 
 // A value only reaches the shell as ONE argument (§8). A filename is attacker-controlled input:

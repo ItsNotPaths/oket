@@ -43,7 +43,7 @@ binds_file_lays_over_the_defaults :: proc(t: ^testing.T) {
     before, _ := find(&a, "f5", .Text)
     testing.expect_value(t, before.target, input.Bind_Target(input.Command.Reload))
 
-    app.binds_parse(&a, "[text]\nf5 = edit.save\nclick = exec :open <path>\n", "binds.conf")
+    app.binds_parse(&a, "[text]\nf5 = file.dump\nclick = exec :open <path>\n", "binds.conf")
 
     after, found := find(&a, "f5", .Text)
     testing.expect(t, found)
@@ -68,7 +68,7 @@ binds_file_skips_what_it_cannot_read :: proc(t: ^testing.T) {
 
     app.binds_parse(
         &a,
-        "[nowhere]\nf5 = edit.save\n[text]\nnotachord = edit.save\nf6 = not.a.verb\nf7 = edit.save\n",
+        "[nowhere]\nf5 = file.dump\n[text]\nnotachord = file.dump\nf6 = not.a.verb\nf7 = file.dump\n",
         "binds.conf",
     )
     still, _ := find(&a, "f5", .Text)

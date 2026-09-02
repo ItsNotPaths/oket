@@ -85,8 +85,9 @@ builtin_open :: proc(a: ^App, args: string) -> bool {
     return true
 }
 
-// A directory is a listing and a file is text: one kind each, and the descriptor is what makes
-// the kernel able to draw either without knowing which it asked for.
+// A directory is the kernel's own listing; a file goes to whoever registered the `edit` kind,
+// which is the editor plugin (§7). The kernel reads no file into a document of its own — that
+// would be a privileged path — and the path is all it hands over.
 @(private = "file")
 open_path :: proc(a: ^App, path: string) -> (store.Id, bool) {
     info, err := os.stat(path, context.temp_allocator)
@@ -97,15 +98,16 @@ open_path :: proc(a: ^App, path: string) -> (store.Id, bool) {
     if info.type == .Directory {
         return listing_open(a, path), true
     }
-    raw, rerr := os.read_entire_file(path, context.temp_allocator)
-    if rerr != nil {
-        message_set(a, fmt.tprintf(":open: cannot read %s: %v", path, rerr))
+    kind, registered := kind_named(a, KIND_EDIT)
+    if !registered {
+        message_set(a, fmt.tprintf(":open: nothing registers the %s kind, so nothing opens a file (:plug load %s)",
+                                   KIND_EDIT, KIND_EDIT))
         return {}, false
     }
-    return text_open(a, path, string(raw)), true
+    return plug_open(a, kind, path)
 }
 
-// `:ring <kind>`: go to that kind's lane (§5). What a `[global] alt+e = exec :ring text` row
+// `:ring <kind>`: go to that kind's lane (§5). What a `[global] alt+e = exec :ring edit` row
 // runs, and the reason it is a row rather than a case in the dispatch — the kind is named in
 // the config and never in kernel source.
 @(private = "file")
@@ -123,7 +125,7 @@ builtin_ring :: proc(a: ^App, args: string) -> bool {
         message_set(a, fmt.tprintf(":ring: nothing has registered a kind called %s", name))
         return false
     }
-    // A lane with nothing in it still opens: slot 1 of it, which is what makes `:ring text`
+    // A lane with nothing in it still opens: slot 1 of it, which is what makes `:ring edit`
     // useful before the first file is open.
     if !ring_lane_enter(a, lane) {
         message_set(a, fmt.tprintf(":ring: %s opened nothing", name))

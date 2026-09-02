@@ -1,6 +1,8 @@
 package main
 
 import "core:fmt"
+import "core:os"
+import "core:path/filepath"
 import "core:strings"
 import "vendor:glfw"
 import "../desc"
@@ -125,6 +127,8 @@ handle_chord :: proc(a: ^App, chord: input.Chord) {
         if !surface_send(a, chord) {
             message_set(a, "this document has no job of its own")
         }
+    case .Save:
+        dump_doc(a)
     case .Term_Copy:
         term_copy(a)
     case .Term_Paste:
@@ -186,12 +190,18 @@ motion_of :: proc(cmd: input.Command) -> (txt.Motion, bool) {
     return {}, false
 }
 
-// Which verbs WRITE. Split from the bodies below so the refusal is decided in one place, and
-// so a verb that only moves a selection is not caught by it.
+// Which verbs act on the text under point. Split from the bodies below so the refusal is
+// decided in one place, and so a verb that only moves a selection is not caught by it.
+//
+// Every one of them is a ROW: named, describable and rebindable, which is what makes them the
+// kernel's to answer where a typed rune is not (see text_input). They are storage over cursors
+// and no document's policy, so a plugin's buffer gets them with no code — and a plugin that
+// wants its own indent rule shadows the row for its kind, which is what plugins/edit does.
 @(private = "file")
 writes :: proc(cmd: input.Command) -> bool {
     #partial switch cmd {
-    case .Delete_Back, .Delete_Forward, .Delete_Word_Back, .Delete_Word_Forward, .Tab:
+    case .Delete_Back, .Delete_Forward, .Delete_Word_Back, .Delete_Word_Forward, .Tab,
+         .Newline, .Undo, .Redo:
         return true
     }
     return false
@@ -221,6 +231,15 @@ edit_command :: proc(a: ^App, cmd: input.Command) -> bool {
         txt.doc_delete_word_forward(doc)
     case .Tab:
         txt.doc_insert_text(doc, "\t")
+    case .Newline:
+        txt.doc_newline(doc)
+    // Undo is the kernel's, so ctrl+z reaches a formatter's splice and a plugin writes no undo
+    // code (§7). `editable` is the gate until the descriptor grows `undo: kernel | none` (§5):
+    // a document that takes no typing has nothing of the user's in it to take back.
+    case .Undo:
+        txt.doc_undo(doc)
+    case .Redo:
+        txt.doc_redo(doc)
     }
     point_sync(a)
     return true
@@ -238,8 +257,13 @@ writable :: proc(a: ^App) -> ^txt.Doc {
 }
 
 // A rune, not a chord (§8): binds see chords and never see an `a` on its way into a document.
-// The command line takes typing, and `input: raw` sends it to the document's own job — which is
-// the terminal, and is the whole of what that field is for. The editor plugin joins at stage 8.
+//
+// THE KERNEL INTERPRETS ONE FOR THE DOCUMENTS IT IMPLEMENTS, AND FOR NOBODY ELSE (§7). A rune
+// is the one input the bind table never sees, so a kernel self-insert would be an editing
+// policy that no row names, that describe cannot answer for and that nothing can rebind — and
+// what typing MEANS is exactly where editors disagree. So the command line takes its own
+// typing, and every other document is handed the rune: the terminal writes it to its PTY, a
+// plugin's document gets an `event`, and the descriptor is what says which.
 text_input :: proc(a: ^App, r: rune) {
     if cl_active(a) {
         doc := store.store_doc(&a.docs, a.cl.doc)
@@ -250,8 +274,14 @@ text_input :: proc(a: ^App, r: rune) {
         point_sync(a)
         return
     }
-    s, raw := raw_target(a)
-    if !raw {
+    s, d := active_desc(a)
+    if d == nil {
+        return
+    }
+    defer desc.release(d)
+    // `editable` is a document that takes typing; `raw` is one that takes everything, bound or
+    // not. Either way the rune goes to its owner, and neither is a document the kernel edits.
+    if !d.editable && d.input != .Raw {
         return
     }
     if tm := term_of(a, s.doc); tm != nil {
@@ -363,6 +393,34 @@ bind_expand :: proc(a: ^App, template: string) -> (string, bool) {
     return strings.to_string(b), true
 }
 
+// `file.dump` (§8): the focused document's bytes, beside the binary, under a name derived from
+// what it is called. The recovery floor and nothing more — writing a buffer BACK to its file is
+// the opener's, because what a file is on disk is what the opener knew and the kernel does not.
+dump_doc :: proc(a: ^App) -> bool {
+    s := ring_focused(&a.ring)
+    doc := s != nil ? store.store_doc(&a.docs, s.doc) : nil
+    if doc == nil {
+        message_set(a, "file.dump: nothing is focused")
+        return false
+    }
+    if a.home == "" {
+        message_set(a, "file.dump: there is nowhere beside the binary to write")
+        return false
+    }
+    name := filepath.base(doc_title(a, s.doc))
+    if name == "" || name == "." || name == "/" {
+        name = "document"
+    }
+    path, _ := filepath.join({a.home, fmt.tprintf("%s.dump", name)}, context.temp_allocator)
+    text := txt.doc_string(doc, context.temp_allocator)
+    if err := os.write_entire_file(path, transmute([]u8)text); err != nil {
+        message_set(a, fmt.tprintf("file.dump: cannot write %s: %v", path, err))
+        return false
+    }
+    message_set(a, fmt.tprintf("dumped %d bytes to %s", len(text), path))
+    return true
+}
+
 // --- point and the viewport ---
 
 // The caret lives in the document and nowhere else; the slot's View carries a copy so the frame
@@ -374,6 +432,28 @@ point_sync :: proc(a: ^App) {
     }
     if doc := store.store_doc(&a.docs, s.doc); doc != nil {
         s.view.point = doc.cursors[doc.primary]
+    }
+}
+
+// Writes land at one point (§6), and the caret the frame draws catches up in the same breath.
+// Called after every drain — the frame's, and the one behind each plugin call — so a document
+// somebody else moved is on screen, and under a live caret, the moment it lands.
+docs_settle :: proc(a: ^App) {
+    applied, _ := store.store_drain(&a.docs)
+    if applied == 0 {
+        return
+    }
+    point_sync(a)
+    s := active(a)
+    d := s != nil ? store.store_descriptor(&a.docs, s.doc) : nil
+    if d == nil {
+        return
+    }
+    defer desc.release(d)
+    // A tail document decides its own top by what is on screen (§11), and yanking it to the
+    // caret would be the attached/detached flag that field exists to not need.
+    if d.follow != .Tail {
+        view.follow(&s.view, active_rect(a).h)
     }
 }
 

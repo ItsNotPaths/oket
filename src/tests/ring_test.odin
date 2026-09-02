@@ -23,8 +23,8 @@ alt_n_addresses_the_lane_you_are_in :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    one := app.text_open(&a, "one.txt", "one")
-    two := app.text_open(&a, "two.txt", "two")
+    one := scratch_doc(&a, "one.txt", "one")
+    two := scratch_doc(&a, "two.txt", "two")
     app.ring_add(&a, one)
     app.ring_add(&a, two)
     testing.expect_value(t, a.ring.focused, 2)
@@ -57,7 +57,7 @@ a_closed_slot_leaves_a_gap :: proc(t: ^testing.T) {
     defer close_app(&a)
 
     for name in ([?]string{"a", "b", "c"}) {
-        app.ring_add(&a, app.text_open(&a, name, name))
+        app.ring_add(&a, scratch_doc(&a, name, name))
     }
     app.handle_chord(&a, alt("AE02"))
     testing.expect_value(t, a.ring.focused, 2)
@@ -73,11 +73,11 @@ a_closed_slot_leaves_a_gap :: proc(t: ^testing.T) {
     app.handle_chord(&a, alt("AE03"))
     testing.expect_value(t, app.doc_title(&a, app.ring_focused(&a.ring).doc), "c")
 
-    // alt+2 on the gap opens a fresh document of this lane's kind: the lane names the kind, so
-    // the kernel picks nothing.
+    // alt+2 on the gap opens a fresh document of this lane's KIND, and these documents belong
+    // to none: nothing opens, and the slot stays the gap it was. A lane that does name a kind
+    // is the test below, where alt+f opens a listing into an empty files lane.
     app.handle_chord(&a, alt("AE02"))
-    testing.expect_value(t, a.ring.focused, 2)
-    testing.expect_value(t, app.doc_title(&a, app.ring_focused(&a.ring).doc), "text")
+    testing.expect_value(t, a.ring.focused, 3)
 }
 
 // The alternate carries most switching on its own, so it crosses lanes: "the thing I was just
@@ -90,8 +90,8 @@ the_alternate_crosses_lanes_and_the_shift_one_does_not :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    app.ring_add(&a, app.text_open(&a, "a", "a"))
-    app.ring_add(&a, app.text_open(&a, "b", "b"))
+    app.ring_add(&a, scratch_doc(&a, "a", "a"))
+    app.ring_add(&a, scratch_doc(&a, "b", "b"))
     app.ring_add(&a, app.listing_open(&a, "."))
 
     // alt+` goes back to the text lane's slot 2, across the lane boundary.
@@ -114,7 +114,7 @@ the_system_slot_is_outside_the_rotation :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    app.ring_add(&a, app.text_open(&a, "a", "a"))
+    app.ring_add(&a, scratch_doc(&a, "a", "a"))
     app.sys_println(&a, "hello")
 
     // Nothing in 1..9 addresses it.
@@ -142,15 +142,20 @@ a_default_row_switches_lanes_by_kind_name :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    app.ring_add(&a, app.text_open(&a, "a", "a"))
+    app.ring_add(&a, scratch_doc(&a, "a", "a"))
 
     // alt+f opens the files lane even though nothing has been in it: a lane with nothing in it
     // still opens, which is what makes the chord useful before the first listing.
     app.handle_chord(&a, alt("AC04"))
-    testing.expect_value(t, app.kind_name(&a, app.doc_kind(&a, app.ring_focused(&a.ring).doc)), "files")
+    listing := app.ring_focused(&a.ring).doc
+    testing.expect_value(t, app.kind_name(&a, app.doc_kind(&a, listing)), "files")
 
-    app.handle_chord(&a, alt("AD03")) // alt+e, back to where the text lane was left
+    app.handle_chord(&a, alt("TLDE")) // alt+`, back to the document we came from
     testing.expect_value(t, app.doc_title(&a, app.ring_focused(&a.ring).doc), "a")
+
+    // And back again, to where that lane was LEFT rather than to a second fresh listing.
+    app.handle_chord(&a, alt("AC04"))
+    testing.expect_value(t, app.ring_focused(&a.ring).doc, listing)
 }
 
 // A kind is the narrow tier of the bind table: `[files]` beats `[surface]` where it applies,
@@ -187,7 +192,7 @@ closing_the_last_slot_leaves_the_lane :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    app.ring_add(&a, app.text_open(&a, "a", "a"))
+    app.ring_add(&a, scratch_doc(&a, "a", "a"))
     app.ring_add(&a, app.listing_open(&a, "."))
 
     app.handle_chord(&a, alt("AD01")) // the files lane empties; focus crosses to the text lane
@@ -209,8 +214,8 @@ a_slot_keeps_its_viewport :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    app.ring_add(&a, app.text_open(&a, "long", "1\n2\n3\n4\n5\n6\n7\n8"))
-    app.ring_add(&a, app.text_open(&a, "short", "one"))
+    app.ring_add(&a, scratch_doc(&a, "long", "1\n2\n3\n4\n5\n6\n7\n8"))
+    app.ring_add(&a, scratch_doc(&a, "short", "one"))
 
     app.handle_chord(&a, alt("AE01"))
     app.scroll_by(&a, 4)
