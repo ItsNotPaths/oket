@@ -205,7 +205,13 @@ clone_cursors :: proc(src: []Cursor) -> [dynamic]Cursor {
 @(private = "file")
 set_cursors :: proc(d: ^Doc, src: []Cursor, primary: int) {
     clear(&d.cursors)
-    append(&d.cursors, ..src)
+    for c in src {
+        // Clamped: a caller may be handing back positions read BEFORE the edit, and a
+        // regenerated document can be shorter than the one whose carets these are.
+        k := c
+        k.anchor, k.head = doc_clamp_pos(d, c.anchor), doc_clamp_pos(d, c.head)
+        append(&d.cursors, k)
+    }
     d.primary = clamp(primary, 0, len(d.cursors) - 1)
 }
 

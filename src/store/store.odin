@@ -1,5 +1,6 @@
 package store
 
+import "core:slice"
 import "core:strings"
 import "../desc"
 import "../txt"
@@ -176,7 +177,7 @@ store_drain :: proc(s: ^Store) -> (applied, stale: int) {
             stale += 1
             continue
         }
-        txt.doc_commit(slot.doc, t.edits)
+        txt.doc_commit(slot.doc, t.edits, regen_cursors(slot))
         if t.desc != nil {
             desc.release(slot.desc)
             desc.retain(t.desc)
@@ -216,6 +217,18 @@ store_check :: proc(s: ^Store) -> bool {
 }
 
 // --- internals ---
+
+// A document that takes no typing is REGENERATED, not edited: a browser rewrites its rows to
+// expand a directory, and the carets there are navigation rather than the place a keystroke
+// landed. Point stays on its line, instead of collapsing onto the splice the way it must for
+// the editor (§5, §6). nil is that collapse, which is doc_commit's own default.
+@(private = "file")
+regen_cursors :: proc(slot: ^Slot) -> []txt.Cursor {
+    if slot.desc == nil || slot.desc.editable {
+        return nil
+    }
+    return slice.clone(slot.doc.cursors[:], context.temp_allocator)
+}
 
 @(private = "file")
 resolve :: proc(s: ^Store, id: Id) -> (^Slot, bool) {
