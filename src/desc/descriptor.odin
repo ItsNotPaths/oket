@@ -2,6 +2,7 @@ package desc
 
 import "core:slice"
 import "core:strings"
+import "../input"
 import "../rc"
 
 // How the kernel renders and routes a document (§5). Immutable and refcounted: a write
@@ -35,6 +36,14 @@ Align :: enum u8 {
     Right,
 }
 
+// The drag granularity, and what an empty selection looks like (§5, §8): a browser selects
+// rows, an editor selects characters. `block` arrives with block editing.
+Selection :: enum u8 {
+    Char,
+    Line,
+    None,
+}
+
 Column :: struct {
     name:  string,
     width: int,
@@ -54,6 +63,10 @@ Descriptor :: struct {
     render:    Render,
     wrap:      Wrap,
     numbers:   Numbers,
+    // The context a chord lands in while this document has the keys. The kernel must know it to
+    // ROUTE, which is the test that puts it here rather than in plugin state (§5, §8).
+    ctx:       input.Bind_Ctx,
+    selection: Selection,
     tab_width: int,
     columns:   []Column,
     fields:    []Field,
@@ -63,6 +76,8 @@ DEFAULT :: Descriptor {
     render    = .Text,
     wrap      = .None,
     numbers   = .Off,
+    ctx       = .Text,
+    selection = .Char,
     tab_width = 4,
 }
 
@@ -73,6 +88,9 @@ new_from :: proc(d: Descriptor) -> ^Descriptor {
     out^ = d
     out.rc = 1
     out.tab_width = max(d.tab_width, 1)
+    if out.ctx == .Global { // no document is Global; the zero value means "unset"
+        out.ctx = .Text
+    }
     out.columns = slice.clone(d.columns)
     for &c in out.columns {
         c.name = strings.clone(c.name)

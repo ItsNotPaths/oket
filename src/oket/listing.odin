@@ -50,8 +50,18 @@ listing_open :: proc(s: ^store.Store, dir: string) -> store.Id {
 
     id := store.store_open(s, strings.to_string(text))
     gen, _ := store.store_gen(s, id)
+    // `surface`, not `text`: a listing's keys are a surface's, so `enter` here and `enter` in an
+    // editor are two rows rather than one mode. Rows are what it selects, which is the drag
+    // granularity as well (§5, §8).
     d := desc.new_from(
-        {numbers = .Absolute, tab_width = 4, columns = columns[:], fields = fields[:]},
+        {
+            numbers = .Absolute,
+            ctx = .Surface,
+            selection = .Line,
+            tab_width = 4,
+            columns = columns[:],
+            fields = fields[:],
+        },
     )
     store.store_submit(s, id, gen, nil, d)
     desc.release(d)
