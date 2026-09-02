@@ -275,3 +275,28 @@ snapshot_reads_off_thread :: proc(t: ^testing.T) {
     testing.expect(t, len(d.pt.arena.spines) > 1, "the block list never outgrew its first buffer")
 }
 
+
+// §10's storage invariant, and the claim that a snapshot answers it as well as a live table
+// does: both are a Text, and the last piece's end is the size in either.
+@(test)
+text_check_reads_a_snapshot_and_a_live_table_alike :: proc(t: ^testing.T) {
+    d: txt.Doc
+    txt.doc_init(&d)
+    defer txt.doc_destroy(&d)
+    txt.doc_set_text(&d, "alpha\nbeta\ngamma")
+    for at in ([?]int{0, 7, 3, 11}) {
+        txt.doc_apply(&d, {txt.Edit{lo = at, hi = at, text = "<>"}})
+    }
+    snap := txt.doc_snapshot(&d)
+    defer txt.snapshot_release(snap)
+    testing.expect(t, len(d.pt.pieces) > 1, "the edits did not splinter the table")
+    testing.expect(t, txt.text_check(&d.pt), "a healthy table failed")
+    testing.expect(t, txt.text_check(snap), "a healthy snapshot failed")
+
+    // A splice that lost its way: the running total no longer lands on the size, which is what
+    // a binary search would otherwise walk off the end of.
+    d.pt.pieces[len(d.pt.pieces) - 1].len -= 1
+    testing.expect(t, !txt.text_check(&d.pt), "a broken running total passed")
+    testing.expect(t, txt.text_check(snap), "the snapshot's own copy moved with it")
+    d.pt.pieces[len(d.pt.pieces) - 1].len += 1
+}

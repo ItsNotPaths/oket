@@ -258,3 +258,27 @@ store_drain_compacts_a_splintered_table :: proc(t: ^testing.T) {
     defer txt.snapshot_release(fresh)
     testing.expect(t, fresh.arena != snap.arena, "the snapshot cache pinned the spent arena")
 }
+
+// §10's invariant checks. The one that has state behind it is the generation, and a slot is
+// reused: a fresh document opening into one that carried a long history starts at generation
+// zero, which is BACKWARDS unless the high-water mark starts again with it.
+@(test)
+store_check_follows_a_generation_into_a_reused_slot :: proc(t: ^testing.T) {
+    s: store.Store
+    defer store.store_destroy(&s)
+    id := store.store_open(&s, "alpha")
+    d := store.store_doc(&s, id)
+    for _ in 0 ..< 8 {
+        txt.doc_apply(d, {txt.Edit{lo = 0, hi = 0, text = "x"}})
+    }
+    testing.expect(t, store.store_check(&s), "an ordinary document failed the checks")
+
+    store.store_close(&s, id)
+    again := store.store_open(&s, "beta")
+    testing.expect_value(t, again.slot, id.slot) // the point of the test: the same slot
+    testing.expect(t, store.store_check(&s), "a reused slot looked like a generation going back")
+
+    // And the check still catches what it is for.
+    store.store_doc(&s, again).magic = 0
+    testing.expect(t, !store.store_check(&s), "a smashed header passed")
+}

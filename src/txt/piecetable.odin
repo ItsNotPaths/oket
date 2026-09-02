@@ -207,6 +207,19 @@ pt_load :: proc(pt: ^Piece_Table, src: []u8) {
 // --- reading --- Each of these takes a ^Text, so a live Piece_Table and a frozen Snapshot
 // read through the same code. Odin converts either pointer implicitly.
 
+// The invariants at the top of this file, as far as O(1) reaches (§10). Every op that changes a
+// piece's length repairs the pieces after it, so the last piece's end IS the size: one read
+// covers both the running total and the sum. A snapshot answers this too, because it is a Text.
+text_check :: proc(t: ^Text) -> bool {
+    if t.lines < 1 || len(t.segs) < 1 {
+        return false
+    }
+    if n := len(t.pieces); n > 0 {
+        return t.pieces[n - 1].doc_off + t.pieces[n - 1].len == t.size
+    }
+    return t.size == 0
+}
+
 text_line_count :: proc(t: ^Text) -> int {
     return t.lines
 }

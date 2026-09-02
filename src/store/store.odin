@@ -40,6 +40,7 @@ Slot :: struct {
     seq:  u32,
     doc:  ^txt.Doc, // nil = closed
     desc: ^desc.Descriptor,
+    seen: u64, // the highest generation store_check has seen; it may never go backwards
 }
 
 // One transaction against the generation its author read. Owns its edits and their text, and
@@ -85,6 +86,7 @@ store_open :: proc(s: ^Store, text := "") -> Id {
     }
     s.slots[slot].doc = d
     s.slots[slot].desc = desc.new_from(desc.DEFAULT)
+    s.slots[slot].seen = 0 // a new document, so store_check's high-water mark starts again
     return Id{slot, s.slots[slot].seq}
 }
 
@@ -194,6 +196,23 @@ store_drain :: proc(s: ^Store) -> (applied, stale: int) {
         }
     }
     return
+}
+
+// §10's invariant checks, run after each plugin dispatch. Every arm is O(1) per open
+// document, which is what makes it cheap enough to leave on in release: a document's magic
+// word, its piece list's running total, and a generation that only ever goes forwards. Who is
+// to blame is the caller's question: this only says that somebody is.
+store_check :: proc(s: ^Store) -> bool {
+    for &slot in s.slots {
+        if slot.doc == nil {
+            continue
+        }
+        if !txt.doc_check(slot.doc) || slot.doc.gen < slot.seen {
+            return false
+        }
+        slot.seen = slot.doc.gen
+    }
+    return true
 }
 
 // --- internals ---

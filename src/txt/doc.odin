@@ -15,6 +15,11 @@ import "core:unicode/utf8"
 // Invariants: >= 1 line, >= 1 cursor, cursors sorted by head and non-overlapping. `primary` is
 // the cursor driving scroll-follow and the gutter; after an edit it falls back to the topmost.
 Doc :: struct {
+    // At the head, and checked after every plugin dispatch (§10). A wild store from a plugin
+    // walking a snapshot lands near a document's header more often than anywhere else, and a
+    // word that can only ever be one value is what turns that into a named plugin instead of a
+    // mystery four frames later. doc_check is the whole of what it costs.
+    magic:   u64,
     pt:      Piece_Table,
     cursors: [dynamic]Cursor,
     primary: int,
@@ -76,9 +81,22 @@ Cursor :: struct {
 
 // --- lifecycle ---
 
+DOC_MAGIC :: 0x6f6b_6574_646f_6300 // "oketdoc\0"
+
 doc_init :: proc(d: ^Doc) {
+    d.magic = DOC_MAGIC
     pt_init(&d.pt)
     append(&d.cursors, Cursor{})
+}
+
+// The invariants worth checking after every plugin dispatch (§10). All O(1), so leaving them on
+// in release costs nothing measurable, and each arm names a corruption that is otherwise silent.
+// The storage answers for its own (text_check); this adds the ones a Doc has on top.
+doc_check :: proc(d: ^Doc) -> bool {
+    if d.magic != DOC_MAGIC || d.primary < 0 || d.primary >= len(d.cursors) {
+        return false
+    }
+    return text_check(&d.pt)
 }
 
 doc_destroy :: proc(d: ^Doc) {
