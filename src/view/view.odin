@@ -16,6 +16,7 @@ import "../txt"
 // written against it; this is the copy the frame renders from.
 View :: struct {
     top:   int, // first document line drawn
+    left:  int, // first cell drawn, for a document that does not wrap
     point: txt.Cursor,
 }
 
@@ -52,9 +53,10 @@ draw :: proc(
     }
     for r, i in rows(t, d, v.top, body, h) {
         src := txt.text_line(t, r.line, context.temp_allocator)
+        clipped := scrolled(r, src, v.left, d.tab_width)
         put_number(g, th, d, v, x, y + i, gut, r)
-        run(g, x + gut, y + i, src[r.lo:r.hi], body, d.tab_width, th[.Fg], th[.Bg])
-        mark_point(g, d, v, x + gut, y + i, body, r, src)
+        run(g, x + gut, y + i, src[clipped.lo:clipped.hi], body, d.tab_width, th[.Fg], th[.Bg])
+        mark_point(g, d, v, x + gut, y + i, body, clipped, src)
     }
 }
 
@@ -85,6 +87,19 @@ rows :: proc(
         }
     }
     return out[:]
+}
+
+// The row again with `left` cells dropped off its front. Horizontal scroll is the viewport's
+// other axis (§11) and only a `wrap: none` document has one, because a wrapped row cannot run
+// off the side.
+@(private)
+scrolled :: proc(r: Row, src: []u8, left, tab: int) -> Row {
+    if left <= 0 {
+        return r
+    }
+    out := r
+    out.lo = r.lo + byte_of(src[r.lo:r.hi], left, tab)
+    return out
 }
 
 // The text `<name>` resolves to on a line (§5). The kernel reads it out of the descriptor's
@@ -357,8 +372,8 @@ locate :: proc(
     if cy - y >= len(rs) {
         return {}, "", false
     }
-    r := rs[cy - y]
-    src := txt.text_line(t, r.line, context.temp_allocator)
+    src := txt.text_line(t, rs[cy - y].line, context.temp_allocator)
+    r := scrolled(rs[cy - y], src, v.left, d.tab_width)
     p = {r.line, r.lo + byte_of(src[r.lo:r.hi], col, d.tab_width)}
     for f in desc.line_fields(d, r.line) {
         if p.col >= f.lo && p.col < f.hi {
@@ -412,6 +427,34 @@ follow :: proc(v: ^View, h: int) {
     v.top = clamp(v.top, max(v.point.head.line - h + 1, 0), max(v.point.head.line, 0))
 }
 
+// The cell point sits at on its own line. Only this package measures cells, so the caller that
+// wants to keep point in view asks for the column rather than counting one of its own.
+point_col :: proc(t: ^txt.Text, d: ^desc.Descriptor, v: View) -> int {
+    src := txt.text_line(t, v.point.head.line, context.temp_allocator)
+    return cell_of(src, min(v.point.head.col, len(src)), d.tab_width)
+}
+
+// Columns of context kept between point and either edge, so you can see what you are about to
+// type over rather than the caret butting against the clip.
+HSCROLL_PAD :: 8
+
+// The same, sideways: hold inside the padded window, then move the minimum. The pad halves out
+// on a narrow region, or two pads wider than the space between them would each pull the other
+// way. `col` is the cell point sits at, which the caller measures.
+follow_col :: proc(v: ^View, col, w: int) {
+    if w <= 0 {
+        return
+    }
+    pad := min(HSCROLL_PAD, (w - 1) / 2)
+    if col - pad < v.left {
+        v.left = max(col - pad, 0)
+        return
+    }
+    if col + pad > v.left + w - 1 {
+        v.left = col + pad - w + 1
+    }
+}
+
 // The hover underline (§8): the field a bound click would act on, in the cells it was drawn in.
 // The kernel asks the bind table and draws this; no surface is involved.
 underline :: proc(
@@ -447,7 +490,8 @@ underline :: proc(
     }
     // Through the rows the draw laid out, so a wrapped span underlines every row it covers and
     // hover cannot disagree with the paint about which one a field is on.
-    for r, i in rows(t, d, v.top, body, h) {
+    for row, i in rows(t, d, v.top, body, h) {
+        r := scrolled(row, txt.text_line(t, row.line, context.temp_allocator), v.left, d.tab_width)
         if r.line != line || hi <= r.lo || lo >= r.hi {
             continue
         }
