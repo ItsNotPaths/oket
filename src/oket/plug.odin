@@ -3,6 +3,7 @@ package main
 import "base:runtime"
 import "core:dynlib"
 import "core:fmt"
+import "core:os"
 import "core:path/filepath"
 import "core:slice"
 import "core:strings"
@@ -28,12 +29,14 @@ import "../txt"
 PLUGIN_DIR :: "plugins" // beside the binary, next to binds.conf
 
 Plugin :: struct {
-    name:   string, // owned; the file's stem, and the section header in binds.conf
-    path:   string, // owned
-    lib:    dynlib.Library,
-    gen:    u32, // bumped per load, so a Self from an earlier load is refused
-    live:   bool,
-    ledger: [dynamic]Record,
+    name:    string, // owned; the file's stem, and the section header in binds.conf
+    path:    string, // owned
+    lib:     dynlib.Library,
+    base:    uintptr, // where dlopen mapped it, which is what names a faulting pc (§10)
+    gen:     u32, // bumped per load, so a Self from an earlier load is refused
+    live:    bool,
+    faulted: bool, // it died in its own code; nothing of it is called again (§10)
+    ledger:  [dynamic]Record,
 }
 
 Record_Kind :: enum u8 {
@@ -164,13 +167,18 @@ plug_load :: proc(a: ^App, path: string) -> bool {
     i := plug_slot(a, name, path)
     p := &a.plugs[i]
     p.lib = lib
+    p.base = fault_object_base(sym) // where it landed, so §10 can name a pc as its own
     p.gen += 1
     p.live = true
+    p.faulted = false
 
-    code := (plug.Entry_Fn)(sym)(&a.api.api, plug_self(a, i))
-    if code != 0 {
+    r, ok := plug_dispatch(a, i, {what = .Entry, entry = (plug.Entry_Fn)(sym)})
+    if !ok {
+        return false // it died in its entry point; the net unloaded it and said so
+    }
+    if r.code != 0 {
         plug_unload(a, i)
-        message_set(a, fmt.tprintf(":plug: %s refused to load (%d)", name, code))
+        message_set(a, fmt.tprintf(":plug: %s refused to load (%d)", name, r.code))
         return false
     }
     // A kind or a command may be named by a row, so the file is read again now that the names
@@ -216,10 +224,53 @@ plug_unload :: proc(a: ^App, i: int) -> bool {
         }
     }
     clear(&p.ledger)
-    dynlib.unload_library(p.lib)
+    // A faulted plugin keeps its mapping: dlclose runs the library's destructors, and that is
+    // more of the code that just died. Address space is the cheaper half of that trade (§10).
+    if !p.faulted {
+        dynlib.unload_library(p.lib)
+    }
     p.lib = {}
     p.live = false
     return true
+}
+
+// A plugin that died in its own code (§10). Unloaded like any other, except that its `close`
+// does not run and its library stays mapped, and NAMED: the bar is where a user finds out that
+// what they were using is gone.
+plug_faulted :: proc(a: ^App, i: int, why: string) {
+    if i < 0 || i >= len(a.plugs) || !a.plugs[i].live {
+        return // a nested dispatch may blame the same plugin twice
+    }
+    a.plugs[i].faulted = true
+    name := a.plugs[i].name // owned by the slot, which unloading keeps
+    plug_unload(a, i)
+    message_set(a, fmt.tprintf(":plug: %s %s, and is unloaded", name, why))
+}
+
+// Every `.so` under `<home>/plugins`, at startup, in name order (§14). It leans on the net
+// above — a plugin that dies on load must not make oket unstartable — and `--no-plugins` is
+// the door for the case the net cannot hold.
+plug_autoload :: proc(a: ^App) {
+    dir, _ := filepath.join({a.home, PLUGIN_DIR}, context.temp_allocator)
+    f, err := os.open(dir)
+    if err != nil {
+        return
+    }
+    defer os.close(f)
+    it := os.read_directory_iterator_create(f)
+    defer os.read_directory_iterator_destroy(&it)
+    found := make([dynamic]string, context.temp_allocator)
+    for info in os.read_directory_iterator(&it) {
+        if info.type != .Directory && strings.has_suffix(info.name, ".so") {
+            append(&found, strings.clone(info.fullpath, context.temp_allocator))
+        }
+    }
+    // Sorted, so which kind registers first is a property of the names and not of the
+    // directory's order.
+    slice.sort(found[:])
+    for path in found {
+        plug_load(a, path)
+    }
 }
 
 // The loop `:pluginify` exists for. Unload then load, so the ledger reverts before the new
@@ -258,8 +309,14 @@ plug_open :: proc(a: ^App, kind: input.Kind, args := "") -> (store.Id, bool) {
     desc.release(d)
     store.store_drain(&a.docs)
 
-    arg := transmute([]u8)args
-    inst := k.vt.open(&a.api.api, plug_self(a, k.owner), plug_doc(id), raw_data(arg), len(arg))
+    r, ran := plug_dispatch(a, k.owner, {what = .Open, vt = k.vt, doc = plug_doc(id),
+                                         data = transmute([]u8)args})
+    if !ran {
+        // The document is the kernel's and was never handed to anyone, so the unload that just
+        // ran could not have closed it: `insts` does not know about it yet.
+        doc_close(a, id)
+        return {}, false
+    }
     docs_settle(a) // whatever `open` submitted, before anyone reads it
     // `open` FILLS a document; it does not EDIT one. The transaction that filled it went
     // through the funnel a keystroke uses, so without this the caret sits at the end of what
@@ -269,7 +326,7 @@ plug_open :: proc(a: ^App, kind: input.Kind, args := "") -> (store.Id, bool) {
         txt.doc_reset_cursor(doc, {})
     }
     gen, _ = store.store_gen(&a.docs, id) // where `open` left it, so nothing is reported back
-    a.insts[id] = {k.owner, kind, inst, gen, 0}
+    a.insts[id] = {k.owner, kind, r.inst, gen, 0}
     return id, true
 }
 
@@ -283,8 +340,11 @@ plug_inst_close :: proc(a: ^App, id: store.Id) {
     delete_key(&a.insts, id)
     p := &a.plugs[inst.owner]
     k, ok := plug_kind(a, inst.kind)
-    if p.live && ok && k.vt.close != nil {
-        k.vt.close(&a.api.api, plug_self(a, inst.owner), plug_doc(id), inst.inst)
+    // Not for a plugin that faulted: its code is what died, and calling more of it to tidy up
+    // is how one fault becomes two (§10).
+    if p.live && !p.faulted && ok && k.vt.close != nil {
+        _, _ = plug_dispatch(a, inst.owner, {what = .Close, vt = k.vt, doc = plug_doc(id),
+                                             inst = inst.inst})
     }
 }
 
@@ -312,17 +372,19 @@ plug_event :: proc(a: ^App, id: store.Id, ev: plug.Event, text: string) -> bool 
     if !ok || k.vt.event == nil {
         return false
     }
-    bytes := transmute([]u8)text
     at, free_view := plug_at(a, inst.owner, id)
     defer view_free(free_view)
-    took := k.vt.event(&a.api.api, plug_self(a, inst.owner), &at, ev,
-                       raw_data(bytes), len(bytes))
+    r, ran := plug_dispatch(a, inst.owner, {what = .Event, vt = k.vt, at = &at, ev = ev,
+                                            data = transmute([]u8)text})
+    if !ran {
+        return false
+    }
     // A plugin's transaction lands when its call RETURNS, the same way `open`'s does. Holding
     // it to the end of the frame would drop the second of two keystrokes in one: both would be
     // written against the generation the first has not moved yet, and the drain refuses a
     // stale one whole (§6). Typing is two events, not one.
     docs_settle(a)
-    return took != 0
+    return r.code != 0
 }
 
 // A generation that moved (§5). The owner is told, so a REPL whose transcript a formatter
@@ -330,6 +392,10 @@ plug_event :: proc(a: ^App, id: store.Id, ev: plug.Event, text: string) -> bool 
 // snapshot and a write against a stale one is refused at the drain, which is what makes "anyone
 // may write anyone's buffer" safe without a gate (§7).
 plug_pump :: proc(a: ^App) {
+    // Who to tell is decided first: a `moved` handler that faults unloads its plugin, and that
+    // DELETES from `insts` — walking a map while it is being written is a different bug every
+    // time. Same rule as plug_unload's.
+    moved := make([dynamic]store.Id, 0, len(a.insts), context.temp_allocator)
     for id, &inst in a.insts {
         gen, live := store.store_gen(&a.docs, id)
         if !live || gen == inst.gen {
@@ -338,8 +404,14 @@ plug_pump :: proc(a: ^App) {
         mine := inst.tag != 0 && slice.contains(store.store_landed(&a.docs), inst.tag)
         inst.gen = gen
         inst.tag = 0
-        if mine {
-            continue
+        if !mine {
+            append(&moved, id)
+        }
+    }
+    for id in moved {
+        inst, held := a.insts[id]
+        if !held {
+            continue // its plugin died earlier in this same loop
         }
         k, ok := plug_kind(a, inst.kind)
         if !ok || k.vt.event == nil {
@@ -347,7 +419,7 @@ plug_pump :: proc(a: ^App) {
         }
         at, free_view := plug_at(a, inst.owner, id)
         defer view_free(free_view)
-        k.vt.event(&a.api.api, plug_self(a, inst.owner), &at, .Moved, nil, 0)
+        _, _ = plug_dispatch(a, inst.owner, {what = .Event, vt = k.vt, at = &at, ev = .Moved})
     }
 }
 
@@ -365,10 +437,13 @@ plug_command :: proc(a: ^App, slot: input.Slot, args: string) -> bool {
         at, view = plug_at(a, c.owner, s.doc)
     }
     defer view_free(view)
-    bytes := transmute([]u8)args
-    code := c.fn(&a.api.api, plug_self(a, c.owner), &at, raw_data(bytes), len(bytes))
+    r, ok := plug_dispatch(a, c.owner, {what = .Command, fn = c.fn, at = &at,
+                                        data = transmute([]u8)args})
+    if !ok {
+        return false
+    }
     docs_settle(a) // what it wrote is landed before the next step of a chain reads it
-    return code == 0
+    return r.code == 0
 }
 
 plug_cmd_named :: proc(a: ^App, name: string) -> (input.Slot, bool) {
@@ -380,12 +455,93 @@ plug_cmd_named :: proc(a: ^App, name: string) -> (input.Slot, bool) {
     return 0, false
 }
 
+// --- the one door into plugin code (§10) ---
+
+// What a call answers. `open` returns an instance and everything else an exit code, so one
+// shape covers the five and no caller reads a field that call could not have filled.
+Plug_Ret :: struct {
+    inst: rawptr,
+    code: i32,
+}
+
+// A call, as data. It is a struct rather than five wrappers because the sigsetjmp below has to
+// sit in the frame that MAKES the call: the handler's siglongjmp lands there, and a frame that
+// has already returned is not one to jump into.
+Plug_Call :: struct {
+    what:  enum {
+        Entry,
+        Open,
+        Close,
+        Event,
+        Command,
+    },
+    entry: plug.Entry_Fn,
+    vt:    plug.Kind_Vt,
+    fn:    plug.Command_Fn,
+    doc:   plug.Doc,
+    at:    ^plug.At,
+    inst:  rawptr,
+    ev:    plug.Event,
+    data:  []u8,
+}
+
+// EVERY call into a plugin goes through here, and nothing else calls one. A fault or a hang in
+// there comes back as `ok = false` with the plugin unloaded and named, and the kernel carries
+// on; a fault anywhere else is the kernel's own and dies honestly (fault.odin).
+plug_dispatch :: proc(a: ^App, i: int, c: Plug_Call) -> (r: Plug_Ret, ok: bool) {
+    // Nothing dispatches from inside a dispatch today. If that ever changes, the outer net
+    // still catches the fault; it just blames the outer plugin.
+    if !fault_ready() || fault_armed() {
+        r = plug_run(a, i, c)
+        return r, plug_intact(a, i)
+    }
+    if sigsetjmp(fault_env(), 1) != 0 {
+        fault_reap() // reads the guard, never this frame: those registers made no promises
+        return {}, false
+    }
+    fault_arm(a, i, a.plugs[i].base)
+    r = plug_run(a, i, c)
+    fault_disarm()
+    return r, plug_intact(a, i)
+}
+
+// The invariant checks (§10), at the one place that knows who was just driving. A plugin that
+// returns cleanly having smashed a document is caught here rather than four frames later inside
+// kernel code, and it costs three O(1) reads per open document.
+@(private = "file")
+plug_intact :: proc(a: ^App, i: int) -> bool {
+    if store.store_check(&a.docs) {
+        return true
+    }
+    plug_faulted(a, i, "left a document corrupt")
+    return false
+}
+
+@(private = "file")
+plug_run :: proc(a: ^App, i: int, c: Plug_Call) -> (r: Plug_Ret) {
+    api, self := &a.api.api, plug_self(a, i)
+    switch c.what {
+    case .Entry:
+        r.code = c.entry(api, self)
+    case .Open:
+        r.inst = c.vt.open(api, self, c.doc, raw_data(c.data), len(c.data))
+    case .Close:
+        c.vt.close(api, self, c.doc, c.inst)
+    case .Event:
+        r.code = c.vt.event(api, self, c.at, c.ev, raw_data(c.data), len(c.data))
+    case .Command:
+        r.code = c.fn(api, self, c.at, raw_data(c.data), len(c.data))
+    }
+    return
+}
+
 // --- the api, as a plugin sees it ---
 
 @(private = "file")
 api_register_kind :: proc "c" (api: ^plug.Api, self: plug.Self,
                                spec: ^plug.Kind_Spec) -> input.Kind {
     a, i, ok := api_app(api, self)
+    defer api_done()
     if !ok || spec == nil {
         return 0
     }
@@ -415,6 +571,7 @@ api_register_command :: proc "c" (api: ^plug.Api, self: plug.Self, name: [^]u8,
                                   name_len: uint, doc: [^]u8, doc_len: uint,
                                   fn: plug.Command_Fn) {
     a, i, ok := api_app(api, self)
+    defer api_done()
     if !ok || fn == nil {
         return
     }
@@ -435,6 +592,7 @@ api_register_command :: proc "c" (api: ^plug.Api, self: plug.Self, name: [^]u8,
 api_request_bind :: proc "c" (api: ^plug.Api, self: plug.Self, ctx: [^]u8, ctx_len: uint,
                               chord: [^]u8, chord_len: uint, line: [^]u8, line_len: uint) {
     a, i, ok := api_app(api, self)
+    defer api_done()
     if !ok {
         return
     }
@@ -448,6 +606,7 @@ api_request_bind :: proc "c" (api: ^plug.Api, self: plug.Self, ctx: [^]u8, ctx_l
 api_submit :: proc "c" (api: ^plug.Api, self: plug.Self, doc: plug.Doc, gen: u64,
                         edits: [^]plug.Edit, nedits: uint, d: ^plug.Descriptor) {
     a, i, ok := api_app(api, self)
+    defer api_done()
     if !ok {
         return
     }
@@ -469,6 +628,7 @@ api_submit :: proc "c" (api: ^plug.Api, self: plug.Self, doc: plug.Doc, gen: u64
 api_reveal :: proc "c" (api: ^plug.Api, self: plug.Self, doc: plug.Doc,
                         lo: uint, hi: uint, at: plug.Reveal) {
     a, _, ok := api_app(api, self)
+    defer api_done()
     if !ok {
         return
     }
@@ -479,6 +639,7 @@ api_reveal :: proc "c" (api: ^plug.Api, self: plug.Self, doc: plug.Doc,
 @(private = "file")
 api_snapshot :: proc "c" (api: ^plug.Api, self: plug.Self, doc: plug.Doc) -> ^plug.Snapshot {
     a, _, ok := api_app(api, self)
+    defer api_done()
     if !ok {
         return nil
     }
@@ -490,6 +651,7 @@ api_snapshot :: proc "c" (api: ^plug.Api, self: plug.Self, doc: plug.Doc) -> ^pl
 @(private = "file")
 api_release :: proc "c" (api: ^plug.Api, self: plug.Self, snap: ^plug.Snapshot) {
     a, _, ok := api_app(api, self)
+    defer api_done()
     if !ok || snap == nil {
         return
     }
@@ -500,6 +662,7 @@ api_release :: proc "c" (api: ^plug.Api, self: plug.Self, snap: ^plug.Snapshot) 
 @(private = "file")
 api_message :: proc "c" (api: ^plug.Api, self: plug.Self, text: [^]u8, text_len: uint) {
     a, _, ok := api_app(api, self)
+    defer api_done()
     if !ok {
         return
     }
@@ -520,7 +683,15 @@ api_app :: proc "c" (api: ^plug.Api, self: plug.Self) -> (a: ^App, i: int, ok: b
     if i < 0 || i >= len(a.plugs) || !a.plugs[i].live || a.plugs[i].gen != gen {
         return nil, 0, false
     }
+    // §10's second guard opens here: from now until api_done the kernel is writing its own
+    // structures on this plugin's behalf, and a fault in that window is not one to unwind.
+    fault_busy(true)
     return a, i, true
+}
+
+@(private = "file")
+api_done :: proc "c" () {
+    fault_busy(false)
 }
 
 // --- handles ---

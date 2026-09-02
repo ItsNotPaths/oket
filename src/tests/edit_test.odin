@@ -23,7 +23,7 @@ import app "../oket"
 // door a document comes through, and the plugin is what walks through it.
 @(private = "file")
 edit_app :: proc(t: ^testing.T, name, text: string) -> (a: app.App, path: string, ok: bool) {
-    a = plug_app(t, name, "edit") or_return
+    a = plug_app(t, name, "plugins/edit") or_return
     app.plug_init(&a)
     if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "edit")), a.message) {
         close_plug_app(&a)

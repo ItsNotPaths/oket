@@ -98,14 +98,15 @@ REPO :: #directory + "../../"
 
 // A kernel with a home of its own and one plugin built into it, by plugins/stage.sh — the same
 // script release.sh runs and `:pluginify` writes a command line for, so what a test exercises is
-// what ships. Built per test: the runner is threaded, and two tests sharing an output directory
-// would each be loading the other's build.
+// what ships. `plugin` is a directory under the repo, because a fixture that nobody should ship
+// does not live in plugins/. Built per test: the runner is threaded, and two tests sharing an
+// output directory would each be loading the other's build.
 @(require_results)
-plug_app :: proc(t: ^testing.T, name: string, plugin := "hello") -> (a: app.App, ok: bool) {
+plug_app :: proc(t: ^testing.T, name: string, plugin := "plugins/hello") -> (a: app.App, ok: bool) {
     home := scratch(t, name) or_return
     out, _ := filepath.join({home, app.PLUGIN_DIR}, context.temp_allocator)
     script, _ := filepath.join({REPO, "plugins", "stage.sh"}, context.temp_allocator)
-    src, _ := filepath.join({REPO, "plugins", plugin}, context.temp_allocator)
+    src, _ := filepath.join({REPO, plugin}, context.temp_allocator)
 
     state, _, errs, err := os.process_exec(
         {command = {script, src, out}},

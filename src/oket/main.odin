@@ -11,6 +11,19 @@ HEIGHT :: 760
 TITLE :: "Oket"
 APP_ID :: "oket" // Wayland app-id / X11 instance name
 
+// The one flag, and it is an escape hatch rather than a setting (§13, §14): a plugin bad enough
+// to get past the fault net is one you have to be able to start without.
+NO_PLUGINS :: "--no-plugins"
+
+flag :: proc(name: string) -> bool {
+    for arg in os.args[1:] {
+        if arg == name {
+            return true
+        }
+    }
+    return false
+}
+
 // A Wayland swap blocks on a frame callback that stops arriving once the window is off-screen,
 // and that wait never dispatches xdg_wm_base.ping, so the compositor declares the window dead.
 // Pace on the event wait there — tear-free, the compositor presents on its own vblank.
@@ -69,6 +82,15 @@ main :: proc() {
     input_init(&a)
     app_init(&a)
     defer app_destroy(&a)
+
+    // §10's net, before anything can dispatch, and the watchdog that turns a hang into the
+    // same named death a fault gets. Without them nothing below should be loading a plugin
+    // by itself.
+    fault_install()
+    fault_watchdog_start()
+    if !flag(NO_PLUGINS) {
+        plug_autoload(&a)
+    }
 
     // A session's reader thread has to reach the frame loop, which is parked in WaitEvents.
     pty.wake = proc() {glfw.PostEmptyEvent()}
