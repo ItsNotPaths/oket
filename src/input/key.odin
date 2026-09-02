@@ -33,8 +33,12 @@ Layout_Resolve :: proc(name: string) -> (Code, bool)
 // Names the glyph a position types under the current layout, "" for keys that type nothing.
 Layout_Name :: proc(code: Code) -> string
 
-// The primary XKB name, "" where no key has the code.
+// The primary XKB name, "" where no key has the code. A mouse code answers with its spelling,
+// so every proc reading a name reaches the mouse without a branch of its own (mouse.odin).
 key_name :: proc(c: Code) -> string {
+    if m, is_mouse := mouse_of(c); is_mouse {
+        return MOUSE_SPELLING[m]
+    }
     for e in KEY_NAMES {
         if e.code == c {
             return e.name
@@ -43,8 +47,11 @@ key_name :: proc(c: Code) -> string {
     return ""
 }
 
-// Accepts aliases too: AC12 answers with BKSL's code.
+// Accepts aliases too: AC12 answers with BKSL's code, and `click` with the mouse's.
 key_code :: proc(name: string) -> (Code, bool) {
+    if code, is_mouse := mouse_named(name); is_mouse {
+        return code, true
+    }
     for e in KEY_CODES {
         if e.name == name {
             return e.code, true
@@ -95,6 +102,9 @@ KEY_LABELS := [?]struct {
 @(private = "file")
 key_label :: proc(c: Code) -> string {
     name := key_name(c)
+    if code_is_mouse(c) {
+        return name // "click" is the label and the spelling both
+    }
     for e in KEY_LABELS {
         if e.name == name {
             return e.label
@@ -128,6 +138,10 @@ chord_parse :: proc(text: string, resolve: Layout_Resolve) -> (c: Chord, ok: boo
         return {}, false
     }
 
+    if code, is_mouse := mouse_named(rest); is_mouse {
+        c.code = code
+        return c, true
+    }
     if rest[0] == '@' {
         if n, is_num := strconv.parse_uint(rest[1:]); is_num {
             c.code = Code(n)
@@ -155,9 +169,12 @@ chord_parse :: proc(text: string, resolve: Layout_Resolve) -> (c: Chord, ok: boo
 chord_physical :: proc(c: Chord, allocator := context.allocator) -> string {
     b := builder_with_mods(c.mods, allocator)
     name := key_name(c.code)
-    if name == "" {
+    switch {
+    case code_is_mouse(c.code):
+        strings.write_string(&b, name) // a button has one spelling; no layout can shift it
+    case name == "":
         fmt.sbprintf(&b, "@%d", c.code)
-    } else {
+    case:
         strings.write_byte(&b, '@')
         strings.write_string(&b, name)
     }

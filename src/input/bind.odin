@@ -14,6 +14,26 @@ Bind_Ctx :: enum u8 {
 
 Bind_Ctxs :: bit_set[Bind_Ctx;u8]
 
+// A context by its config spelling, the one name binds.conf, `:` and describe all use, so the
+// three can never disagree about what a context is called (§6). Enumerated, like COMMANDS, so
+// Odin refuses a literal with a member left out.
+@(rodata)
+CTX_NAMES := [Bind_Ctx]string {
+    .Global   = "global",
+    .Text     = "text",
+    .Surface  = "surface",
+    .Terminal = "terminal",
+}
+
+ctx_named :: proc(name: string) -> (Bind_Ctx, bool) {
+    for n, ctx in CTX_NAMES {
+        if n == name {
+            return ctx, true
+        }
+    }
+    return .Global, false
+}
+
 Command :: enum u8 {
     None,
     Quit,
@@ -35,6 +55,9 @@ Command :: enum u8 {
     Newline,
     Tab,
     Select_All,
+    Select_Expand,
+    View_Scroll_Up,
+    View_Scroll_Down,
     Cut,
     Copy,
     Paste,
@@ -131,10 +154,10 @@ COMMANDS := [Command]Command_Info {
     .None                = {"none", "the unbind value; no chord resolves to it", {}},
     .Quit                = {"quit", "close the window", {.Global}},
     .Describe_Key        = {"describe.key", "wait for one chord and say what it does", {.Global}},
-    .Nav_Up              = {"nav.up", "move the caret up a line", {.Text}},
-    .Nav_Down            = {"nav.down", "move the caret down a line", {.Text}},
-    .Nav_Left            = {"nav.left", "move the caret left a rune", {.Text}},
-    .Nav_Right           = {"nav.right", "move the caret right a rune", {.Text}},
+    .Nav_Up              = {"nav.up", "move the caret up a line", {.Text, .Surface}},
+    .Nav_Down            = {"nav.down", "move the caret down a line", {.Text, .Surface}},
+    .Nav_Left            = {"nav.left", "move the caret left a rune", {.Text, .Surface}},
+    .Nav_Right           = {"nav.right", "move the caret right a rune", {.Text, .Surface}},
     .Word_Left           = {"edit.word_left", "move the caret left a word", {.Text}},
     .Word_Right          = {"edit.word_right", "move the caret right a word", {.Text}},
     .Line_Home           = {"edit.home", "to the indent, then column 0", {.Text}},
@@ -148,6 +171,9 @@ COMMANDS := [Command]Command_Info {
     .Newline             = {"edit.newline", "split the line at the caret", {.Text}},
     .Tab                 = {"edit.tab", "insert a tab", {.Text}},
     .Select_All          = {"edit.select_all", "one selection over the whole document", {.Text}},
+    .Select_Expand       = {"select.expand", "select what point sits in, at the document's own granularity", {.Text, .Surface}},
+    .View_Scroll_Up      = {"view.scroll_up", "scroll the view toward the start; point stays put", {.Global}},
+    .View_Scroll_Down    = {"view.scroll_down", "scroll the view toward the end; point stays put", {.Global}},
     .Cut                 = {"edit.cut", "cut the selection, or the line, to the kill ring", {.Text, .Surface}},
     .Copy                = {"edit.copy", "copy the selection, or the line, to the kill ring", {.Text, .Surface}},
     .Paste               = {"edit.paste", "insert the newest kill-ring entry", {.Text, .Surface}},
@@ -239,6 +265,10 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     bind_put(&b, "ESC", {}, .Quit)
     bind_put(&b, "FK01", {}, .Describe_Key)
 
+    // Bare arrows move point in a SURFACE as well as in text: a listing's up and down is the
+    // same point move, and nothing else claims an unmodified arrow there. Ctrl and Alt arrows
+    // stay narrower, which is what leaves the terminal its own.
+    //
     // Letter chords are POSITIONS (QWERTY letters name them below); a layout swap keeps them
     // under the same fingers.
     bind_put(&b, "UP", {}, .Nav_Up)
@@ -298,6 +328,13 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     bind_put(&b, "AE10", {.Ctrl}, .Font_Reset) // ctrl+0
     bind_put(&b, "AB03", {.Alt}, .CL_Open) // alt+c
     bind_put(&b, "AC10", {.Alt}, .CL_Sigil) // alt+;
+
+    // The mouse, as ordinary rows (§8). A button chord has none: the kernel moves point before
+    // it dispatches one, so `click` with nothing bound already does the thing a click does, and
+    // a row is what a surface adds to make it do more.
+    bind_put(&b, "double-click", {}, .Select_Expand)
+    bind_put(&b, "wheel-up", {}, .View_Scroll_Up)
+    bind_put(&b, "wheel-down", {}, .View_Scroll_Down)
 
     // Surface claims: context-specific, so they shadow the global rows above (Esc must reach
     // vim inside the shell, never quit oket). Shift+Ctrl+Up extends via the Shift fallback.
@@ -432,8 +469,22 @@ describe_chord :: proc(
         phys = fmt.tprintf(" (%s)", phys)
     }
 
+    // A button chord moves point whether or not a row claims it, so an unbound one is still
+    // not a no-op and describe must not call it unbound (§8).
+    moves_point := false
+    if m, is_mouse := mouse_of(chord.code); is_mouse {
+        moves_point = mouse_moves_point(m)
+    }
+
     b, extend, bound := bind_lookup(binds, chord, ctx, kind)
     if !bound {
+        if moves_point {
+            return fmt.aprintf(
+                "%s moves point; nothing further is bound",
+                spelling,
+                allocator = allocator,
+            )
+        }
         if miss := ctx_miss(ctx); miss != .None {
             return fmt.aprintf(
                 "%s%s is unbound, falls through to %s: %s",
@@ -449,15 +500,18 @@ describe_chord :: proc(
     if line, is_line := b.target.(Bind_Line); is_line && line.stage {
         verb = "stages"
     }
+    if moves_point {
+        verb = fmt.tprintf("moves point, then %s", verb)
+    }
     return fmt.aprintf(
-        "%s%s %s %s: %s%s [%v, %s]",
+        "%s%s %s %s: %s%s [%s, %s]",
         spelling,
         phys,
         verb,
         name,
         doc,
         extend ? ", extending the selection" : "",
-        claimed,
+        CTX_NAMES[claimed],
         origin_label(b.origin),
         allocator = allocator,
     )

@@ -35,7 +35,7 @@ describe_names_the_command :: proc(t: ^testing.T) {
 
     s := input.describe_chord(binds[:], {esc, {}}, .Global, nil)
     defer delete(s)
-    testing.expect_value(t, s, "esc (@ESC) runs quit: close the window [Global, kernel default]")
+    testing.expect_value(t, s, "esc (@ESC) runs quit: close the window [global, kernel default]")
 
     // The same key with a modifier is a different chord, and says so.
     s2 := input.describe_chord(binds[:], {esc, {.Ctrl}}, .Global, nil)
