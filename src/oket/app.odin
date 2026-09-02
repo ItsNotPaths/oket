@@ -30,6 +30,9 @@ App :: struct {
     kinds:        [dynamic]Plug_Kind,
     cmds:         [dynamic]Plug_Cmd,
     insts:        map[store.Id]Plug_Inst,
+    // Style-token names, interned (tokens.odin). A span carries an id; the palette says what
+    // the id looks like, so a plugin never names a colour.
+    tokens:       [dynamic]Token_Def,
     cl:           Cmdline,
     chain:        Chain,
     job:          Job,
@@ -73,6 +76,7 @@ app_init :: proc(a: ^App) {
 app_destroy :: proc(a: ^App) {
     job_destroy(a)
     plug_destroy(a)
+    tokens_destroy(a)
     chain_clear(a)
     cl_destroy(a)
     ring_destroy(a)
