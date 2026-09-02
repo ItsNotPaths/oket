@@ -26,6 +26,11 @@ Store :: struct {
     slots:   [dynamic]Slot,
     free:    [dynamic]u32, // slots whose document closed, ready to be taken again
     pending: [dynamic]Txn,
+    // Tags of the transactions the last drain APPLIED, and the counter they come from. A
+    // submitter that has to know whether its own write landed cannot read it off the
+    // generation: a foreign write against the same generation moves it either way.
+    landed:  [dynamic]u64,
+    tag:     u64,
 }
 
 // The Doc is heap-allocated so growing `slots` cannot move it: the drain and the kernel both
@@ -42,6 +47,7 @@ Slot :: struct {
 Txn :: struct {
     id:    Id,
     gen:   u64,
+    tag:   u64,
     edits: []txt.Edit,
     desc:  ^desc.Descriptor, // nil = leave the descriptor as it stands
 }
@@ -60,6 +66,7 @@ store_destroy :: proc(s: ^Store) {
     delete(s.slots)
     delete(s.free)
     delete(s.pending)
+    delete(s.landed)
     s^ = {}
 }
 
@@ -132,7 +139,11 @@ store_snapshot :: proc(s: ^Store, id: Id) -> ^txt.Snapshot {
 
 // Queue a transaction. The text is cloned, so the caller's buffer may die the moment this
 // returns. Applied at the next store_drain, or dropped there if the document moved first.
-store_submit :: proc(s: ^Store, id: Id, gen: u64, edits: []txt.Edit, d: ^desc.Descriptor = nil) {
+//
+// The tag it answers names this transaction in store_landed, for a caller that has to tell its
+// own write from somebody else's. A caller that does not care ignores it.
+store_submit :: proc(s: ^Store, id: Id, gen: u64, edits: []txt.Edit,
+                     d: ^desc.Descriptor = nil) -> (tag: u64) {
     owned := make([]txt.Edit, len(edits))
     for e, i in edits {
         owned[i] = e
@@ -141,13 +152,21 @@ store_submit :: proc(s: ^Store, id: Id, gen: u64, edits: []txt.Edit, d: ^desc.De
     if d != nil {
         desc.retain(d)
     }
-    append(&s.pending, Txn{id, gen, owned, d})
+    s.tag += 1
+    append(&s.pending, Txn{id, gen, s.tag, owned, d})
+    return s.tag
+}
+
+// Which transactions the last drain applied. Valid until the next one.
+store_landed :: proc(s: ^Store) -> []u64 {
+    return s.landed[:]
 }
 
 // The one point in the frame writes land (§6). A transaction whose document has moved since it
 // was written is dropped whole rather than merged: its author re-reads and retries, and §7's
 // client library is where that loop lives so no plugin author writes one.
 store_drain :: proc(s: ^Store) -> (applied, stale: int) {
+    clear(&s.landed)
     for t in s.pending {
         defer txn_destroy(t)
         slot, ok := resolve(s, t.id)
@@ -161,6 +180,7 @@ store_drain :: proc(s: ^Store) -> (applied, stale: int) {
             desc.retain(t.desc)
             slot.desc = t.desc
         }
+        append(&s.landed, t.tag)
         applied += 1
     }
     clear(&s.pending)
