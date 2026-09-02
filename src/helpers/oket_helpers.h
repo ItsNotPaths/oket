@@ -168,7 +168,7 @@ typedef struct {
     oket_column *columns;
     size_t       ncolumns, columns_cap;
     int32_t      line; /* the row being built */
-    size_t       row_start;
+    size_t       row_start, cell_start;
     int          oom;
 } oket_build;
 

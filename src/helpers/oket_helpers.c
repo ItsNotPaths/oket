@@ -555,27 +555,27 @@ void oket_build_span(oket_build *b, const char *name, size_t lo, size_t hi) {
     f->name = name;
     f->name_len = strlen(name);
     f->line = b->line;
-    /* The row's own start, so a field's offsets are from the line and not from the document. */
-    f->lo = (int32_t)(b->row_start + lo);
-    f->hi = (int32_t)(b->row_start + hi);
+    /* Cell-relative in, line-relative out, which is what a Field's offsets are. The document
+     * offset never appears on either side. */
+    f->lo = (int32_t)(b->cell_start + lo);
+    f->hi = (int32_t)(b->cell_start + hi);
     memset(f->_pad, 0, sizeof f->_pad);
 }
 
 void oket_build_cell(oket_build *b, const char *name, const char *text, size_t len) {
-    size_t at;
-
     if (b->len > b->row_start) {
         put(b, "\t", 1);
     }
-    at = b->len - b->row_start;
+    b->cell_start = b->len - b->row_start;
     put(b, text, len);
-    oket_build_span(b, name, at, at + len);
+    oket_build_span(b, name, 0, len);
 }
 
 void oket_build_row(oket_build *b) {
     put(b, "\n", 1);
     b->line++;
     b->row_start = b->len;
+    b->cell_start = 0;
 }
 
 void oket_build_desc(oket_build *b, oket_descriptor *d) {
