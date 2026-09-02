@@ -70,6 +70,23 @@ Selection :: enum u8 {
     None,
 }
 
+// Who published a style run (§5's `spans`, §9). Fixed priority, lowest first: a diagnostic
+// outranks syntax, a search hit outranks both, and the store merges in this order so nothing
+// merges by hand.
+//
+// Here rather than in the store, which owns the runs, because the SEAM names it too and the
+// seam mirrors txt's layouts rather than importing them (`plug_read.odin`'s size asserts).
+// Both sides already read their vocabulary out of this package.
+//
+// Selection is not a layer. The kernel owns the cursors and the renderer reads them straight,
+// so a layer for it would be a second copy of the same truth.
+Layer :: enum u8 {
+    Syntax,
+    Semantic,
+    Diagnostic,
+    Search,
+}
+
 Column :: struct {
     name:  string,
     width: int,

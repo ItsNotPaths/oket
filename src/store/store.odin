@@ -38,20 +38,25 @@ Store :: struct {
 // hold ^txt.Doc across calls.
 @(private)
 Slot :: struct {
-    seq:  u32,
-    doc:  ^txt.Doc, // nil = closed
-    desc: ^desc.Descriptor,
-    seen: u64, // the highest generation store_check has seen; it may never go backwards
+    seq:   u32,
+    doc:   ^txt.Doc, // nil = closed
+    desc:  ^desc.Descriptor,
+    seen:  u64, // the highest generation store_check has seen; it may never go backwards
+    spans: [Layer][dynamic]Span, // the style layers (spans.odin)
 }
 
-// One transaction against the generation its author read. Owns its edits and their text, and
-// the descriptor it publishes, until the drain applies it. Spans arrive at stage 11.
+// One transaction against the generation its author read. Owns its edits and their text, the
+// descriptor it publishes and the spans it publishes, until the drain applies it.
+//
+// All three ride together on purpose: the runs and the text they cover land at ONE generation,
+// so nothing ever paints a colour against bytes it was not measured over.
 Txn :: struct {
     id:    Id,
     gen:   u64,
     tag:   u64,
     edits: []txt.Edit,
     desc:  ^desc.Descriptor, // nil = leave the descriptor as it stands
+    spans: Maybe(Spans),     // nil = leave every layer as it stands
 }
 
 store_destroy :: proc(s: ^Store) {
@@ -60,6 +65,9 @@ store_destroy :: proc(s: ^Store) {
             txt.doc_destroy(slot.doc)
             free(slot.doc)
             desc.release(slot.desc)
+        }
+        for &list in slot.spans {
+            delete(list)
         }
     }
     for t in s.pending {
@@ -88,6 +96,9 @@ store_open :: proc(s: ^Store, text := "") -> Id {
     s.slots[slot].doc = d
     s.slots[slot].desc = desc.new_from(desc.DEFAULT)
     s.slots[slot].seen = 0 // a new document, so store_check's high-water mark starts again
+    for &list in s.slots[slot].spans {
+        clear(&list) // the slot may be a reused one, and its colours were somebody else's
+    }
     return Id{slot, s.slots[slot].seq}
 }
 
@@ -98,6 +109,9 @@ store_close :: proc(s: ^Store, id: Id) -> bool {
     txt.doc_destroy(slot.doc)
     free(slot.doc)
     desc.release(slot.desc)
+    for &list in slot.spans {
+        clear(&list)
+    }
     slot.doc = nil
     slot.desc = nil
     slot.seq += 1
@@ -117,6 +131,14 @@ store_doc :: proc(s: ^Store, id: Id) -> ^txt.Doc {
     return ok ? slot.doc : nil
 }
 
+// The same privilege for the style layers: the terminal writes its text through store_doc and
+// its colours through here, at one point in its own pump. A plugin has neither and publishes
+// through store_submit, where the drain lands the runs and the bytes at one generation.
+store_spans_publish :: proc(s: ^Store, id: Id, pub: Spans) -> bool {
+    slot := resolve(s, id) or_return
+    return spans_apply(slot, pub)
+}
+
 // A reference the caller owns and must release, taken at the same point as the snapshot it
 // pairs with. Immutable, so it stays readable however the document moves (§5).
 store_descriptor :: proc(s: ^Store, id: Id) -> ^desc.Descriptor {
@@ -126,6 +148,18 @@ store_descriptor :: proc(s: ^Store, id: Id) -> ^desc.Descriptor {
     }
     desc.retain(slot.desc)
     return slot.desc
+}
+
+// Every open document, in slot order. What a watcher is told about (§7): a plugin that draws
+// nothing has no instance of its own, so this is the only way it hears that work exists.
+store_ids :: proc(s: ^Store, alloc := context.temp_allocator) -> []Id {
+    out := make([dynamic]Id, 0, len(s.slots), alloc)
+    for slot, i in s.slots {
+        if slot.doc != nil {
+            append(&out, Id{u32(i), slot.seq})
+        }
+    }
+    return out[:]
 }
 
 store_gen :: proc(s: ^Store, id: Id) -> (gen: u64, ok: bool) {
@@ -146,7 +180,7 @@ store_snapshot :: proc(s: ^Store, id: Id) -> ^txt.Snapshot {
 // The tag it answers names this transaction in store_landed, for a caller that has to tell its
 // own write from somebody else's. A caller that does not care ignores it.
 store_submit :: proc(s: ^Store, id: Id, gen: u64, edits: []txt.Edit,
-                     d: ^desc.Descriptor = nil) -> (tag: u64) {
+                     d: ^desc.Descriptor = nil, spans: Maybe(Spans) = nil) -> (tag: u64) {
     owned := make([]txt.Edit, len(edits))
     for e, i in edits {
         owned[i] = e
@@ -155,8 +189,13 @@ store_submit :: proc(s: ^Store, id: Id, gen: u64, edits: []txt.Edit,
     if d != nil {
         desc.retain(d)
     }
+    kept := spans
+    if pub, publishing := spans.?; publishing {
+        pub.list = slice.clone(pub.list)
+        kept = pub
+    }
     s.tag += 1
-    append(&s.pending, Txn{id, gen, s.tag, owned, d})
+    append(&s.pending, Txn{id, gen, s.tag, owned, d, kept})
     return s.tag
 }
 
@@ -178,6 +217,9 @@ store_drain :: proc(s: ^Store) -> (applied, stale: int) {
             continue
         }
         txt.doc_commit(slot.doc, t.edits, regen_cursors(slot))
+        if pub, publishing := t.spans.?; publishing {
+            spans_apply(slot, pub)
+        }
         if t.desc != nil {
             desc.release(slot.desc)
             desc.retain(t.desc)
@@ -230,7 +272,7 @@ regen_cursors :: proc(slot: ^Slot) -> []txt.Cursor {
     return slice.clone(slot.doc.cursors[:], context.temp_allocator)
 }
 
-@(private = "file")
+@(private)
 resolve :: proc(s: ^Store, id: Id) -> (^Slot, bool) {
     if int(id.slot) >= len(s.slots) {
         return nil, false
@@ -249,4 +291,7 @@ txn_destroy :: proc(t: Txn) {
     }
     delete(t.edits)
     desc.release(t.desc)
+    if pub, publishing := t.spans.?; publishing {
+        delete(pub.list)
+    }
 }
