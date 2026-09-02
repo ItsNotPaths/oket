@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# Builds one tree-sitter grammar into oket's grammars directory.
+#
+# The syntax plugin READS grammars; it does not fetch them. That split is deliberate: fetching
+# and compiling is a shell script's job, and reaching it needs no seam call at all, because a
+# command line already chains a shell step to a plugin command (PLAN.md §7):
+#
+#     :oket-grammar json https://github.com/tree-sitter/tree-sitter-json && :grammar ready json
+#
+# usage: oket-grammar <name> <repo-url-or-directory> [rev] [subpath]
+#
+#   name       what the plugin will look for: <grammars>/<name>.so and <name>.scm. An
+#              extension picks it, so a .json file wants the grammar called `json`.
+#   repo       a git URL, or a directory already on this machine — which is what makes a
+#              test, and an offline build, possible.
+#   rev        a commit to fetch, or empty for the default branch.
+#   subpath    where the grammar sits inside the repo, for the repos that hold several.
+#
+# The destination is $OKET_GRAMMARS, else $OKET_HOME/grammars, else grammars/ beside this
+# script — the same three answers the plugin asks in the same order.
+set -euo pipefail
+
+NAME="${1:?usage: oket-grammar <name> <repo-or-dir> [rev] [subpath]}"
+REPO="${2:?usage: oket-grammar <name> <repo-or-dir> [rev] [subpath]}"
+REV="${3:-}"
+SUB="${4:-}"
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+DIR="${OKET_GRAMMARS:-${OKET_HOME:+$OKET_HOME/grammars}}"
+DIR="${DIR:-$HERE/grammars}"
+CC=${CC:-cc}
+CXX=${CXX:-c++}
+
+mkdir -p "$DIR"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+if [ -d "$REPO" ]; then
+    ROOT="$(cd "$REPO" && pwd)"
+elif [ -n "$REV" ]; then
+    git init -q "$TMP/src"
+    git -C "$TMP/src" remote add origin "$REPO"
+    git -C "$TMP/src" fetch -q --depth 1 origin "$REV"
+    git -C "$TMP/src" checkout -q FETCH_HEAD
+    ROOT="$TMP/src"
+else
+    git clone -q --depth 1 "$REPO" "$TMP/src"
+    ROOT="$TMP/src"
+fi
+[ -n "$SUB" ] && ROOT="$ROOT/$SUB"
+
+SRC="$ROOT/src"
+if [ ! -f "$SRC/parser.c" ]; then
+    echo "oket-grammar: no src/parser.c in $REPO" >&2
+    exit 1
+fi
+
+# A C++ external scanner has to be linked by the C++ driver; a C one goes in with the parser.
+# Everything else is one translation unit and no build system.
+if [ -f "$SRC/scanner.cc" ]; then
+    $CC -c -O2 -fPIC -I"$SRC" "$SRC/parser.c" -o "$TMP/p.o"
+    $CXX -c -O2 -fPIC -I"$SRC" "$SRC/scanner.cc" -o "$TMP/s.o"
+    $CXX -shared "$TMP/p.o" "$TMP/s.o" -o "$TMP/$NAME.so"
+elif [ -f "$SRC/scanner.c" ]; then
+    $CC -shared -O2 -fPIC -I"$SRC" "$SRC/parser.c" "$SRC/scanner.c" -o "$TMP/$NAME.so"
+else
+    $CC -shared -O2 -fPIC -I"$SRC" "$SRC/parser.c" -o "$TMP/$NAME.so"
+fi
+
+# No query means it parses and does not colour. Worth saying, not worth failing.
+QUERY="$ROOT/queries/highlights.scm"
+if [ -f "$QUERY" ]; then
+    cp "$QUERY" "$DIR/$NAME.scm"
+else
+    echo "oket-grammar: no queries/highlights.scm in $REPO: it parses but will not colour" >&2
+    rm -f "$DIR/$NAME.scm"
+fi
+
+# Moved into place last, so a half-built grammar is never one the plugin can dlopen.
+mv "$TMP/$NAME.so" "$DIR/$NAME.so"
+echo "installed $NAME in $DIR"

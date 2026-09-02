@@ -31,9 +31,11 @@ done
 # library under ../src/helpers; beside a shipped oket there is one include directory.
 HERE="$(cd "$(dirname "$0")" && pwd)"
 if [ -d "$HERE/../src/helpers" ]; then
-    SEAM="$(cd "$HERE/../src/plug" && pwd)"
-    HELPERS="$(cd "$HERE/../src/helpers" && pwd)"
+    ROOT="$(cd "$HERE/.." && pwd)"
+    SEAM="$ROOT/src/plug"
+    HELPERS="$ROOT/src/helpers"
 elif [ -d "$HERE/helpers" ]; then
+    ROOT="$HERE"
     SEAM="$HERE/helpers"
     HELPERS="$HERE/helpers"
 else
@@ -42,7 +44,8 @@ else
 fi
 
 # A plugin that links something vendored says so in build.flags, one line of cc flags in its
-# own directory — the alternative is stage.sh growing a case per plugin.
+# own directory, with $ROOT standing for the tree above this script — the alternative is
+# stage.sh growing a case per plugin.
 FLAGS=""
 if [ -f "$SRC/build.flags" ]; then
     FLAGS="$(eval echo "$(cat "$SRC/build.flags")")"

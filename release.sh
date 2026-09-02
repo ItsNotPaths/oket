@@ -79,6 +79,15 @@ if [ $DO_LOCAL -eq 1 ]; then
     cp "$PROJECT_DIR"/src/plug/oket.h "$PROJECT_DIR"/src/helpers/*.h \
        "$PROJECT_DIR"/src/helpers/*.c "$RELEASE_DIR/helpers/"
     cp "$PROJECT_DIR/plugins/stage.sh" "$RELEASE_DIR/stage.sh"
+    # The syntax plugin links tree-sitter, and its build.flags names $ROOT/vendor — which is
+    # the release directory in this layout. Shipped so `:pluginify` can rebuild it beside the
+    # binary, the same as every other plugin.
+    mkdir -p "$RELEASE_DIR/vendor/tree-sitter"
+    cp -r "$PROJECT_DIR/vendor/tree-sitter/lib" "$RELEASE_DIR/vendor/tree-sitter/lib"
+    cp "$PROJECT_DIR/vendor/tree-sitter/libtree-sitter.a" "$RELEASE_DIR/vendor/tree-sitter/"
+    # Grammars are fetched and built on the machine that wants one (§11), and this is what
+    # does it. Beside the binary, so a shell step reaches it by name.
+    cp "$PROJECT_DIR/tools/oket-grammar" "$RELEASE_DIR/oket-grammar"
     PLUGIN_FLAGS=""
     [ $DO_ASAN -eq 1 ] && PLUGIN_FLAGS="--asan"
     for src in "$PROJECT_DIR"/plugins/*/; do

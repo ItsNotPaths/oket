@@ -1,0 +1,1 @@
+-I$ROOT/vendor/tree-sitter/lib/include $ROOT/vendor/tree-sitter/libtree-sitter.a
