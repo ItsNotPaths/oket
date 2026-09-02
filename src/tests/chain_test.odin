@@ -174,6 +174,26 @@ a_shell_step_reports_to_the_system_session :: proc(t: ^testing.T) {
     testing.expect(t, app.lane_first(&a.ring, 0) != 0, ":close never ran")
 }
 
+// A failing step whose output the chain was reading does NOT throw you to N#: the answer was
+// going into the document you are looking at, and a terminal is the wrong place to be told.
+// The bar says it instead. An uncaptured failure still surfaces, which is the test above.
+@(test)
+a_failure_the_chain_was_reading_reports_rather_than_surfaces :: proc(t: ^testing.T) {
+    a, ok := bare_app(60, 6)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    id := app.text_open(&a.docs, "note", "keep me")
+    app.ring_add(&a, id)
+    run_line(&a, "false | :put")
+
+    testing.expect(t, a.ring.focused != app.SLOT_SYSTEM, "a chain feeding :put must not jump to N#")
+    testing.expect_value(t, a.message, "the shell step exited 1")
+    testing.expect_value(t, doc_text(&a, id), "keep me") // && short-circuited, so :put never ran
+}
+
 // A bare `exit` ends the session's shell itself: a step is not wrapped in a subshell (`cd`
 // must work at the top level), so the report never comes and the death is the answer. The
 // chain stops, N# surfaces its last screen, and the next step gets a fresh shell.
