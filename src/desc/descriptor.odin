@@ -108,6 +108,9 @@ Descriptor :: struct {
     tab_width: int,
     columns:   []Column,
     fields:    []Field,
+    // How deep each line sits, indexed by line (§5). One field carries a file tree, an outline
+    // and folding; a line past the end is depth 0, so a flat document publishes none of it.
+    depth:     []int,
 }
 
 DEFAULT :: Descriptor {
@@ -138,6 +141,7 @@ new_from :: proc(d: Descriptor) -> ^Descriptor {
     for &f in out.fields {
         f.name = strings.clone(f.name)
     }
+    out.depth = slice.clone(d.depth)
     slice.stable_sort_by(out.fields, proc(a, b: Field) -> bool {return a.line < b.line})
     return out
 }
@@ -159,7 +163,14 @@ release :: proc(d: ^Descriptor) {
     delete(d.file)
     delete(d.columns)
     delete(d.fields)
+    delete(d.depth)
     free(d)
+}
+
+// The indent level of a line. Total, because the renderer asks for every line it draws and a
+// document that carries no depth at all is the common case.
+line_depth :: proc(d: ^Descriptor, line: int) -> int {
+    return line >= 0 && line < len(d.depth) ? max(d.depth[line], 0) : 0
 }
 
 // Every field on one line, in the order they were given.

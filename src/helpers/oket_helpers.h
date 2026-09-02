@@ -167,6 +167,8 @@ typedef struct {
     size_t       nfields, fields_cap;
     oket_column *columns;
     size_t       ncolumns, columns_cap;
+    int32_t     *depth;
+    size_t       ndepth, depth_cap;
     int32_t      line; /* the row being built */
     size_t       row_start, cell_start;
     int          oom;
@@ -184,6 +186,10 @@ void oket_build_cell(oket_build *b, const char *name, const char *text, size_t l
  * PATH, say, so a row DRAWS the tail and ACTS on the whole (§14). The offsets are from the
  * start of that cell. */
 void oket_build_span(oket_build *b, const char *name, size_t lo, size_t hi);
+
+/* Sets how deep the current row sits. A tree, an outline and folding are this one number: the
+ * kernel draws the indent, so nothing here writes padding into the text a bind reads. */
+void oket_build_depth(oket_build *b, int32_t depth);
 
 /* Ends the current row and starts the next. */
 void oket_build_row(oket_build *b);

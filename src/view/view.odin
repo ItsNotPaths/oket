@@ -26,6 +26,15 @@ columnar :: proc(d: ^desc.Descriptor) -> bool {
     return len(d.columns) > 0
 }
 
+// Cells of indent a line draws at (§5). ONE rule for both arms: the whole row moves in, the
+// line's own text in one and its columns in the other, so a tree, an outline and a folded
+// region are the same number and no column is a special case. The unit is the document's own
+// tab width, so a tree says how wide a level is by saying what a tab is worth.
+@(private)
+indent :: proc(d: ^desc.Descriptor, width, line: int) -> int {
+    return min(desc.line_depth(d, line) * d.tab_width, max(width - 1, 0))
+}
+
 // A run of cells that draw in colours of their own. Byte offsets from the line's start, like a
 // Field, and sorted by line so a lookup is a binary search and a short scan.
 //
@@ -68,10 +77,12 @@ draw :: proc(
     for r, i in rows(t, d, v.top, body, h) {
         src := txt.text_line(t, r.line, context.temp_allocator)
         clipped := scrolled(r, src, v.left, d.tab_width)
+        ind := indent(d, body, r.line)
         put_number(g, th, d, v, x, y + i, gut, r)
-        run(g, x + gut, y + i, src[clipped.lo:clipped.hi], body, d.tab_width, th[.Fg], th[.Bg])
-        restyle(g, d, x + gut, y + i, body, clipped, src, styles)
-        mark_point(g, d, v, x + gut, y + i, body, clipped, src)
+        left := x + gut + ind
+        run(g, left, y + i, src[clipped.lo:clipped.hi], body - ind, d.tab_width, th[.Fg], th[.Bg])
+        restyle(g, d, left, y + i, body - ind, clipped, src, styles)
+        mark_point(g, d, v, left, y + i, body - ind, clipped, src)
     }
 }
 
@@ -128,13 +139,16 @@ rows :: proc(
     out := make([dynamic]Row, 0, limit, alloc)
     for line := max(from, 0); line < txt.text_line_count(t) && len(out) < limit; line += 1 {
         src := txt.text_line(t, line, alloc)
-        if d.wrap == .None || width <= 0 || len(src) == 0 {
+        // An indented line wraps in what is left of the row, and every row it takes is indented
+        // — a hanging indent, and the reason the width is per line rather than per document.
+        avail := width - indent(d, width, line)
+        if d.wrap == .None || avail <= 0 || len(src) == 0 {
             append(&out, Row{line, 0, len(src), true})
             continue
         }
         off, first := 0, true
         for off < len(src) && len(out) < limit {
-            end := off + run(nil, 0, 0, src[off:], width, d.tab_width, {}, {})
+            end := off + run(nil, 0, 0, src[off:], avail, d.tab_width, {}, {})
             if end < len(src) && d.wrap == .Word {
                 end = word_break(src, off, end)
             }
@@ -286,7 +300,7 @@ draw_columns :: proc(
                 mark(g, x + gut, y + i, 0, w - gut)
             }
         }
-        col := x + gut
+        col := x + gut + indent(d, w - gut, line)
         for c in d.columns {
             left := x + w - col
             if left <= 0 {
@@ -422,7 +436,8 @@ locate :: proc(
     col := max(cx - x - gut, 0) // the gutter reads as column 0, so a click there still picks the line
 
     if columnar(d) {
-        return locate_columns(t, d, v.top + cy - y, col)
+        line := v.top + cy - y
+        return locate_columns(t, d, line, col - indent(d, body, line))
     }
 
     rs := rows(t, d, v.top, body, h)
@@ -431,6 +446,7 @@ locate :: proc(
     }
     src := txt.text_line(t, rs[cy - y].line, context.temp_allocator)
     r := scrolled(rs[cy - y], src, v.left, d.tab_width)
+    col = max(col - indent(d, body, r.line), 0)
     p = {r.line, r.lo + byte_of(src[r.lo:r.hi], col, d.tab_width)}
     for f in desc.line_fields(d, r.line) {
         if p.col >= f.lo && p.col < f.hi {
@@ -534,7 +550,7 @@ underline :: proc(
         if row < 0 || row >= h {
             return
         }
-        at := 0
+        at := indent(d, body, line)
         for c in d.columns {
             a, b, named := desc.field_span(d, line, c.name)
             if named && a == lo && b == hi {
@@ -555,7 +571,8 @@ underline :: proc(
         src := txt.text_line(t, r.line, context.temp_allocator)[r.lo:r.hi]
         a := clamp(lo, r.lo, r.hi) - r.lo
         b := clamp(hi, r.lo, r.hi) - r.lo
-        mark(g, x + gut, y + i, cell_of(src, a, d.tab_width),
-             min(cell_of(src, b, d.tab_width), body), {.Underline})
+        ind := indent(d, body, r.line)
+        mark(g, x + gut + ind, y + i, cell_of(src, a, d.tab_width),
+             min(cell_of(src, b, d.tab_width), body - ind), {.Underline})
     }
 }

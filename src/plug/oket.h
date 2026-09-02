@@ -29,7 +29,7 @@
 extern "C" {
 #endif
 
-#define OKET_API 1
+#define OKET_API 2
 
 /* A plugin exports exactly this, and hidden visibility keeps everything else in. */
 #define OKET_EXPORT __attribute__((visibility("default")))
@@ -125,6 +125,10 @@ typedef struct oket_descriptor {
     size_t             ncolumns;
     const oket_field  *fields;
     size_t             nfields;
+    /* One per LINE, dense and in line order, unlike the fields above. A short array leaves the
+     * rest of the document at depth 0. */
+    const int32_t     *depth;
+    size_t             ndepth;
     oket_kind          kind;
     int32_t            tab_width;
     uint8_t render, wrap, numbers, selection, follow, input, mouse, editable;
@@ -255,7 +259,7 @@ _Static_assert(sizeof(oket_cursor) == 40, "oket_cursor");
 _Static_assert(sizeof(oket_snapshot) == 128, "oket_snapshot");
 _Static_assert(sizeof(oket_column) == 24, "oket_column");
 _Static_assert(sizeof(oket_field) == 32, "oket_field");
-_Static_assert(sizeof(oket_descriptor) == 64, "oket_descriptor");
+_Static_assert(sizeof(oket_descriptor) == 80, "oket_descriptor");
 _Static_assert(sizeof(oket_edit) == 32, "oket_edit");
 _Static_assert(sizeof(oket_at) == 24, "oket_at");
 _Static_assert(sizeof(oket_kind_spec) == 56, "oket_kind_spec");

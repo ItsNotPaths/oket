@@ -24,7 +24,7 @@ import "../input"
 // pointer, with no lock and no call back in (§6). Adding a field is a struct field, not a
 // message.
 
-API :: 1
+API :: 2
 
 // A plugin's own identity, handed back on every call so a plugin needs no state of its own.
 // Index plus load generation, packed: a handle kept across a reload resolves to nothing rather
@@ -122,6 +122,10 @@ Descriptor :: struct {
     ncolumns:  c.size_t,
     fields:    [^]Field,
     nfields:   c.size_t,
+    // One per LINE, dense and in line order, unlike the fields above. A short array leaves the
+    // rest of the document at depth 0.
+    depth:     [^]c.int32_t,
+    ndepth:    c.size_t,
     kind:      input.Kind,
     tab_width: c.int32_t,
     render:    desc.Render,
@@ -252,7 +256,7 @@ Entry_Fn :: #type proc "c" (api: ^Api, self: Self) -> c.int32_t
 #assert(size_of(Snapshot) == 128)
 #assert(size_of(Column) == 24)
 #assert(size_of(Field) == 32)
-#assert(size_of(Descriptor) == 64)
+#assert(size_of(Descriptor) == 80)
 #assert(size_of(Edit) == 32)
 #assert(size_of(At) == 24)
 #assert(size_of(Kind_Spec) == 56)

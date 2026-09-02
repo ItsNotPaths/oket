@@ -571,6 +571,19 @@ void oket_build_cell(oket_build *b, const char *name, const char *text, size_t l
     oket_build_span(b, name, 0, len);
 }
 
+void oket_build_depth(oket_build *b, int32_t depth) {
+    size_t want = (size_t)b->line + 1;
+
+    if (!grow(&b->oom, (void **)&b->depth, &b->depth_cap, want, sizeof *b->depth)) {
+        return;
+    }
+    /* Dense and in line order, so a row that says nothing leaves a zero behind it. */
+    while (b->ndepth < want) {
+        b->depth[b->ndepth++] = 0;
+    }
+    b->depth[b->line] = depth;
+}
+
 void oket_build_row(oket_build *b) {
     put(b, "\n", 1);
     b->line++;
@@ -583,12 +596,15 @@ void oket_build_desc(oket_build *b, oket_descriptor *d) {
     d->ncolumns = b->ncolumns;
     d->fields = b->fields;
     d->nfields = b->nfields;
+    d->depth = b->depth;
+    d->ndepth = b->ndepth;
 }
 
 void oket_build_free(oket_build *b) {
     free(b->text);
     free(b->fields);
     free(b->columns);
+    free(b->depth);
     memset(b, 0, sizeof *b);
 }
 

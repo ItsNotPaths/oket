@@ -30,6 +30,7 @@ Plug_View :: struct {
     d:    ^desc.Descriptor,
     cols: []plug.Column,
     flds: []plug.Field,
+    dpth: []c.int32_t,
     curs: []plug.Cursor,
 }
 
@@ -80,6 +81,7 @@ view_free :: proc(v: ^Plug_View) {
     desc.release(v.d)
     delete(v.cols)
     delete(v.flds)
+    delete(v.dpth)
     delete(v.curs)
     free(v)
 }
@@ -100,6 +102,10 @@ view_desc :: proc(v: ^Plug_View) -> ^plug.Descriptor {
     for f, i in d.fields {
         v.flds[i] = {raw_data(f.name), len(f.name), i32(f.line), i32(f.lo), i32(f.hi), {}}
     }
+    v.dpth = make([]c.int32_t, len(d.depth))
+    for n, i in d.depth {
+        v.dpth[i] = i32(n)
+    }
     v.dv = {
         file      = raw_data(d.file),
         file_len  = len(d.file),
@@ -107,6 +113,8 @@ view_desc :: proc(v: ^Plug_View) -> ^plug.Descriptor {
         ncolumns  = len(v.cols),
         fields    = raw_data(v.flds),
         nfields   = len(v.flds),
+        depth     = raw_data(v.dpth),
+        ndepth    = len(v.dpth),
         kind      = d.kind,
         tab_width = i32(d.tab_width),
         render    = d.render,
@@ -144,6 +152,10 @@ plug_desc_take :: proc(a: ^App, id: store.Id, p: ^plug.Descriptor) -> ^desc.Desc
     for f, i in p.fields[:p.nfields] {
         flds[i] = {int(f.line), string(f.name[:f.name_len]), int(f.lo), int(f.hi)}
     }
+    dpth := make([]int, p.ndepth, context.temp_allocator)
+    for n, i in p.depth[:p.ndepth] {
+        dpth[i] = int(n)
+    }
     return desc.new_from(
         {
             render    = render,
@@ -160,6 +172,7 @@ plug_desc_take :: proc(a: ^App, id: store.Id, p: ^plug.Descriptor) -> ^desc.Desc
             tab_width = int(p.tab_width),
             columns   = cols,
             fields    = flds,
+            depth     = dpth,
         },
     )
 }
