@@ -9,7 +9,7 @@ One renderer, owned by the kernel. Plugins never draw.
 
 ## Status
 
-Stage 7 of 13. The kernel opens a window, keeps a store of documents, and draws one of them
+Stage 8 of 13. The kernel opens a window, keeps a store of documents, and draws one of them
 through its descriptor. Input funnels through one bind table that answers for keys and clicks
 alike. There is a numbered ring per document kind, a command line, and command chains: a chord
 can run a shell pipeline over the file under the pointer with no plugin and no build.
@@ -31,8 +31,23 @@ call is stripped.
 ./plugins/stage.sh plugins/hello build/plugins   # or `:pluginify plugins/hello`
 ```
 
-No editing by keystroke yet — that is stage 8, where the editor arrives as a plugin with no
-privileged path, and where the seam either holds or gets redesigned.
+The editor is a plugin, and the kernel has no text kind of its own: `:open` hands a regular
+file to whoever registered the `edit` kind, and with nothing loaded it says so. The seam held.
+
+```sh
+:plug load edit        # or :pluginify plugins/edit while you are working on it
+:open src/oket/app.odin
+```
+
+What the plugin owns is what is genuinely an editor's: reading a file in, writing it back with
+`:w`, what a typed rune means, and the two verbs that are policy rather than storage — a
+newline that keeps the indent and a Tab that lands on the next stop. Both are ordinary rows it
+ASKED for, sitting in `binds.conf` under `[edit]` and shadowing the kernel's plain ones.
+
+Everything else an editor needs it gets for free, because the kernel already owns it for every
+document: motion, selection, the viewport, undo, and the plain delete verbs. A rune is the one
+input the bind table never sees, so it is the one thing the kernel refuses to interpret — a
+kernel self-insert would be an editing policy no row names and nothing can rebind.
 
 Oket supersedes `../okette`, which works and is kept beside this tree as the source of the
 salvage. The reasoning behind the split, the build order and the open questions are in
