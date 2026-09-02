@@ -467,15 +467,44 @@ size_t oket_col_bytes(const oket_snapshot *s, size_t line, size_t cell, size_t t
     return col_walk(s, lo, hi, cell, tab_width, &cells) - lo;
 }
 
+/* --- cursors --- */
+
+size_t oket_pos_off(const oket_snapshot *s, oket_pos p) {
+    size_t lo, hi, at;
+
+    if (p.line < 0) {
+        return 0;
+    }
+    oket_line_range(s, (size_t)p.line, &lo, &hi);
+    if (p.col <= 0) {
+        return lo;
+    }
+    at = lo + (size_t)p.col;
+    return at > hi ? hi : at;
+}
+
+void oket_cursor_span(const oket_snapshot *s, size_t i, size_t *lo, size_t *hi) {
+    size_t a, b;
+
+    if (i >= s->ncursors) {
+        *lo = *hi = 0;
+        return;
+    }
+    a = oket_pos_off(s, s->cursors[i].anchor);
+    b = oket_pos_off(s, s->cursors[i].head);
+    *lo = a < b ? a : b;
+    *hi = a < b ? b : a;
+}
+
 /* --- the descriptor builder --- */
 
 /* One growth policy for all three arrays. `oom` latches: a builder that failed once keeps
  * failing, so a caller checks it at the end rather than after every append. */
-static int grow(oket_build *b, void **arr, size_t *cap, size_t need, size_t item) {
+static int grow(int *oom, void **arr, size_t *cap, size_t need, size_t item) {
     size_t want = *cap ? *cap : 16;
     void *bigger;
 
-    if (b->oom) {
+    if (*oom) {
         return 0;
     }
     if (need <= *cap) {
@@ -486,7 +515,7 @@ static int grow(oket_build *b, void **arr, size_t *cap, size_t need, size_t item
     }
     bigger = realloc(*arr, want * item);
     if (bigger == NULL) {
-        b->oom = 1;
+        *oom = 1;
         return 0;
     }
     *arr = bigger;
@@ -495,7 +524,7 @@ static int grow(oket_build *b, void **arr, size_t *cap, size_t need, size_t item
 }
 
 static void put(oket_build *b, const char *s, size_t len) {
-    if (!grow(b, (void **)&b->text, &b->cap, b->len + len, 1)) {
+    if (!grow(&b->oom, (void **)&b->text, &b->cap, b->len + len, 1)) {
         return;
     }
     memcpy(b->text + b->len, s, len);
@@ -505,7 +534,7 @@ static void put(oket_build *b, const char *s, size_t len) {
 void oket_build_column(oket_build *b, const char *name, int32_t width, oket_align align) {
     oket_column *c;
 
-    if (!grow(b, (void **)&b->columns, &b->columns_cap, b->ncolumns + 1, sizeof *b->columns)) {
+    if (!grow(&b->oom, (void **)&b->columns, &b->columns_cap, b->ncolumns + 1, sizeof *b->columns)) {
         return;
     }
     c = &b->columns[b->ncolumns++];
@@ -519,7 +548,7 @@ void oket_build_column(oket_build *b, const char *name, int32_t width, oket_alig
 void oket_build_span(oket_build *b, const char *name, size_t lo, size_t hi) {
     oket_field *f;
 
-    if (!grow(b, (void **)&b->fields, &b->fields_cap, b->nfields + 1, sizeof *b->fields)) {
+    if (!grow(&b->oom, (void **)&b->fields, &b->fields_cap, b->nfields + 1, sizeof *b->fields)) {
         return;
     }
     f = &b->fields[b->nfields++];
@@ -595,4 +624,49 @@ void oket_set(const oket_api *api, oket_self self, oket_doc doc,
     e.text_len = len;
     api->submit(api, self, doc, s->gen, &e, 1, d);
     api->release(api, self, s);
+}
+
+/* --- writing several places at once --- */
+
+void oket_batch_edit(oket_batch *b, size_t lo, size_t hi, const char *text, size_t len) {
+    oket_edit *e;
+    char *own = NULL;
+
+    if (!grow(&b->oom, (void **)&b->edits, &b->cap, b->n + 1, sizeof *b->edits)) {
+        return;
+    }
+    /* The edit owns its text until the submit copies it, so two carets may take two different
+     * strings — which is what an indent-aware newline needs. */
+    if (len > 0) {
+        own = malloc(len);
+        if (own == NULL) {
+            b->oom = 1;
+            return;
+        }
+        memcpy(own, text, len);
+    }
+    e = &b->edits[b->n++];
+    e->lo = lo;
+    e->hi = hi;
+    e->text = own;
+    e->text_len = len;
+}
+
+int oket_batch_submit(const oket_api *api, oket_self self, oket_doc doc, uint64_t gen,
+                      oket_batch *b) {
+    if (b->oom || b->n == 0) {
+        return 0;
+    }
+    api->submit(api, self, doc, gen, b->edits, b->n, NULL);
+    return 1;
+}
+
+void oket_batch_free(oket_batch *b) {
+    size_t i;
+
+    for (i = 0; i < b->n; i++) {
+        free((char *)b->edits[i].text);
+    }
+    free(b->edits);
+    memset(b, 0, sizeof *b);
 }

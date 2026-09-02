@@ -139,6 +139,18 @@ size_t oket_col_cells(const oket_snapshot *s, size_t line, size_t col, size_t ta
 /* The byte offset into the line that lands at cell `cell`, clamped to the line's end. */
 size_t oket_col_bytes(const oket_snapshot *s, size_t line, size_t cell, size_t tab_width);
 
+/* --- cursors ---
+ *
+ * A cursor is two positions and an edit is two byte offsets; this is the whole of the
+ * conversion between them. The kernel leaves one cursor collapsed on each edit it applies, so
+ * a plugin that writes every cursor's range never places a caret itself. */
+
+/* Byte offset of a position, clamped to the line it names. */
+size_t oket_pos_off(const oket_snapshot *s, oket_pos p);
+
+/* Cursor `i`'s range in bytes, low to high. lo == hi is a bare caret. */
+void oket_cursor_span(const oket_snapshot *s, size_t i, size_t *lo, size_t *hi);
+
 /* --- the descriptor builder ---
  *
  * A listing is text plus the spans that name its parts, and the two have to be built together
@@ -197,6 +209,32 @@ void oket_replace(const oket_api *api, oket_self self, oket_doc doc,
  * leaves the descriptor as it stands, and a zero `len` empties the text. */
 void oket_set(const oket_api *api, oket_self self, oket_doc doc,
               const char *text, size_t len, const oket_descriptor *d);
+
+
+/* --- writing several places at once ---
+ *
+ * What typing is, once there is more than one caret: one edit per cursor, one transaction and
+ * one undo step. The ranges must not overlap; the kernel applies them back to front, so each
+ * one keeps the offsets its author read.
+ *
+ * Each edit's text is copied in, so no two of them have to be the same string — the indent
+ * under one caret is not the indent under the next. Free it with oket_batch_free. */
+
+typedef struct {
+    oket_edit *edits;
+    size_t     n, cap;
+    int        oom;
+} oket_batch;
+
+/* Appends "[lo, hi) becomes this text". A zero `len` is a deletion. */
+void oket_batch_edit(oket_batch *b, size_t lo, size_t hi, const char *text, size_t len);
+
+/* Submits the whole batch against `gen`, and answers whether anything went. An empty batch,
+ * or one that ran out of memory, submits nothing. */
+int oket_batch_submit(const oket_api *api, oket_self self, oket_doc doc, uint64_t gen,
+                      oket_batch *b);
+
+void oket_batch_free(oket_batch *b);
 
 /* --- chords --- */
 
