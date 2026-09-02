@@ -24,7 +24,7 @@ import "../input"
 // pointer, with no lock and no call back in (§6). Adding a field is a struct field, not a
 // message.
 
-API :: 2
+API :: 3
 
 // A plugin's own identity, handed back on every call so a plugin needs no state of its own.
 // Index plus load generation, packed: a handle kept across a reload resolves to nothing rather
@@ -147,6 +147,60 @@ Edit :: struct {
     text_len: c.size_t,
 }
 
+// --- the style layer (§5) ---
+
+// A style token, never a colour: the theme decides what it looks like, and a plugin that names
+// an RGB value breaks every theme.
+//
+// An id, not an enum, because a syntax vocabulary is open. The five below are always there; any
+// other name is interned through `register_token` and the palette maps it, so the kernel never
+// learns what `function.builtin` means.
+Token :: u16
+
+// gfx.Token's five, at the ids tokens.odin seeds them at.
+Style :: enum Token {
+    Fg,
+    Bg,
+    Accent,
+    Dim,
+    Alert,
+}
+
+// Ids below this are the base vocabulary above; the rest were interned.
+TOKEN_BASE :: Token(len(Style))
+
+// The renderer's cell attributes, as bits. gfx.Attr's own order, and the assert in view.odin is
+// what keeps the two from drifting.
+Attr :: enum u8 {
+    Bold      = 1 << 0,
+    Italic    = 1 << 1,
+    Underline = 1 << 2,
+    Reverse   = 1 << 3,
+}
+
+// A run of the document, in BYTES, with a style token on it. Not a line and a column: a line
+// number is a display convenience, and making it the unit costs every run that crosses a line
+// end.
+Span :: struct {
+    lo:    c.size_t,
+    hi:    c.size_t,
+    tok:   Token,
+    attrs: u8, // Attr's bits
+    _:     [5]u8,
+}
+
+// One layer's range-scoped REPLACE, as it rides a submit. Whatever this layer held inside
+// [lo, hi) is dropped and `spans` takes its place, so a publisher republishing a viewport does
+// not make the store grow with the file.
+Span_Pub :: struct {
+    layer:  desc.Layer,
+    _:      [7]u8,
+    lo:     c.size_t,
+    hi:     c.size_t,
+    spans:  [^]Span,
+    nspans: c.size_t,
+}
+
 // Where a revealed span lands in the viewport (§11).
 Reveal :: enum c.int32_t {
     Nearest, // scroll as little as it takes
@@ -156,13 +210,14 @@ Reveal :: enum c.int32_t {
 
 // --- kernel -> plugin ---
 
-// What a chord or a moved generation carries. `doc` is the FOCUSED document, not only one this
-// plugin opened: that one field is what lets a plugin act on a buffer it did not create (§5).
-// `inst` is non-nil only when the focused document is this plugin's own instance.
+// What a chord or a moved generation carries. `doc` is the FOCUSED document — or, for a
+// watcher, the document that moved — and not only one this plugin opened: that one field is
+// what lets a plugin act on a buffer it did not create (§5). `inst` is non-nil only when the
+// document is this plugin's own instance.
 Event :: enum c.int32_t {
     Chord, // the bind table routed a chord here; `text` is its physical spelling
     Text,  // a rune was typed into this document; `text` is its UTF-8
-    Moved, // a document's generation moved
+    Moved, // a document's generation moved, or a watcher has not seen this one yet
 }
 
 At :: struct {
@@ -172,6 +227,11 @@ At :: struct {
 }
 
 // A non-zero return claims the event; zero lets the kernel report it unhandled (§8).
+//
+// A WATCHER's return means the other thing, and it is cooperative slicing (§9): non-zero says
+// "not finished, call me again next frame" and the kernel does, on the same document, whether or
+// not its generation moved again. That is how a cold parse too big for one frame spreads over
+// several without a thread, and it needs no seventh message.
 Event_Fn :: #type proc "c" (api: ^Api, self: Self, at: ^At, ev: Event, text: [^]u8, len: c.size_t) -> c.int32_t
 
 // The kernel opened a slot and a document for this kind and hands both over. The return is the
@@ -219,13 +279,29 @@ Api :: struct {
     request_bind:     proc "c" (api: ^Api, self: Self, ctx: [^]u8, ctx_len: c.size_t,
                                 chord: [^]u8, chord_len: c.size_t,
                                 line: [^]u8, line_len: c.size_t),
+    // Interns a style-token name and answers its id, the same id for the same name whoever
+    // asks: two plugins naming "keyword" get one colour because the palette maps the name.
+    // Falls back to Fg's id when the table is full, which draws rather than fails.
+    register_token:   proc "c" (api: ^Api, self: Self, name: [^]u8, name_len: c.size_t) -> Token,
+    // A plugin that draws nothing asks to be told about documents it did not open: `fn` is
+    // called with `.Moved` for every open document this plugin has not seen at its current
+    // generation. The ledger reverts it like anything else.
+    //
+    // Registering again replaces the handler AND forgets what it has been told, so every open
+    // document arrives once more. That is how a plugin asks to look again at something the
+    // kernel cannot see having changed — a grammar that finished building, a config reloaded.
+    register_watch:   proc "c" (api: ^Api, self: Self, fn: Event_Fn),
 
     // submit. One transaction against the generation it was written against; `d` may be nil to
     // leave the descriptor as it stands. Text is copied here, so the plugin's buffer may die
     // the moment this returns. A submit against a document that has moved is dropped whole at
     // the drain — the helper library's retry loop is what a plugin uses instead of writing one.
+    // `spans` may be nil to leave every layer as it stands. Edits, descriptor and spans land
+    // together at ONE generation, so nothing ever paints a colour against bytes it was not
+    // measured over.
     submit:           proc "c" (api: ^Api, self: Self, doc: Doc, gen: u64,
-                                edits: [^]Edit, nedits: c.size_t, d: ^Descriptor),
+                                edits: [^]Edit, nedits: c.size_t, d: ^Descriptor,
+                                spans: ^Span_Pub),
 
     // reveal.
     reveal:           proc "c" (api: ^Api, self: Self, doc: Doc,
@@ -257,6 +333,8 @@ Entry_Fn :: #type proc "c" (api: ^Api, self: Self) -> c.int32_t
 #assert(size_of(Column) == 24)
 #assert(size_of(Field) == 32)
 #assert(size_of(Descriptor) == 80)
+#assert(size_of(Span) == 24)
+#assert(size_of(Span_Pub) == 40)
 #assert(size_of(Edit) == 32)
 #assert(size_of(At) == 24)
 #assert(size_of(Kind_Spec) == 56)

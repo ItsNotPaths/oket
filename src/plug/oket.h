@@ -7,7 +7,8 @@
  *
  * SIX MESSAGES:
  *
- *     register   plugin -> kernel   api->register_kind / register_command / request_bind
+ *     register   plugin -> kernel   api->register_kind / register_command / request_bind /
+ *                                    register_token / register_watch
  *     submit     plugin -> kernel   api->submit
  *     reveal     plugin -> kernel   api->reveal
  *     event      kernel -> plugin   oket_kind_vt.event
@@ -29,7 +30,7 @@
 extern "C" {
 #endif
 
-#define OKET_API 2
+#define OKET_API 3
 
 /* A plugin exports exactly this, and hidden visibility keeps everything else in. */
 #define OKET_EXPORT __attribute__((visibility("default")))
@@ -142,6 +143,63 @@ typedef struct {
     size_t      text_len;
 } oket_edit;
 
+/* --- the style layer (§5) ---
+ *
+ * A style TOKEN, never a colour: the theme decides what it looks like, and a plugin that names
+ * an RGB value breaks every theme. An id and not an enum, because a syntax vocabulary is open —
+ * the five below are always there, and any other name is interned through register_token. */
+
+typedef uint16_t oket_token;
+
+typedef enum {
+    OKET_TOK_FG     = 0,
+    OKET_TOK_BG     = 1,
+    OKET_TOK_ACCENT = 2,
+    OKET_TOK_DIM    = 3,
+    OKET_TOK_ALERT  = 4,
+    OKET_TOKEN_BASE = 5 /* ids below this are the base vocabulary; the rest were interned */
+} oket_style;
+
+/* Cell attributes, as bits on a span. */
+enum {
+    OKET_ATTR_BOLD      = 1 << 0,
+    OKET_ATTR_ITALIC    = 1 << 1,
+    OKET_ATTR_UNDERLINE = 1 << 2,
+    OKET_ATTR_REVERSE   = 1 << 3
+};
+
+/* Who published. Fixed priority, lowest first: a diagnostic outranks syntax, a search hit
+ * outranks both, and the kernel merges in this order so nothing merges by hand. Selection is
+ * not a layer — the kernel owns the cursors and the renderer reads them straight. */
+typedef enum {
+    OKET_LAYER_SYNTAX     = 0,
+    OKET_LAYER_SEMANTIC   = 1,
+    OKET_LAYER_DIAGNOSTIC = 2,
+    OKET_LAYER_SEARCH     = 3
+} oket_layer;
+
+/* A run of the document, in BYTES, with a style token on it. Not a line and a column: a line
+ * number is a display convenience, and making it the unit costs every run that crosses a line
+ * end. */
+typedef struct {
+    size_t     lo, hi;
+    oket_token tok;
+    uint8_t    attrs; /* OKET_ATTR_* */
+    uint8_t    _pad[5];
+} oket_span;
+
+/* One layer's range-scoped REPLACE, as it rides a submit. Whatever this layer held inside
+ * [lo, hi) is dropped and `spans` takes its place, so republishing a viewport does not make the
+ * store grow with the file. Out of order, overlapping and out of range are all survived: the
+ * kernel clips, sorts, and lets the span that starts first win. */
+typedef struct {
+    uint8_t    layer; /* oket_layer */
+    uint8_t    _pad[7];
+    size_t     lo, hi;
+    const oket_span *spans;
+    size_t     nspans;
+} oket_span_pub;
+
 typedef enum {
     OKET_REVEAL_NEAREST = 0, /* scroll as little as it takes */
     OKET_REVEAL_CENTER  = 1,
@@ -153,12 +211,12 @@ typedef enum {
 typedef enum {
     OKET_EVENT_CHORD = 0, /* the bind table routed a chord here; text is its spelling */
     OKET_EVENT_TEXT  = 1, /* a rune was typed into this document; text is its UTF-8 */
-    OKET_EVENT_MOVED = 2  /* a document's generation moved */
+    OKET_EVENT_MOVED = 2  /* a generation moved, or a watcher has not seen this document yet */
 } oket_event;
 
-/* Where a call is happening. `doc` is the FOCUSED document, not only one you opened: that is
- * what lets a plugin act on a buffer it did not create. `inst` is non-NULL only when the
- * focused document is your own instance. */
+/* Where a call is happening. `doc` is the FOCUSED document — or, for a watcher, the document
+ * that moved — and not only one you opened: that is what lets a plugin act on a buffer it did
+ * not create. `inst` is non-NULL only when the document is your own instance. */
 typedef struct {
     oket_doc             doc;
     void                *inst;
@@ -167,7 +225,12 @@ typedef struct {
 
 struct oket_api;
 
-/* Non-zero claims the event; zero lets the kernel report it unhandled (§8). */
+/* Non-zero claims the event; zero lets the kernel report it unhandled (§8).
+ *
+ * A WATCHER's return means the other thing, and it is cooperative slicing (§9): non-zero says
+ * "not finished, call me again next frame" and the kernel does, on the same document, whether or
+ * not its generation moved again. A cold parse too big for one frame spreads over several that
+ * way, with no thread and no seventh message. */
 typedef int32_t (*oket_event_fn)(const struct oket_api *api, oket_self self, const oket_at *at,
                                  oket_event ev, const char *text, size_t len);
 
@@ -225,14 +288,32 @@ typedef struct oket_api {
                          const char *ctx, size_t ctx_len,
                          const char *chord, size_t chord_len,
                          const char *line, size_t line_len);
+    /* Interns a style-token name and answers its id, the same id for the same name whoever
+     * asks: two plugins naming "keyword" get one colour because the palette maps the name.
+     * Falls back to OKET_TOK_FG when the table is full, which draws rather than fails. */
+    oket_token (*register_token)(const struct oket_api *api, oket_self self,
+                                 const char *name, size_t name_len);
+    /* A plugin that draws nothing asks to be told about documents it did not open: `fn` is
+     * called with OKET_EVENT_MOVED for every open document you have not seen at its current
+     * generation.
+     *
+     * Registering again replaces the handler AND forgets what you have been told, so every open
+     * document arrives once more. That is how you ask to look again at something the kernel
+     * cannot see having changed — a grammar that finished building, a config reloaded. */
+    void (*register_watch)(const struct oket_api *api, oket_self self, oket_event_fn fn);
 
     /* submit. `d` may be NULL to leave the descriptor as it stands. Text is copied here, so
      * your buffer may die the moment this returns. A submit against a document that has moved
      * is dropped whole at the drain, and you are told through an OKET_EVENT_MOVED. oket_set
      * and oket_replace in oket_helpers.h read the newest generation for you; oket_batch_submit
-     * takes the one off the snapshot you read. */
+     * takes the one off the snapshot you read.
+     *
+     * `spans` may be NULL to leave every layer as it stands. Edits, descriptor and spans land
+     * together at ONE generation, so nothing ever paints a colour against bytes it was not
+     * measured over. */
     void (*submit)(const struct oket_api *api, oket_self self, oket_doc doc, uint64_t gen,
-                   const oket_edit *edits, size_t nedits, const oket_descriptor *d);
+                   const oket_edit *edits, size_t nedits, const oket_descriptor *d,
+                   const oket_span_pub *spans);
 
     void (*reveal)(const struct oket_api *api, oket_self self, oket_doc doc,
                    size_t lo, size_t hi, oket_reveal at);
@@ -266,6 +347,8 @@ _Static_assert(sizeof(oket_column) == 24, "oket_column");
 _Static_assert(sizeof(oket_field) == 32, "oket_field");
 _Static_assert(sizeof(oket_descriptor) == 80, "oket_descriptor");
 _Static_assert(sizeof(oket_edit) == 32, "oket_edit");
+_Static_assert(sizeof(oket_span) == 24, "oket_span");
+_Static_assert(sizeof(oket_span_pub) == 40, "oket_span_pub");
 _Static_assert(sizeof(oket_at) == 24, "oket_at");
 _Static_assert(sizeof(oket_kind_spec) == 56, "oket_kind_spec");
 

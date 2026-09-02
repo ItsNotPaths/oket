@@ -622,7 +622,7 @@ void oket_replace(const oket_api *api, oket_self self, oket_doc doc,
     e.hi = hi;
     e.text = text;
     e.text_len = len;
-    api->submit(api, self, doc, s->gen, &e, 1, NULL);
+    api->submit(api, self, doc, s->gen, &e, 1, NULL, NULL);
     api->release(api, self, s);
 }
 
@@ -638,7 +638,7 @@ void oket_set(const oket_api *api, oket_self self, oket_doc doc,
     e.hi = s->size;
     e.text = text;
     e.text_len = len;
-    api->submit(api, self, doc, s->gen, &e, 1, d);
+    api->submit(api, self, doc, s->gen, &e, 1, d, NULL);
     api->release(api, self, s);
 }
 
@@ -673,8 +673,48 @@ int oket_batch_submit(const oket_api *api, oket_self self, oket_doc doc, uint64_
     if (b->oom || b->n == 0) {
         return 0;
     }
-    api->submit(api, self, doc, gen, b->edits, b->n, NULL);
+    api->submit(api, self, doc, gen, b->edits, b->n, NULL, NULL);
     return 1;
+}
+
+/* --- publishing spans (§9) --- */
+
+void oket_spans_add(oket_spans *b, size_t lo, size_t hi, oket_token tok, uint8_t attrs) {
+    oket_span *sp;
+
+    if (hi <= lo || !grow(&b->oom, (void **)&b->spans, &b->cap, b->n + 1, sizeof *b->spans)) {
+        return;
+    }
+    sp = &b->spans[b->n++];
+    memset(sp, 0, sizeof *sp);
+    sp->lo = lo;
+    sp->hi = hi;
+    sp->tok = tok;
+    sp->attrs = attrs;
+}
+
+int oket_spans_publish(const oket_api *api, oket_self self, oket_doc doc, uint64_t gen,
+                       oket_layer layer, size_t lo, size_t hi, oket_spans *b) {
+    oket_span_pub pub;
+
+    if (b->oom) {
+        return 0;
+    }
+    memset(&pub, 0, sizeof pub);
+    pub.layer = (uint8_t)layer;
+    pub.lo = lo;
+    pub.hi = hi;
+    pub.spans = b->spans;
+    pub.nspans = b->n;
+    /* An EMPTY list still goes: a range-scoped replace with nothing in it is how a layer says
+     * "no colours here any more", and refusing it would leave the last parse's on screen. */
+    api->submit(api, self, doc, gen, NULL, 0, NULL, &pub);
+    return 1;
+}
+
+void oket_spans_free(oket_spans *b) {
+    free(b->spans);
+    memset(b, 0, sizeof *b);
 }
 
 void oket_batch_free(oket_batch *b) {

@@ -248,7 +248,7 @@ static int32_t write_cmd(const oket_api *api, oket_self self, const oket_at *at,
         free(e->path);
         e->path = oket_dup(args, args_len);
         describe(e, &d); /* the buffer takes the name it was written under */
-        api->submit(api, self, s->doc, s->gen, NULL, 0, &d);
+        api->submit(api, self, s->doc, s->gen, NULL, 0, &d, NULL);
     }
     if (e->path == NULL) {
         return refuse(api, self, "w <path>");

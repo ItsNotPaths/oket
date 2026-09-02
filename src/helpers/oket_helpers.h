@@ -258,6 +258,32 @@ int oket_batch_submit(const oket_api *api, oket_self self, oket_doc doc, uint64_
 
 void oket_batch_free(oket_batch *b);
 
+/* --- publishing spans (§9) ---
+ *
+ * A publish REPLACES [lo, hi) on one layer and never appends, so republishing a viewport does
+ * not make the store grow with the file. Out of order, overlapping and out of range are all
+ * survived: the kernel clips, sorts, and lets the span that starts first win.
+ *
+ * Offsets are DOCUMENT BYTES. A run that crosses a line end is one run; the renderer splits it
+ * where it draws. */
+
+typedef struct {
+    oket_span *spans;
+    size_t     n, cap;
+    int        oom;
+} oket_spans;
+
+/* Appends one run. An empty or reversed range is dropped here rather than at the seam. */
+void oket_spans_add(oket_spans *b, size_t lo, size_t hi, oket_token tok, uint8_t attrs);
+
+/* Publishes what has been added, against `gen`, and answers whether it went. An EMPTY set is a
+ * real publish: it is how a layer clears a range. The buffer is left as it is, so a caller
+ * slicing a parse over frames adds and publishes again. */
+int oket_spans_publish(const oket_api *api, oket_self self, oket_doc doc, uint64_t gen,
+                       oket_layer layer, size_t lo, size_t hi, oket_spans *b);
+
+void oket_spans_free(oket_spans *b);
+
 /* --- chords --- */
 
 /* Whether a chord handed to OKET_EVENT_CHORD is the one named. The spelling is the PHYSICAL one
