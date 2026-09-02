@@ -124,7 +124,7 @@ line_numbers_count_absolute_and_relative :: proc(t: ^testing.T) {
 3 gamma
 4 delta`)
 
-    rel := drawn(t, text, {numbers = .Relative}, 12, 4, view.View{cursor = 1})
+    rel := drawn(t, text, {numbers = .Relative}, 12, 4, view.View{point = {anchor = {line = 1}, head = {line = 1}}})
     defer delete(rel)
     testing.expect_value(t, rel, `1 alpha
 2 beta
@@ -171,4 +171,27 @@ no_wrap_truncates_at_the_viewport :: proc(t: ^testing.T) {
     defer delete(snap)
     testing.expect_value(t, snap, `01234567
 short`)
+}
+
+// The mouse's cell-to-byte walk shares `advance` with the paint, so a tab's cells all answer
+// the tab and the blank right of a short line answers its end.
+@(test)
+locate_maps_cells_through_tabs :: proc(t: ^testing.T) {
+    s: store.Store
+    defer store.store_destroy(&s)
+    snap, dp := opened(&s, "a\tbc", {tab_width = 4})
+    defer txt.snapshot_release(snap)
+    defer desc.release(dp)
+
+    // cells: a=0, the tab runs 1..3, b=4, c=5
+    p, _, ok := view.locate(&snap.text, dp, {}, 0, 0, 10, 2, 2, 0)
+    testing.expect(t, ok)
+    testing.expect_value(t, p, txt.Pos{0, 1}) // mid-tab is the tab's own byte
+
+    p, _, ok = view.locate(&snap.text, dp, {}, 0, 0, 10, 2, 9, 0)
+    testing.expect(t, ok)
+    testing.expect_value(t, p, txt.Pos{0, 4}) // past the end is the end
+
+    _, _, hit := view.locate(&snap.text, dp, {}, 0, 0, 10, 2, 10, 0)
+    testing.expect(t, !hit, "a cell right of the rectangle is not in the document")
 }

@@ -11,10 +11,18 @@ import "../txt"
 // knows what kind of document it is drawing — a file, a listing and a diff all arrive as text
 // and a descriptor, and the branch on `render` is the only place kinds differ.
 
-// The part of the viewport stage 3 needs. §11 owns scrolling, margins and follow.
+// The kernel's viewport (§11), plus a copy of the caret it is drawing. The caret itself lives
+// in the document (txt.Cursor), because it is document state and every motion verb is already
+// written against it; this is the copy the frame renders from.
 View :: struct {
-    top:    int, // first document line drawn
-    cursor: int, // the line relative numbers count from
+    top:   int, // first document line drawn
+    point: txt.Cursor,
+}
+
+// A columns document draws fields, not bytes; one branch in draw, locate and underline each.
+@(private)
+columnar :: proc(d: ^desc.Descriptor) -> bool {
+    return len(d.columns) > 0
 }
 
 // Bytes [lo,hi) of one document line. A line that does not wrap is one row; `first` is what
@@ -38,7 +46,7 @@ draw :: proc(
     if body <= 0 || h <= 0 {
         return
     }
-    if len(d.columns) > 0 {
+    if columnar(d) {
         draw_columns(g, th, t, d, v, x, y, gut, w, h)
         return
     }
@@ -46,6 +54,7 @@ draw :: proc(
         src := txt.text_line(t, r.line, context.temp_allocator)
         put_number(g, th, d, v, x, y + i, gut, r)
         run(g, x + gut, y + i, src[r.lo:r.hi], body, d.tab_width, th[.Fg], th[.Bg])
+        mark_point(g, d, v, x + gut, y + i, body, r, src)
     }
 }
 
@@ -115,7 +124,7 @@ run :: proc(g: ^gfx.Grid, x, y: int, src: []u8, width, tab: int, fg, bg: [3]f32)
     cell, i := 0, 0
     for i < len(src) {
         r, sz := utf8.decode_rune(src[i:])
-        w := r == '\t' ? tab - cell % tab : gfx.rune_width(r)
+        w := advance(r, cell, tab)
         if cell + w > width {
             break
         }
@@ -127,6 +136,41 @@ run :: proc(g: ^gfx.Grid, x, y: int, src: []u8, width, tab: int, fg, bg: [3]f32)
                     gfx.grid_put(g, x + cell + k, y, gfx.Cell{' ', fg, bg, {}})
                 }
             }
+        }
+        cell += w
+        i += max(sz, 1)
+    }
+    return i
+}
+
+// A tab runs to the next stop, so how wide a rune draws depends on where it starts. Shared, so
+// the paint, the wrap measure and the mouse can never disagree about a column.
+@(private)
+advance :: proc(r: rune, cell, tab: int) -> int {
+    return r == '\t' ? tab - cell % tab : gfx.rune_width(r)
+}
+
+// The cell a byte offset sits at inside a row.
+@(private)
+cell_of :: proc(src: []u8, off, tab: int) -> (cell: int) {
+    for i := 0; i < len(src) && i < off; {
+        r, sz := utf8.decode_rune(src[i:])
+        cell += advance(r, cell, tab)
+        i += max(sz, 1)
+    }
+    return
+}
+
+// The byte offset the cell holds, the other way round. Past the end answers the end, which is
+// what clicking in the blank right of a short line should do.
+@(private)
+byte_of :: proc(src: []u8, want, tab: int) -> int {
+    cell, i := 0, 0
+    for i < len(src) {
+        r, sz := utf8.decode_rune(src[i:])
+        w := advance(r, cell, tab)
+        if cell + w > want {
+            break
         }
         cell += w
         i += max(sz, 1)
@@ -163,6 +207,13 @@ draw_columns :: proc(
             break
         }
         put_number(g, th, d, v, x, y + i, gut, Row{line, 0, 0, true})
+        // A columns document draws its fields, not its bytes, so the caret is the ROW it is on.
+        if d.selection != .None {
+            lo, hi := txt.cursor_range(v.point)
+            if line >= lo.line && line <= hi.line {
+                mark(g, x + gut, y + i, 0, w - gut)
+            }
+        }
         col := x + gut
         for c in d.columns {
             left := x + w - col
@@ -202,8 +253,8 @@ put_number :: proc(
         return
     }
     n := r.line + 1
-    if d.numbers == .Relative && r.line != v.cursor {
-        n = abs(r.line - v.cursor)
+    if d.numbers == .Relative && r.line != v.point.head.line {
+        n = abs(r.line - v.point.head.line)
     }
     s := pad(fmt.tprintf("%d", n), gut - 1, .Right)
     gfx.grid_write(g, x, y, s, th[.Dim], th[.Bg])
@@ -230,4 +281,180 @@ digits :: proc(n: int) -> int {
         d += 1
     }
     return d
+}
+
+// Reverse video is the caret and the selection both: no theme token to define, and it reads on
+// any palette a theme author picks.
+@(private)
+mark :: proc(g: ^gfx.Grid, x, y, from, to: int, attrs := gfx.Attrs{.Reverse}) {
+    for c in from ..< to {
+        if cell := gfx.grid_at(g, x + c, y); cell != nil {
+            cell.attrs += attrs
+        }
+    }
+}
+
+// The caret and its selection over one drawn row. An empty selection is one cell, which is the
+// caret; `selection: none` draws neither, which is what a terminal wants.
+@(private)
+mark_point :: proc(g: ^gfx.Grid, d: ^desc.Descriptor, v: View, x, y, width: int, r: Row, src: []u8) {
+    if d.selection == .None {
+        return
+    }
+    lo, hi := txt.cursor_range(v.point)
+    if r.line < lo.line || r.line > hi.line {
+        return
+    }
+    row := src[r.lo:r.hi]
+    if lo == hi {
+        if r.line != lo.line || lo.col < r.lo || lo.col > r.hi {
+            return
+        }
+        at := cell_of(row, lo.col - r.lo, d.tab_width)
+        mark(g, x, y, at, min(at + 1, width))
+        return
+    }
+    if d.selection == .Line {
+        mark(g, x, y, 0, width)
+        return
+    }
+    a := r.line == lo.line ? clamp(lo.col, r.lo, r.hi) : r.lo
+    b := r.line == hi.line ? clamp(hi.col, r.lo, r.hi) : r.hi
+    mark(g, x, y, cell_of(row, a - r.lo, d.tab_width), min(cell_of(row, b - r.lo, d.tab_width), width))
+}
+
+// --- the mouse (§8) ---
+
+// Where a cell lands: the document position, and the field the descriptor names there. One walk,
+// because a click wants both and hover wants the name. Pixel to cell is the window layer's
+// division; nothing here knows what a pixel is.
+locate :: proc(
+    t: ^txt.Text,
+    d: ^desc.Descriptor,
+    v: View,
+    x, y, w, h: int,
+    cx, cy: int,
+) -> (
+    p: txt.Pos,
+    field: string,
+    ok: bool,
+) {
+    if cx < x || cy < y || cx >= x + w || cy >= y + h {
+        return {}, "", false
+    }
+    gut := gutter_width(t, d)
+    body := w - gut
+    if body <= 0 {
+        return {}, "", false
+    }
+    col := max(cx - x - gut, 0) // the gutter reads as column 0, so a click there still picks the line
+
+    if columnar(d) {
+        return locate_columns(t, d, v.top + cy - y, col)
+    }
+
+    rs := rows(t, d, v.top, body, h)
+    if cy - y >= len(rs) {
+        return {}, "", false
+    }
+    r := rs[cy - y]
+    src := txt.text_line(t, r.line, context.temp_allocator)
+    p = {r.line, r.lo + byte_of(src[r.lo:r.hi], col, d.tab_width)}
+    for f in desc.line_fields(d, r.line) {
+        if p.col >= f.lo && p.col < f.hi {
+            return p, f.name, true
+        }
+    }
+    return p, "", true
+}
+
+// The columns arm: the cell names a column, the column names the line's field.
+@(private)
+locate_columns :: proc(t: ^txt.Text, d: ^desc.Descriptor, line, col: int) -> (txt.Pos, string, bool) {
+    if line >= txt.text_line_count(t) {
+        return {}, "", false
+    }
+    name, over := column_at(d, col)
+    if !over {
+        return {line, 0}, "", true
+    }
+    lo, _, named := desc.field_span(d, line, name)
+    return {line, named ? lo : 0}, named ? name : "", true
+}
+
+// Which column the pointer is over. The widths are the descriptor's, so this and draw_columns
+// cannot disagree about where a column starts.
+@(private)
+column_at :: proc(d: ^desc.Descriptor, cell: int) -> (name: string, ok: bool) {
+    at := 0
+    for c in d.columns {
+        if cell >= at && cell < at + c.width {
+            return c.name, true
+        }
+        at += c.width + 1
+    }
+    return "", false
+}
+
+// --- scrolling (§11) ---
+
+// The wheel and the page keys, in whole lines. The last line stays reachable and the view never
+// runs off the end; `overscroll` is what would relax that, and it is not built.
+scroll :: proc(v: ^View, t: ^txt.Text, by: int) {
+    v.top = clamp(v.top + by, 0, max(txt.text_line_count(t) - 1, 0))
+}
+
+// Keep point on screen after a motion. The descriptor's `margin` (scrolloff) lands here.
+follow :: proc(v: ^View, h: int) {
+    if h <= 0 {
+        return
+    }
+    v.top = clamp(v.top, max(v.point.head.line - h + 1, 0), max(v.point.head.line, 0))
+}
+
+// The hover underline (§8): the field a bound click would act on, in the cells it was drawn in.
+// The kernel asks the bind table and draws this; no surface is involved.
+underline :: proc(
+    g: ^gfx.Grid,
+    t: ^txt.Text,
+    d: ^desc.Descriptor,
+    v: View,
+    x, y, w, h: int,
+    line, lo, hi: int,
+) {
+    gut := gutter_width(t, d)
+    body := w - gut
+    if body <= 0 {
+        return
+    }
+    if columnar(d) {
+        // A columns document draws the field padded in its column, not where its bytes sit, and
+        // one line is one row.
+        row := line - v.top
+        if row < 0 || row >= h {
+            return
+        }
+        at := 0
+        for c in d.columns {
+            a, b, named := desc.field_span(d, line, c.name)
+            if named && a == lo && b == hi {
+                mark(g, x + gut, y + row, at, min(at + c.width, body), {.Underline})
+                return
+            }
+            at += c.width + 1
+        }
+        return
+    }
+    // Through the rows the draw laid out, so a wrapped span underlines every row it covers and
+    // hover cannot disagree with the paint about which one a field is on.
+    for r, i in rows(t, d, v.top, body, h) {
+        if r.line != line || hi <= r.lo || lo >= r.hi {
+            continue
+        }
+        src := txt.text_line(t, r.line, context.temp_allocator)[r.lo:r.hi]
+        a := clamp(lo, r.lo, r.hi) - r.lo
+        b := clamp(hi, r.lo, r.hi) - r.lo
+        mark(g, x + gut, y + i, cell_of(src, a, d.tab_width),
+             min(cell_of(src, b, d.tab_width), body), {.Underline})
+    }
 }
