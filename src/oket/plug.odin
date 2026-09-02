@@ -438,7 +438,7 @@ plug_command :: proc(a: ^App, slot: input.Slot, args: string) -> bool {
     }
     defer view_free(view)
     r, ok := plug_dispatch(a, c.owner, {what = .Command, fn = c.fn, at = &at,
-                                        data = transmute([]u8)args})
+                                        data = transmute([]u8)arg_whole(args)})
     if !ok {
         return false
     }

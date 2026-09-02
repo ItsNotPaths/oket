@@ -248,6 +248,17 @@ first_field :: proc(s: string) -> string {
     return s[:i]
 }
 
+// The whole of `s` as ONE argument, quotes off. A hole fills quoted when its value would
+// re-parse (§8), and a command taking a single value is where that line ends: it wants the
+// value. A line that is not one quoted span from end to end is handed over as typed, because
+// two arguments are the command's own to split.
+arg_whole :: proc(s: string) -> string {
+    if v, n, ok := quoted_value(s); ok && n == len(s) {
+        return v
+    }
+    return s
+}
+
 // first_field, except a leading quote runs to its partner so a path with spaces works. Returns
 // the span to skip and the value inside; an unclosed quote falls back to the field.
 first_arg :: proc(s: string) -> (raw, value: string) {

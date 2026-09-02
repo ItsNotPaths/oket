@@ -180,7 +180,12 @@ typedef void *(*oket_open_fn)(const struct oket_api *api, oket_self self, oket_d
 typedef void (*oket_close_fn)(const struct oket_api *api, oket_self self, oket_doc doc,
                               void *inst);
 
-/* The return is an exit code: 0 advances an `&&` chain, anything else stops it. */
+/* The return is an exit code: 0 advances an `&&` chain, anything else stops it.
+ *
+ * `args` is the rest of the line, with ONE surrounding quote pair taken off when the whole of
+ * it is one quoted value — a `<name>` hole fills quoted where its value would re-parse, and
+ * this is where that line ends. A command taking two arguments gets its line as typed and
+ * splits it itself. Never NUL-terminated. */
 typedef int32_t (*oket_command_fn)(const struct oket_api *api, oket_self self, const oket_at *at,
                                    const char *args, size_t args_len);
 
