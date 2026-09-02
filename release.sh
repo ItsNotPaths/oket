@@ -62,7 +62,8 @@ if [ $DO_LOCAL -eq 1 ]; then
     # the headers in either layout.
     echo "==> Plugin toolchain"
     mkdir -p "$RELEASE_DIR/helpers"
-    cp "$PROJECT_DIR"/src/helpers/*.h "$PROJECT_DIR"/src/helpers/*.c "$RELEASE_DIR/helpers/"
+    cp "$PROJECT_DIR"/src/plug/oket.h "$PROJECT_DIR"/src/helpers/*.h \
+       "$PROJECT_DIR"/src/helpers/*.c "$RELEASE_DIR/helpers/"
     cp "$PROJECT_DIR/plugins/stage.sh" "$RELEASE_DIR/stage.sh"
     for src in "$PROJECT_DIR"/plugins/*/; do
         [ -d "$src" ] || continue

@@ -219,8 +219,9 @@ typedef struct oket_api {
 
     /* submit. `d` may be NULL to leave the descriptor as it stands. Text is copied here, so
      * your buffer may die the moment this returns. A submit against a document that has moved
-     * is dropped whole at the drain — oket_submit_retry() in oket_helpers.h is the loop you
-     * use instead of writing one. */
+     * is dropped whole at the drain, and you are told through an OKET_EVENT_MOVED. oket_set
+     * and oket_replace in oket_helpers.h read the newest generation for you; oket_batch_submit
+     * takes the one off the snapshot you read. */
     void (*submit)(const struct oket_api *api, oket_self self, oket_doc doc, uint64_t gen,
                    const oket_edit *edits, size_t nedits, const oket_descriptor *d);
 

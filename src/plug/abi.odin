@@ -4,7 +4,7 @@ import "core:c"
 import "../desc"
 import "../input"
 
-// The plugin seam (§7). `src/helpers/oket.h` is these same declarations in C and is what a
+// The plugin seam (§7). `oket.h` beside it is these same declarations in C and is what a
 // plugin author reads; every struct here asserts its size so the two cannot drift silently.
 //
 // One tier, `dlopen`'d, in-process, trusted. There is no wire format, no manifest and no

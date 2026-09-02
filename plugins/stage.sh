@@ -26,16 +26,18 @@ for arg in "$@"; do
     esac
 done
 
-# Two layouts, one script: the helpers sit under ../src/helpers in the repo and under
-# ./helpers beside a shipped oket. Found rather than told, so `:pluginify` builds the same
-# way in both places.
+# Two layouts, one script, found rather than told, so `:pluginify` builds the same way in both
+# places. In the repo the ABI header sits with its Odin twin under ../src/plug and the helper
+# library under ../src/helpers; beside a shipped oket there is one include directory.
 HERE="$(cd "$(dirname "$0")" && pwd)"
 if [ -d "$HERE/../src/helpers" ]; then
+    SEAM="$(cd "$HERE/../src/plug" && pwd)"
     HELPERS="$(cd "$HERE/../src/helpers" && pwd)"
 elif [ -d "$HERE/helpers" ]; then
+    SEAM="$HERE/helpers"
     HELPERS="$HERE/helpers"
 else
-    echo "stage.sh: cannot find the oket helper headers" >&2
+    echo "stage.sh: cannot find the oket headers" >&2
     exit 1
 fi
 
@@ -54,7 +56,7 @@ fi
 # -flto is the point of the whole step. -fvisibility=hidden plus --gc-sections is what makes it
 # pay: a plugin exports one symbol (OKET_MAIN), so everything the linker cannot reach from it
 # goes, and nothing declares which helpers it wants.
-CFLAGS="-std=c11 -fPIC -O2 -flto -Wall -Wextra -I$HELPERS -fvisibility=hidden"
+CFLAGS="-std=c11 -fPIC -O2 -flto -Wall -Wextra -I$SEAM -I$HELPERS -fvisibility=hidden"
 CFLAGS="$CFLAGS -ffunction-sections -fdata-sections"
 LDFLAGS="-flto -Wl,--gc-sections"
 if [ "$ASAN" -eq 1 ]; then
