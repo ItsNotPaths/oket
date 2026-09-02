@@ -114,8 +114,8 @@ POSSIBILITY OF SUCH DAMAGE.
 
 -------------------------------------------------------------------------------
 toml_parser  --  https://github.com/Up05/toml_parser
-Embedded as Odin source in src/toml/, trimmed; see src/toml/PROVENANCE.md. Parses config.toml
-and the theme files.
+Embedded as Odin source in src/toml/, trimmed; see src/toml/PROVENANCE.md. Reads the theme
+files.
 -------------------------------------------------------------------------------
 
 MIT License

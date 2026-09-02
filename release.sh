@@ -51,7 +51,7 @@ if [ $DO_LOCAL -eq 1 ]; then
         -o:speed -define:GLFW_SHARED=false -define:OKET_VERSION='"dev-local"'
     # release.yml strips too, so a local build matches the download.
     strip --strip-all "$RELEASE_DIR/$BIN_NAME"
-    # Themes are data, beside the binary like config.toml. Grammars are NOT: one is fetched
+    # Themes are data, beside the binary like config.conf. Grammars are NOT: one is fetched
     # and built on the machine that wants it.
     if [ -d "$PROJECT_DIR/themes" ]; then
         echo "==> Themes"
