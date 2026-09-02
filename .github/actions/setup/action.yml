@@ -1,0 +1,42 @@
+name: Set up build
+description: Odin, the zig cc toolchain, and the vendored C deps. Needs a checkout first.
+
+inputs:
+  token:
+    description: GITHUB_TOKEN, which setup-odin uses to look up releases.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Cache vendor/
+      uses: actions/cache@v4
+      with:
+        path: vendor
+        key: vendor-linux-${{ hashFiles('download-deps.sh') }}
+
+    # download-deps.sh builds glfw 3.4 from source, which compiles the X11 and Wayland
+    # backends; the runner ships neither set of headers. GLFW dlopens both at run time,
+    # so this affects the build only, not what the binary needs.
+    - name: Install glfw build deps
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+            libwayland-dev libwayland-bin wayland-protocols libxkbcommon-dev xorg-dev
+
+    # Must precede Download deps: the glfw and stb steps shell out to `odin root`.
+    - name: Install Odin
+      uses: laytan/setup-odin@v2
+      with:
+        token: ${{ inputs.token }}
+
+    # The C toolchain (§4). Pinned here and in mise.toml; nowhere else.
+    - name: Install Zig
+      uses: mlugg/setup-zig@v2
+      with:
+        version: 0.16.0
+
+    - name: Download deps
+      shell: bash
+      run: ./download-deps.sh

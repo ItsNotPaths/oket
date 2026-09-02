@@ -1,0 +1,89 @@
+name: Release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release tag (e.g. v1.0.0)'
+        required: true
+        type: string
+      notes:
+        description: 'Release notes'
+        required: false
+        type: string
+        default: ''
+      prerelease:
+        description: 'Mark as pre-release'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  # Lower case, because it is what you type. Matches release.sh and the app-id.
+  BIN_NAME: oket
+
+# Linux only, deliberately. The PTY layer is POSIX (forkpty vs ConPTY is two
+# implementations, not one with a flag), so Windows and macOS wait for that work.
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          # The tag is wrapped in literal quotes so Odin receives them: -define parses its
+          # value, and a tag like `2.0` read bare becomes a float.
+          odin build src/oket -out:"$BIN_NAME" -o:speed -define:GLFW_SHARED=false \
+              -define:OKET_VERSION="\"$VERSION\""
+          strip --strip-all "$BIN_NAME"
+
+      - name: Stage artifacts
+        run: |
+          mkdir -p dist
+          cp "$BIN_NAME" dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-assets
+          path: dist
+
+  release:
+    needs: [build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-assets
+          path: dist
+
+      # The binary is uploaded RAW: it is downloaded one file at a time by a script that has
+      # nothing but curl, and a zip would add an `unzip` dependency for nothing.
+      #
+      # This job never checks out, so gh has no remote to infer the repo from: GH_REPO
+      # supplies it, and --target pins the tag to the dispatched commit.
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
+          NOTES: ${{ inputs.notes }}
+        run: |
+          PRERELEASE_FLAG=""
+          if [ "${{ inputs.prerelease }}" = "true" ]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+          gh release create "$VERSION" \
+              "dist/${BIN_NAME}" \
+              --target "${{ github.sha }}" \
+              --title "$VERSION" \
+              --notes "$NOTES" \
+              $PRERELEASE_FLAG

@@ -1,0 +1,30 @@
+name: Tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # A cap this loose only ever catches a hang, and a hung parallel test otherwise burns a
+    # runner until the 6-hour default gives up.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Same GLFW_SHARED as the release step below: without it the link wants a system
+      # libglfw, which the runner only has by accident of xorg-dev.
+      - name: Test
+        run: odin test src/tests -define:GLFW_SHARED=false
+
+      # -o:speed changes what the optimiser folds; a clean debug compile does not prove
+      # the release build.
+      - name: Build (release settings)
+        run: |
+          odin build src/oket -out:oket -o:speed -define:GLFW_SHARED=false
