@@ -14,15 +14,16 @@ are looking at, so three files and three listings are both on `alt+1..3`.
 
 | | |
 |---|---|
-| `alt+f` `alt+t` `alt+e` | files, terminal, editor |
+| `alt+f` `alt+t` `alt+e` `alt+b` | files, terminal, editor, tree |
 | `alt+0` | N0, where a command's output lands |
 | ``alt+` `` | back to where you just were, across lanes |
 | `alt+q` | close this slot; its number is never reused while others live |
 
 A listing draws its rows through the same renderer a file does, and `enter` opens the one you
-are standing on. `alt+t` is a real PTY: scrollback and the live grid are the document's lines,
-so the kernel's own scroll, drag-select and `ctrl+shift+c` work on it with no terminal-specific
-code behind them.
+are standing on. `alt+b` is the file tree, a plugin that produces indented rows and no more:
+the indent is one number per line and the kernel draws it. `alt+t` is a real PTY: scrollback and
+the live grid are the document's lines, so the kernel's own scroll, drag-select and
+`ctrl+shift+c` work on it with no terminal-specific code behind them.
 
 ## The command line
 
@@ -58,6 +59,17 @@ A value is a verb's name, or `exec`/`stage` and a command line. `<name>` holes f
 fields of the line under point, so a bind acts on document data with no callback into the
 plugin that drew it. A click is a chord like any other, and hovering underlines the field a
 bound click would act on. `f1` then any chord says what it does and where it was bound.
+
+Chains do the branching a callback would. The file tree's `enter` is one row:
+
+```conf
+[browser]
+enter = exec :br.toggle <path> && :open <path>
+```
+
+`br.toggle` expands a directory and stops the chain; over a file it does nothing, and `&&`
+carries on to the kernel's `:open`, which hands the path to the editor. The plugin's whole
+contribution is an exit code.
 
 ## Plugins
 

@@ -96,25 +96,28 @@ scratch_doc :: proc(a: ^app.App, file, text: string) -> store.Id {
 
 REPO :: #directory + "../../"
 
-// A kernel with a home of its own and one plugin built into it, by plugins/stage.sh — the same
-// script release.sh runs and `:pluginify` writes a command line for, so what a test exercises is
-// what ships. `plugin` is a directory under the repo, because a fixture that nobody should ship
-// does not live in plugins/. Built per test: the runner is threaded, and two tests sharing an
-// output directory would each be loading the other's build.
+// A kernel with a home of its own and the named plugins built into it, by plugins/stage.sh —
+// the same script release.sh runs and `:pluginify` writes a command line for, so what a test
+// exercises is what ships. Each is a directory under the repo, because a fixture that nobody
+// should ship does not live in plugins/. Built per test: the runner is threaded, and two tests
+// sharing an output directory would each be loading the other's build.
 @(require_results)
-plug_app :: proc(t: ^testing.T, name: string, plugin := "plugins/hello") -> (a: app.App, ok: bool) {
+plug_app :: proc(t: ^testing.T, name: string, plugins: ..string) -> (a: app.App, ok: bool) {
     home := scratch(t, name) or_return
     out, _ := filepath.join({home, app.PLUGIN_DIR}, context.temp_allocator)
     script, _ := filepath.join({REPO, "plugins", "stage.sh"}, context.temp_allocator)
-    src, _ := filepath.join({REPO, plugin}, context.temp_allocator)
+    wanted := plugins if len(plugins) > 0 else {"plugins/hello"}
 
-    state, _, errs, err := os.process_exec(
-        {command = {script, src, out}},
-        context.temp_allocator,
-    )
-    if err != nil || !state.success {
-        testing.expectf(t, false, "stage.sh: %v %s", err, string(errs))
-        return {}, false
+    for plugin in wanted {
+        src, _ := filepath.join({REPO, plugin}, context.temp_allocator)
+        state, _, errs, err := os.process_exec(
+            {command = {script, src, out}},
+            context.temp_allocator,
+        )
+        if err != nil || !state.success {
+            testing.expectf(t, false, "stage.sh %s: %v %s", plugin, err, string(errs))
+            return {}, false
+        }
     }
     a = bare_app() or_return
     a.home = strings.clone(home) // owned by the App, freed with it
