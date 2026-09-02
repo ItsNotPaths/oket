@@ -19,7 +19,13 @@ Doc :: struct {
     cursors: [dynamic]Cursor,
     primary: int,
     undo:    Undo, // patch journal (undo.odin)
-    version: u64, // bumped on every content change; lets the highlighter cache its tree
+    // Bumped on every content change. A reader keeps the generation it read and a write
+    // carries it back, so a write against a document that has moved is caught rather than
+    // silently landing on text its author never saw (§6).
+    gen:     u64,
+    // The current generation frozen, built on demand and dropped by the next change. One
+    // reference is the Doc's; every caller of doc_snapshot gets its own on top.
+    snap:    ^Snapshot,
     // The change log, in apply order. Several readers follow it (Doc_Reader), so it is not
     // drained by the first: each keeps a sequence number and the log drops what all have passed.
     changes:      [dynamic]Doc_Change,
@@ -76,6 +82,7 @@ doc_init :: proc(d: ^Doc) {
 }
 
 doc_destroy :: proc(d: ^Doc) {
+    doc_drop_snap(d)
     pt_destroy(&d.pt)
     delete(d.cursors)
     delete(d.changes)
@@ -90,7 +97,7 @@ doc_set_text :: proc(d: ^Doc, text: string) {
     doc_reset_cursor(d, {})
     // Nothing can track a wholesale replacement, so every reader rebuilds from scratch.
     doc_changes_reset(d)
-    d.version += 1
+    doc_bump(d)
 }
 
 doc_clear :: proc(d: ^Doc) {
@@ -137,34 +144,59 @@ edit_cursors :: proc(d: ^Doc) -> []Cursor {
 
 // --- reading ---
 
+// The document as it stands, for anyone who reads off the edit path: a worker, or a plugin
+// between dispatches (§6). Cached per generation, so a frame that asks twice pays once. The
+// caller owns the returned reference and releases it.
+doc_snapshot :: proc(d: ^Doc) -> ^Snapshot {
+    if d.snap == nil {
+        d.snap = snapshot_take(&d.pt, d.gen)
+    }
+    snapshot_retain(d.snap)
+    return d.snap
+}
+
+// Flatten the table once scattered editing has splintered it. The save path and the frame
+// drain both call this; neither decides when, so the threshold lives in one place.
+//
+// Content and generation come through untouched, which is exactly why the cached snapshot has
+// to go: it points into the arena compaction just spent, and would pin that garbage for as
+// long as the document idles.
+doc_maintain :: proc(d: ^Doc) {
+    if !pt_should_compact(&d.pt) {
+        return
+    }
+    pt_compact(&d.pt)
+    doc_drop_snap(d)
+}
+
 doc_line_count :: proc(d: ^Doc) -> int {
-    return pt_line_count(&d.pt)
+    return text_line_count(&d.pt)
 }
 
 doc_line_len :: proc(d: ^Doc, line: int) -> int {
-    return pt_line_len(&d.pt, line)
+    return text_line_len(&d.pt, line)
 }
 
 // Without the newline. Borrowed from the piece table when the line is one piece, copied into
 // `alloc` when an edit split it. Read only, and dead after the next edit.
 doc_line :: proc(d: ^Doc, line: int, alloc := context.temp_allocator) -> []u8 {
-    return pt_line(&d.pt, line, alloc)
+    return text_line(&d.pt, line, alloc)
 }
 
 // The pair every edit crosses. Both clamp.
 doc_off :: proc(d: ^Doc, p: Pos) -> int {
     q := doc_clamp_pos(d, p)
-    return pt_line_start(&d.pt, q.line) + q.col
+    return text_line_start(&d.pt, q.line) + q.col
 }
 
 doc_pos :: proc(d: ^Doc, off: int) -> Pos {
     o := clamp(off, 0, d.pt.size)
-    line := pt_line_at_off(&d.pt, o)
-    return Pos{line, o - pt_line_start(&d.pt, line)}
+    line := text_line_at_off(&d.pt, o)
+    return Pos{line, o - text_line_start(&d.pt, line)}
 }
 
 doc_string :: proc(d: ^Doc, allocator := context.allocator) -> string {
-    return string(pt_read(&d.pt, 0, d.pt.size, allocator))
+    return string(text_read(&d.pt, 0, d.pt.size, allocator))
 }
 
 cursor_has_selection :: proc(c: Cursor) -> bool {
@@ -501,7 +533,7 @@ line_shift :: proc(d: ^Doc, p: Pos, lines, deltas: []int) -> Pos {
 
 // Newlines are stored bytes, so a span across lines carries them already.
 doc_text :: proc(d: ^Doc, lo, hi: Pos, alloc := context.allocator) -> string {
-    return string(pt_read(&d.pt, doc_off(d, lo), doc_off(d, hi), alloc))
+    return string(text_read(&d.pt, doc_off(d, lo), doc_off(d, hi), alloc))
 }
 
 // Each cursor's selection, or with nothing selected each cursor's whole line plus a newline.
@@ -774,6 +806,23 @@ move_cursor :: proc(d: ^Doc, c: ^Cursor, motion: Motion, select: bool, count := 
 
 // --- internals ---
 
+// The one place the generation moves. Dropping the cached snapshot here is what keeps a
+// holder's copy honest: it goes on reading the generation it asked for, and the next asker
+// gets a fresh one.
+@(private = "file")
+doc_bump :: proc(d: ^Doc) {
+    d.gen += 1
+    doc_drop_snap(d)
+}
+
+@(private = "file")
+doc_drop_snap :: proc(d: ^Doc) {
+    if d.snap != nil {
+        snapshot_release(d.snap)
+        d.snap = nil
+    }
+}
+
 // The bytes in [lo, hi) become `text`. caret_delta nudges the resulting caret left of the
 // inserted text's end, in bytes and on that line only: 1 lands inside a fresh ASCII pair, -1
 // steps one past an existing close, 0 for ordinary edits.
@@ -829,7 +878,7 @@ doc_apply :: proc(d: ^Doc, edits_in: []Edit, rec: ^Batch = nil) -> bool {
         if e.lo != e.hi || len(e.text) > 0 {
             changed = true
         }
-        removed[i] = string(pt_read(&d.pt, e.lo, e.hi, context.temp_allocator))
+        removed[i] = string(text_read(&d.pt, e.lo, e.hi, context.temp_allocator))
         // Either side of the splice: two of the three points read the document before it, the
         // third after. Back-to-front is the apply order, so it is the replay order too.
         ch := Doc_Change {
@@ -877,7 +926,7 @@ doc_apply :: proc(d: ^Doc, edits_in: []Edit, rec: ^Batch = nil) -> bool {
     d.primary = 0
     doc_merge_cursors(d)
     if changed {
-        d.version += 1
+        doc_bump(d)
     }
     return changed
 }

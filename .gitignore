@@ -5,6 +5,10 @@ docs/
 # The built binary at the repo root. Anchored: an unanchored `oket` also matches src/oket/.
 /oket
 
+# `odin test src/tests` drops its binary here, named for the package. Anchored for the same
+# reason as /oket above.
+/tests
+
 # Crash reports and recovery journals (§10). Written under oket_home(), which is the repo
 # root when you run the binary from here.
 /dumplogs/

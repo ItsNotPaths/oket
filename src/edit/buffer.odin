@@ -119,11 +119,9 @@ buffer_save :: proc(b: ^Buffer) -> Save_Result {
     res := file_write_atomic(b.path, buffer_bytes(b))
     if res == .Ok {
         buffer_mark_saved(b)
-        // Scattered editing splinters the table, and nothing else flattens it. Here, because a
-        // save has just read the whole document anyway and holds no borrowed span across it.
-        if txt.pt_should_compact(&b.doc.pt) {
-            txt.pt_compact(&b.doc.pt)
-        }
+        // Here, because a save has just read the whole document anyway and holds no borrowed
+        // span across it.
+        txt.doc_maintain(&b.doc)
     }
     return res
 }
