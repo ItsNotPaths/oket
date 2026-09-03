@@ -1,6 +1,7 @@
 # oket
 
-Graphical text editing kernel, .so plugins. One visible surface at a time.
+Graphical text editing kernel, .so plugins. A strip of panels you scroll, one full-width by
+default.
 
 Everything on screen is a document: a file, a directory listing, a shell session, the command
 line. A document is text plus a descriptor, data the kernel reads to decide how to draw it and
@@ -45,6 +46,33 @@ Undo is the kernel's, so `ctrl+z` works on a half-typed name like anywhere else.
 `alt+t` is a real PTY: scrollback and the live grid are the document's lines, so the kernel's
 own scroll, drag-select and `ctrl+shift+c` work on it with no terminal-specific code behind
 them.
+
+## The strip
+
+Two files side by side is one oket, not two. A panel is a window onto the ring — the store, the
+bind table, the plugin ledger and the io thread all stay single, so a link can cross from one
+panel to the next. The layout is a horizontal strip you scroll, no nesting.
+
+| | |
+|---|---|
+| `alt+left` `alt+right` | walk the strip |
+| `alt+p` | a panel to the right of this one, standing on nothing |
+| `alt+shift+p` | close the panel; what was in it stays in the ring |
+| `alt+w` | full width or half width, which is the whole sizing model |
+
+The two numberings do not interfere. A ring slot is per kind, stable and keeps its gaps; a panel
+is positional, so closing one renumbers the strip and no document at all. `alt+N` addresses slot
+N of the FOCUSED panel's lane, and the focused panel is the one with the caret in it — which is
+also what makes a mixed strip legal: one browser and two editors, three panels, one lane each.
+
+A slot is in at most one panel, because the viewport lives on the slot. Asking for a slot another
+panel is standing on swaps the two.
+
+```
+# config.conf, beside the binary
+[strip]
+gap = 8      # pixels between two panels
+```
 
 ## The command line
 
