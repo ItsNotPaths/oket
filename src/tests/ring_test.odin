@@ -1,5 +1,8 @@
 package tests
 
+import "core:fmt"
+import "core:os"
+import "core:path/filepath"
 import "core:strings"
 import "core:testing"
 import "../input"
@@ -227,4 +230,51 @@ a_slot_keeps_its_viewport :: proc(t: ^testing.T) {
     testing.expect_value(t, app.ring_focused(&a).view.top, 0)
     app.handle_chord(&a, alt("AE01"))
     testing.expect_value(t, app.ring_focused(&a).view.top, 4)
+}
+
+// ONE PATH, ONE DOCUMENT. A second `:open` of a file the ring already holds is a MOVE and not a
+// second document: two of them would be two undo stacks, two journals under one name, and a save
+// from either clobbering the other. The editor is the subject only because `:open` hands a file
+// to whoever registers `edit` — what is being asked is the ring's rule, not the plugin's.
+@(test)
+one_path_is_one_document :: proc(t: ^testing.T) {
+    a, ok := plug_app(t, "oket-ring-one-path", "plugins/edit")
+    if !ok {
+        return
+    }
+    defer close_plug_app(&a)
+    app.plug_init(&a)
+    if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "edit")), a.message) {
+        return
+    }
+    note, _ := filepath.join({a.home, "note.txt"}, context.temp_allocator)
+    other, _ := filepath.join({a.home, "other.txt"}, context.temp_allocator)
+    for path in ([?]string{note, other}) {
+        if err := os.write_entire_file(path, transmute([]u8)string("alpha\n")); err != nil {
+            testing.expectf(t, false, "cannot write %s: %v", path, err)
+            return
+        }
+    }
+
+    app.cl_exec(&a, fmt.tprintf(":open %s", note))
+    first := app.ring_focused(&a).doc
+    testing.expect_value(t, app.ring_slot(&a), 1)
+    app.cl_exec(&a, fmt.tprintf(":open %s", other))
+    testing.expect_value(t, app.ring_slot(&a), 2)
+
+    // The same file, spelled another way: `./x` and `x` are one file (path_abs), so this lands
+    // back on the document that is already open rather than making a third slot.
+    app.cl_exec(&a, fmt.tprintf(":open %s/./note.txt", a.home))
+    testing.expect_value(t, app.ring_slot(&a), 1)
+    testing.expect_value(t, app.ring_focused(&a).doc, first)
+    testing.expect(t, app.ring_get(&a, 3) == nil, "a second slot was opened on one file")
+
+    // An explicit `#N` for a document that is already somewhere REPORTS: a slot is where a
+    // document went the first time, and moving it silently would leave a memorised number
+    // pointing at a gap.
+    app.cl_exec(&a, fmt.tprintf(":open %s #3", note))
+    testing.expect_value(t, app.ring_slot(&a), 1)
+    testing.expect_value(t, app.ring_focused(&a).doc, first)
+    testing.expect(t, strings.contains(a.message, "already #1"), a.message)
+    testing.expect(t, app.ring_get(&a, 3) == nil, "an aimed slot placed one document twice")
 }
