@@ -3,8 +3,10 @@ package tests
 import "core:fmt"
 import "core:path/filepath"
 import "core:strings"
+import "core:os"
 import "core:testing"
 import "../gfx"
+import "../store"
 import app "../oket"
 
 // The gates for PANELS.md stages 1, 2 and 3. Stage 1: the frame is two grids, not one — the
@@ -493,12 +495,17 @@ two_sigils_and_a_bare_number :: proc(t: ^testing.T) {
         {"@-1", {panel = -1, rel = true}},
         {"@+2 #4", {slot = 4, panel = 2, rel = true}},
         {"#4 @2", {slot = 4, panel = 2}},
+        {"@=", {showing = true}},
+        {"@= #4", {slot = 4, showing = true}},
+        // Last sigil wins, and `@=` is on the same axis as `@N`: neither survives the other.
+        {"@= @2", {panel = 2}},
+        {"@2 @=", {showing = true}},
     }) {
         target, _, ok := app.target_parse(row.text)
         testing.expectf(t, ok, "%q is not an address", row.text)
         testing.expectf(t, target == row.target, "%q parsed as %v", row.text, target)
     }
-    for text in ([?]string{"x", "@", "#", "@0", "@+0", "#0", "-1", "#-1", "@2x"}) {
+    for text in ([?]string{"x", "@", "#", "@0", "@+0", "#0", "-1", "#-1", "@2x", "@=x", "#="}) {
         _, bad, ok := app.target_parse(text)
         testing.expectf(t, !ok, "%q was taken for an address", text)
         testing.expect_value(t, bad, text)
@@ -570,17 +577,17 @@ an_address_makes_the_panel_it_names :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    testing.expect_value(t, app.target_reach(&a, {panel = 3}), 2)
+    testing.expect_value(t, app.target_reach(&a, {panel = 3}, {}), 2)
     testing.expect_value(t, len(a.panels), 3)
 
     app.panel_focus(&a, 0)
-    testing.expect_value(t, app.target_reach(&a, {panel = -1, rel = true}), 0)
+    testing.expect_value(t, app.target_reach(&a, {panel = -1, rel = true}, {}), 0)
     testing.expect_value(t, len(a.panels), 4) // a new leftmost, and the old one moved right
     testing.expect_value(t, a.focus, 1)
 
-    testing.expect_value(t, app.target_reach(&a, {panel = 9, rel = true}), 4)
+    testing.expect_value(t, app.target_reach(&a, {panel = 9, rel = true}, {}), 4)
     testing.expect_value(t, len(a.panels), 5) // a walk stops at the end, and makes one there
-    testing.expect_value(t, app.target_reach(&a, {panel = 1, rel = true}), 2) // inside: nothing made
+    testing.expect_value(t, app.target_reach(&a, {panel = 1, rel = true}, {}), 2) // inside: nothing made
     testing.expect_value(t, len(a.panels), 5)
 }
 
@@ -629,4 +636,72 @@ a_panel_moves_along_the_strip :: proc(t: ^testing.T) {
     testing.expect_value(t, a.focus, 0)
     testing.expect_value(t, app.panel_get(&a, 0).at.slot, 3)
     testing.expect_value(t, len(a.panels), 3)
+}
+
+// The document a panel is standing on, for the two tests that ask where something went rather
+// than what is drawn.
+@(private = "file")
+panel_doc :: proc(a: ^app.App, i: int) -> store.Id {
+    s := app.panel_slot(a, app.panel_get(a, i))
+    return s == nil ? store.Id{} : s.doc
+}
+
+// `@=` is the automatic half of the routing, and it is opt-in per ROW rather than a mode: a
+// document already up goes to the panel that has it and the rest of the strip is left alone.
+// The same open without it replaces the panel you are in, which is what every line with no `@`
+// does — so the two policies are one word apart and both are greppable.
+@(test)
+an_open_can_go_to_the_panel_that_has_it :: proc(t: ^testing.T) {
+    a, ok := plug_app(t, "oket-panel-showing", "plugins/edit")
+    if !ok {
+        return
+    }
+    defer close_plug_app(&a)
+    app.plug_init(&a)
+    if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "edit")), a.message) {
+        return
+    }
+    note, _ := filepath.join({a.home, "note.txt"}, context.temp_allocator)
+    other, _ := filepath.join({a.home, "other.txt"}, context.temp_allocator)
+    for path in ([?]string{note, other}) {
+        if err := os.write_entire_file(path, transmute([]u8)string("alpha\n")); err != nil {
+            testing.expectf(t, false, "cannot write %s: %v", path, err)
+            return
+        }
+    }
+
+    app.cl_exec(&a, fmt.tprintf(":open %s", note))
+    first := app.ring_focused(&a).doc
+    app.panel_open(&a) // a second panel, and the keys with it
+    app.cl_exec(&a, fmt.tprintf(":open %s", other))
+    second := app.ring_focused(&a).doc
+    testing.expect_value(t, a.focus, 1)
+
+    // `@=`: the keys go to panel 1, and panel 2 keeps what it was holding.
+    app.cl_exec(&a, fmt.tprintf(":open %s @=", note))
+    testing.expect_value(t, a.focus, 0)
+    testing.expect_value(t, panel_doc(&a, 0), first)
+    testing.expect_value(t, panel_doc(&a, 1), second)
+    testing.expect_value(t, len(a.panels), 2)
+
+    // The same open with no `@` at all, from the other panel: the document comes to YOU, and
+    // the panel that had it takes what you were holding (ring_move's swap).
+    app.panel_focus(&a, 1)
+    app.cl_exec(&a, fmt.tprintf(":open %s", note))
+    testing.expect_value(t, a.focus, 1)
+    testing.expect_value(t, panel_doc(&a, 1), first)
+    testing.expect_value(t, panel_doc(&a, 0), second)
+
+    // Nothing is showing a file that is not open, so `@=` lands where you are: one row covers
+    // the document you have up and the one you do not.
+    app.panel_focus(&a, 0)
+    fresh, _ := filepath.join({a.home, "third.txt"}, context.temp_allocator)
+    if err := os.write_entire_file(fresh, transmute([]u8)string("beta\n")); err != nil {
+        testing.expectf(t, false, "cannot write %s: %v", fresh, err)
+        return
+    }
+    app.cl_exec(&a, fmt.tprintf(":open %s @=", fresh))
+    testing.expect_value(t, a.focus, 0)
+    testing.expect_value(t, len(a.panels), 2)
+    testing.expect_value(t, app.doc_title(&a, panel_doc(&a, 0)), fresh)
 }
