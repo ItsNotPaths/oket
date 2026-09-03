@@ -15,6 +15,7 @@ are looking at, so three files and three listings are both on `alt+1..3`.
 | | |
 |---|---|
 | `alt+f` `alt+t` `alt+e` | files, terminal, editor |
+| `alt+.` | any other lane: the command line, with `:ring ` already typed |
 | `alt+0` | N0, where a command's output lands |
 | ``alt+` `` | back to where you just were, across lanes |
 | `alt+q` | close this slot; its number is never reused while others live |
@@ -47,7 +48,7 @@ them.
 
 ## The command line
 
-`alt+c` opens it, `alt+;` opens it with the `:` already typed. A bare line goes to the shell, a
+`alt+c` opens it, `alt+;` opens it with the `:` already typed, `alt+.` with `:ring `. A bare line goes to the shell, a
 leading `:` is a builtin, `&&` chains them and "|" works via bash. Shell steps run in a session you can see and
 answer.
 
@@ -139,26 +140,40 @@ publisher. A parser, a linter and a search each write their own layer, the kerne
 one fixed order, and the renderer paints the answer. Nothing that publishes colour knows what a
 theme is — it names a token, and the palette decides.
 
-`plugins/syntax` is a tree-sitter plugin that draws nothing and opens nothing. It asks to be
-told about every document, picks a grammar off the file's extension, and publishes what its
-highlights query captures. A parse too big for one frame says so and resumes on the next, so a
-megabyte colours from the top down without a dropped frame and without a thread.
+`plugins/syntax` is a tree-sitter plugin that draws nothing. It asks to be told about every
+document, picks a grammar off the file's extension, and publishes what its highlights query
+captures. A parse too big for one frame says so and resumes on the next, so a megabyte colours
+from the top down without a dropped frame and without a thread.
 
-Grammars are not shipped. Building one is a shell script, and reaching it is a command line:
+Grammars are not shipped, and the list of the ones you could have is a document:
 
 ```sh
-:oket-grammar rust https://github.com/tree-sitter/tree-sitter-rust && :grammar ready rust
+:ring grammars   # alt+g
 ```
 
-A shell step and a plugin command, chained — the seam grows nothing for it. `oket-grammar` ships
-beside `oket`, so it is on `PATH` wherever oket is. The grammar lands in `grammars/` beside the
-binary as `<name>.so` plus its `<name>.scm` query, and an open file takes its colours on the next
-frame. `:grammar status` says where it is looking; `:grammar dir <path>` moves it. Point it at a
-directory instead of a URL to build a checkout you already have.
+Three hundred languages, one per row, a `*` on the ones already built. Typing filters, by name
+or by an extension you have open — `rs` finds `rust`. `enter` builds the row under point, and
+the row is the whole of the install:
 
-The name is what an extension selects, and the extension IS the name unless the plugin knows
-better: `.rs` wants `rust`, `.json` wants `json`. A language nobody listed works as soon as its
-grammar is built under the name of its own extension.
+```conf
+[grammars]
+enter = exec oket-grammar <lang> <repo> <rev> <sub> && :grammar ready <lang>
+```
+
+Four holes over one row, a shell step you can watch in N#, and a plugin command that runs only
+when the build exited 0. The list spawns nothing and knows nothing about git. `oket-grammar`
+ships beside `oket`, so it is on `PATH` wherever oket is, and it takes a directory as well as a
+URL — which is how a checkout you already have gets built, and how the tests build one with no
+network.
+
+The grammar lands in `grammars/` beside the binary as `<name>.so` plus its `<name>.scm` query,
+and an open file takes its colours on the next frame. `:grammar status` counts what is installed
+and says where it is looking; `:grammar dir <path>` moves it.
+
+The name is what an extension selects: `.rs` wants `rust`, `.json` wants `json`, and the registry
+the list is built on answers that too, so a row you install and a file you open cannot disagree.
+A language nobody listed still works as soon as its grammar is built under the name of its own
+extension.
 
 ## Subprocesses and watched files
 
