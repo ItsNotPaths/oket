@@ -72,18 +72,28 @@ panel_showing :: proc(a: ^App, at: Spot) -> ^Panel {
 
 // --- the verbs (§5) ---
 
-// A panel to the right of the focused one, standing on nothing until something opens there. It
-// takes the focused panel's LANE, so `alt+N` in the new panel addresses the numbers you were
-// just looking at and lands a fresh document on an empty one.
+// A panel to the right of the focused one, and the focus goes with it: `panel.open`.
 panel_open :: proc(a: ^App) {
+    panel_focus(a, panel_make(a, a.focus + 1))
+}
+
+// A panel at index `i`, standing on nothing until something opens there. It takes the focused
+// panel's LANE, so `alt+N` in the new panel addresses the numbers you were just looking at and
+// lands a fresh document on an empty one. The focus stays on the panel that had it, whichever
+// side of the new one that leaves it.
+panel_make :: proc(a: ^App, i: int) -> int {
     p := panel_focused(a)
     made := Panel {
         at   = {p.at.lane, 0},
         size = p.size,
     }
-    inject_at(&a.panels, a.focus + 1, made)
-    a.focus += 1
+    at := clamp(i, 0, len(a.panels))
+    inject_at(&a.panels, at, made)
+    if at <= a.focus {
+        a.focus += 1
+    }
     panels_relayout(a)
+    return at
 }
 
 // The panel goes, the documents stay: closing a panel is not closing what was in it, and the
@@ -104,8 +114,7 @@ panel_close :: proc(a: ^App) -> bool {
 // into the other is a carousel.
 panel_step :: proc(a: ^App, by: int) {
     panels_ready(a)
-    a.focus = clamp(a.focus + by, 0, len(a.panels) - 1)
-    panels_relayout(a)
+    panel_focus(a, clamp(a.focus + by, 0, len(a.panels) - 1))
 }
 
 // The full/half toggle, which is the whole sizing model (§5).
@@ -183,10 +192,12 @@ floor_div :: proc(n, d: int) -> int {
 }
 
 // Click to focus (§7): the cell that comes back counts from the panel it landed in, so the keys
-// have to be aimed there before anything is placed against it.
+// have to be aimed there before anything is placed against it. The camera follows focus (§5),
+// so a panel aimed at from the command line scrolls into view rather than acting off screen.
 panel_focus :: proc(a: ^App, i: int) {
     if panel_get(a, i) != nil {
         a.focus = i
+        panels_relayout(a)
     }
 }
 
