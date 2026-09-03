@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
+import "core:strconv"
 import "core:strings"
 import "../conf"
 
@@ -14,13 +15,22 @@ import "../conf"
 // silently does nothing is the failure the input design exists to prevent (§8), and it is the
 // rule binds.conf follows for a bad row.
 //
-// One setting today, which is §4's tripwire: if this grows nesting, flat keys start encoding
+// Two settings today, which is §4's tripwire: if this grows nesting, flat keys start encoding
 // structure in their names — `lang.odin.tab_width` — and that is a worse TOML. Revisit there.
 
 CONFIG_NAME :: "config.conf" // beside the binary, next to binds.conf
 
 Config :: struct {
     restore: bool, // [session] restore = on — the ring, across restarts (session.odin)
+    gap:     int, // [strip] gap = 8 — pixels between two panels (PANELS.md §5, §7)
+}
+
+// The zero value is not the default: a gap of nothing puts two documents against each other.
+// A strip of one has no gap in it either way, so this changes nothing until a panel is opened.
+GAP_DEFAULT :: 8
+
+config_default :: proc() -> Config {
+    return {gap = GAP_DEFAULT}
 }
 
 // A setting is where it is written and what reading it does, so adding one is a field above and
@@ -35,10 +45,11 @@ Setting :: struct {
 @(private = "file", rodata)
 SETTINGS := [?]Setting {
     {"session", "restore", proc(c: ^Config, value: string) {c.restore = conf_on(value)}},
+    {"strip", "gap", proc(c: ^Config, value: string) {c.gap = conf_int(value, GAP_DEFAULT)}},
 }
 
 config_load :: proc(a: ^App) {
-    a.config = {}
+    a.config = config_default()
     if a.home == "" {
         return
     }
@@ -78,6 +89,13 @@ conf_on :: proc(value: string) -> bool {
         return true
     }
     return false
+}
+
+// A whole number, and the setting's own default for anything else: a value the parser cannot
+// read is a row that says what it meant, and silently reading it as zero would not.
+conf_int :: proc(value: string, fallback: int) -> int {
+    n, ok := strconv.parse_int(strings.trim_space(value), 10)
+    return ok && n >= 0 ? n : fallback
 }
 
 // One bad row is reported and skipped, never fatal — for both files the kernel reads.

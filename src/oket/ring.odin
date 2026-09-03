@@ -8,11 +8,14 @@ import "../view"
 // One ring per KIND (§5), numbered, and `alt+N` addresses slot N of the lane you are looking
 // at: three files on alt+1..3, three listings on alt+1..3. A flat ring is the version that
 // hides state, because slot 3 could be anything and you have to remember which. Here the
-// something it depends on is the surface filling your screen, which is the least invisible
-// state there is.
+// something it depends on is the FOCUSED PANEL, and the focused panel is drawn as focused
+// (PANELS.md §3): the caret is in it and nowhere else, so which lane `alt+N` means is on
+// screen and not remembered.
 //
 // The ring holds the documents; WHERE you are in it is the panel's (PANELS.md §2), because the
 // answer differs per panel and everything an instance would duplicate stays here and single.
+// The two numberings do not interfere: a ring slot is per kind, stable and keeps its gaps; a
+// panel is positional, so closing one renumbers the strip and no document at all.
 //
 // A slot holds a document and the viewport over it. The viewport is view state (§11): it
 // survives a resize, a font change and a reload, so it lives with the slot and not with the
@@ -227,6 +230,13 @@ ring_move :: proc(a: ^App, to: Spot) -> bool {
         if to.lane == p.at.lane {
             l.prev = p.at.slot // and a move INSIDE it is what the lane's own toggle undoes
         }
+    }
+    // A live slot is in at most one panel (§2): the viewport lives on the SLOT, so two panels
+    // showing one would fight over it. The panel that had it takes the spot this one is
+    // leaving, which is a swap and never a refusal — what `alt+N` promised is that the focused
+    // panel's content changes, and it does.
+    if other := panel_showing(a, to); other != nil && other != p {
+        other.prev, other.at = other.at, p.at
     }
     p.prev, p.at = p.at, to
     return true

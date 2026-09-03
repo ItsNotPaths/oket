@@ -44,12 +44,18 @@ bar_text :: proc(a: ^App) -> string {
     if a.message != "" {
         return a.message
     }
+    // Which PANEL, once there is more than one: the bar is global (§2), so it has to say which
+    // of them it is answering for. `@N` is stage 4's spelling for a panel, used here first.
+    tag := len(a.panels) > 1 ? fmt.tprintf("@%d ", a.focus + 1) : ""
     if ring_slot(a) == SLOT_SYSTEM {
-        return "N#  the system session"
+        return fmt.tprintf("%sN#  the system session", tag)
     }
     if s := ring_focused(a); s != nil {
-        return fmt.tprintf("%s %s  %s", kind_name(a, doc_kind(a, s.doc)),
+        return fmt.tprintf("%s%s %s  %s", tag, kind_name(a, doc_kind(a, s.doc)),
                            slot_tag(ring_slot(a)), doc_title(a, s.doc))
+    }
+    if tag != "" {
+        return fmt.tprintf("%sempty; alt+N opens something here", tag)
     }
     return "esc quits, f1 describes a chord, alt+c opens the command line"
 }

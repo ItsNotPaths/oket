@@ -65,7 +65,13 @@ button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mods: i3
         return
     }
     px, py := glfw.GetCursorPos(window)
-    _, cx, cy := cell_at(a, px, py)
+    pn, cx, cy := cell_at(a, px, py)
+    // Click to focus, before anything reads `active` (PANELS.md §7): the cell counts from the
+    // panel it landed in, so aiming the keys somewhere else would place point with one panel's
+    // numbers in another panel's document.
+    if action == glfw.PRESS {
+        panel_focus(a, pn)
+    }
     // A document that took the mouse over reads the button itself (§5, §8): a TUI with tracking
     // on wants the press AND the release, and neither is a chord.
     if tm := mouse_events_target(a); tm != nil {
@@ -74,9 +80,14 @@ button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mods: i3
         return
     }
     if action == glfw.PRESS {
-        // Point first, then the chord (§8): holes fill from point exactly as they do for a key.
-        point_place(a, cx, cy)
-        input.mouse_press(&a.mouse, input.MOUSE_BUTTONS[button], cx, cy)
+        // Only from the lattice the active document was drawn on: a gap and the bar count from
+        // the screen, and placing those numbers against a panel's body would move its caret for
+        // a click beside it.
+        if pn == active_panel(a) {
+            // Point first, then the chord (§8): holes fill from point exactly as they do for a key.
+            point_place(a, cx, cy)
+            input.mouse_press(&a.mouse, input.MOUSE_BUTTONS[button], cx, cy)
+        }
         return
     }
     if m, fired := input.mouse_release(&a.mouse, cx, cy, glfw.GetTime()); fired {
@@ -97,7 +108,11 @@ cursor_callback :: proc "c" (window: glfw.WindowHandle, px, py: f64) {
         return
     }
     if input.mouse_motion(&a.mouse, cx, cy) {
-        point_drag(a, cx, cy)
+        // A drag that leaves the grid it started in counts in another one's cells; the selection
+        // holds where it was until the pointer is back.
+        if pn == active_panel(a) {
+            point_drag(a, cx, cy)
+        }
         return
     }
     hover_update(a, pn, cx, cy)
@@ -167,28 +182,16 @@ glfw_mods_now :: proc "c" (w: glfw.WindowHandle) -> (m: input.Mods) {
     return
 }
 
-// Pixel to cell is a division by the cell size (§8). The pointer arrives in window coordinates
-// and the grid is laid out in framebuffer pixels, so the scale between them goes in first.
-//
-// The cell comes back with its panel and counts from that panel's grid (panel_hit). While the
-// strip is one long the lattices coincide, which is why callers here may drop the panel.
+// The pointer arrives in window coordinates and the grids are laid out in framebuffer pixels,
+// so the scale between them goes in first. The division into cells is panel_hit's, because a
+// panel has an origin of its own and a column number counts from one grid (§7, §8).
 cell_at :: proc(a: ^App, px, py: f64) -> (panel, x, y: int) {
     fw, fh := glfw.GetFramebufferSize(a.window)
     ww, wh := glfw.GetWindowSize(a.window)
-    cw, ch := gfx.painter_cell(&a.painter)
     ox, oy := gfx.painter_origin(&a.painter, fw, fh, a.chrome.cols, a.chrome.rows)
     sx := ww > 0 ? f64(fw) / f64(ww) : 1
     sy := wh > 0 ? f64(fh) / f64(wh) : 1
-    return panel_hit(a, floor_div(int(px * sx) - ox, cw), floor_div(int(py * sy) - oy, ch))
-}
-
-// Truncation toward zero would fold the column left of the grid onto column 0.
-@(private = "file")
-floor_div :: proc(n, d: int) -> int {
-    if d <= 0 {
-        return 0
-    }
-    return n >= 0 ? n / d : -((-n + d - 1) / d)
+    return panel_hit(a, int(px * sx) - ox, int(py * sy) - oy)
 }
 
 // The other direction, for binds.conf: which position types this glyph. Walked rather than

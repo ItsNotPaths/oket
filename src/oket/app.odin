@@ -7,6 +7,7 @@ import "vendor:glfw"
 import "../gfx"
 import "../input"
 import "../store"
+import "../strip"
 import "../work"
 
 // The kernel's whole mutable state: one window, a store of documents, the ring that says which
@@ -19,10 +20,17 @@ App :: struct {
     // bar, and the ground a panel is drawn onto. A panel is a window onto a document and takes
     // an origin of its own, so it can slide without dragging the bar with it.
     chrome:       gfx.Grid,
-    // The strip (PANELS.md §2). One panel at full width today, which is a strip of length one
-    // and not a special case; `focus` says which one the ring and the keys act on.
+    // The strip (PANELS.md §2, §5). A default start is one panel at full width, which is a
+    // strip of length one and not a special case; `focus` says which one the ring and the keys
+    // act on. The layout itself is src/strip's: this is the camera and the two measurements it
+    // works in, and the widths live on the panels.
     panels:       [dynamic]Panel,
     focus:        int,
+    strip:        strip.Strip,
+    // The cell, in pixels, as the last fit measured it. The grids are cells and the strip is
+    // pixels, so the conversion is written down once rather than asked of the painter from
+    // every rectangle that needs it — a test has no painter and still has a strip.
+    cell:         [2]int,
     theme:        gfx.Theme,
     docs:         store.Store,
     ring:         Ring,
@@ -55,7 +63,7 @@ App :: struct {
     // Style-token names, interned (tokens.odin). A span carries an id; the palette says what
     // the id looks like, so a plugin never names a colour.
     tokens:       [dynamic]Token_Def,
-    config:       Config, // config.conf, which holds one setting today (session.odin)
+    config:       Config, // config.conf, which holds two settings today (config.odin)
     cl:           Cmdline,
     chain:        Chain,
     job:          Job,

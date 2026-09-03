@@ -64,6 +64,9 @@ draw :: proc(
     v: View,
     x, y, w, h: int,
     styles: []Style = nil,
+    // The caret and its selection, which only the FOCUSED panel draws (PANELS.md §3): reverse
+    // video in a panel the keys are not aimed at says the next keystroke lands there.
+    point := true,
 ) {
     gut := gutter_width(t, d)
     body := w - gut
@@ -71,7 +74,7 @@ draw :: proc(
         return
     }
     if columnar(d) {
-        draw_columns(g, th, t, d, v, x, y, gut, w, h)
+        draw_columns(g, th, t, d, v, x, y, gut, w, h, point)
         return
     }
     for r, i in rows(t, d, v.top, body, h) {
@@ -82,7 +85,9 @@ draw :: proc(
         left := x + gut + ind
         run(g, left, y + i, src[clipped.lo:clipped.hi], body - ind, d.tab_width, th[.Fg], th[.Bg])
         restyle(g, d, left, y + i, body - ind, clipped, src, styles)
-        mark_point(g, d, v, left, y + i, body - ind, clipped, src)
+        if point {
+            mark_point(g, d, v, left, y + i, body - ind, clipped, src)
+        }
     }
 }
 
@@ -293,6 +298,7 @@ draw_columns :: proc(
     d: ^desc.Descriptor,
     v: View,
     x, y, gut, w, h: int,
+    point: bool,
 ) {
     for i in 0 ..< h {
         line := v.top + i
@@ -315,7 +321,7 @@ draw_columns :: proc(
         // mark laid down first survives only where no column reached — the row lit everywhere
         // except its own text. A columns document draws its fields and not its bytes, so what
         // is marked is the whole ROW rather than a span of it.
-        if d.selection != .None {
+        if point && d.selection != .None {
             lo, hi := txt.cursor_range(v.point)
             if line >= lo.line && line <= hi.line {
                 mark(g, x + gut, y + i, 0, w - gut)

@@ -3,6 +3,7 @@ package main
 import "../desc"
 import "../gfx"
 import "../store"
+import "../strip"
 import "../txt"
 import "../view"
 
@@ -15,8 +16,11 @@ import "../view"
 // screen, or standing at a fractional origin, costs an origin and a clip here and nothing
 // anywhere below.
 
-// The chrome is the whole fit; the strip gets everything above the bar.
-surface_fit :: proc(a: ^App, cols, rows: int) {
+// The chrome is the whole fit; the strip gets everything above the bar. The cell size comes in
+// because the strip is pixels and the grids are cells (§7); a caller with no painter leaves a
+// cell one pixel, and its strip arithmetic then reads in columns.
+surface_fit :: proc(a: ^App, cols, rows: int, cell := [2]int{1, 1}) {
+    a.cell = cell
     gfx.grid_resize(&a.chrome, cols, rows)
     panels_fit(a, cols, rows)
 }
@@ -36,15 +40,19 @@ surface_draw :: proc(a: ^App) {
         gfx.grid_write(ch, 0, row, bar_text(a), th[.Dim], th[.Bg])
     }
 
-    for &p in a.panels {
-        panel_draw(a, &p)
+    for &p, i in a.panels {
+        panel_draw(a, &p, i == a.focus)
     }
 }
 
 // One panel, into its own grid and its own cells. The rectangle is recorded before the document
 // is: a click is placed against it, and a panel with nothing in it still has a height.
+//
+// THE CARET IS WHAT SAYS WHICH PANEL IS FOCUSED (§3). Reverse video in a panel the keys are not
+// aimed at would be the surface lying about where the next keystroke goes, and the lane `alt+N`
+// addresses is the focused panel's — so which one that is has to be on screen.
 @(private = "file")
-panel_draw :: proc(a: ^App, p: ^Panel) {
+panel_draw :: proc(a: ^App, p: ^Panel, focused: bool) {
     th := a.theme
     p.body = {0, 0, p.grid.cols, p.grid.rows}
 
@@ -62,7 +70,7 @@ panel_draw :: proc(a: ^App, p: ^Panel) {
 
     b := p.body
     view.draw(&p.grid, th, &snap.text, d, s.view, b.x, b.y, b.w, b.h,
-              doc_styles(a, s.doc, &snap.text, s.view.top, b.h))
+              doc_styles(a, s.doc, &snap.text, s.view.top, b.h), focused)
     if p.hover.on {
         view.underline(&p.grid, &snap.text, d, s.view, b.x, b.y, b.w, b.h,
                        p.hover.line, p.hover.lo, p.hover.hi)
@@ -70,16 +78,24 @@ panel_draw :: proc(a: ^App, p: ^Panel) {
 }
 
 // The frame, on the GPU: the chrome, then every panel over it. A panel's origin is the chrome's
-// plus its own corner, in whole cells while the strip is one long.
+// corner plus what the strip says, which is pixels and not cells — that is the whole of what a
+// gap, a half width and a camera cost here (§7).
 surface_paint :: proc(a: ^App, win_w, win_h: i32) {
     p := &a.painter
     ox, oy := gfx.painter_origin(p, win_w, win_h, a.chrome.cols, a.chrome.rows)
-    cw, ch := gfx.painter_cell(p)
+    _, ch := gfx.painter_cell(p)
     gfx.painter_draw(p, &a.chrome, win_w, win_h, {f32(ox), f32(oy)}, {0, 0, win_w, win_h})
+    ws := panel_widths(a)
     for &pn, i in a.panels {
-        r := panel_screen(a, i)
-        x, y := i32(ox + r.x * cw), i32(oy + r.y * ch)
-        gfx.painter_draw(p, &pn.grid, win_w, win_h, {f32(x), f32(y)},
-                         {x, y, i32(r.w * cw), i32(r.h * ch)})
+        it := strip.span(a.strip, ws, i)
+        x := f32(ox) + it.x
+        // The clip is the window's share of the panel, not the panel: one scrolled off the left
+        // edge draws at a negative origin, and GL takes no negative box.
+        lo, hi := max(i32(x), 0), min(i32(x + it.w), win_w)
+        if hi <= lo {
+            continue
+        }
+        gfx.painter_draw(p, &pn.grid, win_w, win_h, {x, f32(oy)},
+                         {lo, i32(oy), hi - lo, i32(pn.grid.rows * ch)})
     }
 }

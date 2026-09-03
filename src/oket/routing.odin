@@ -27,6 +27,13 @@ active_rect :: proc(a: ^App) -> Rect {
     return cl_active(a) ? a.bar : panel_focused(a).body
 }
 
+// And WHOSE cells that rectangle is in (§7): the chrome's while the line is open, the focused
+// panel's otherwise. A click from the other lattice is a different grid's numbers, and placing
+// it against this rectangle would move a caret for a click beside it. -1 is the chrome.
+active_panel :: proc(a: ^App) -> int {
+    return cl_active(a) ? -1 : a.focus
+}
+
 // The active slot and its descriptor, which is what every routing question below reads its
 // answer off. The caller releases the descriptor; both nil for an empty ring or a closed doc.
 @(private = "file")
@@ -149,6 +156,16 @@ handle_chord :: proc(a: ^App, chord: input.Chord) {
     case .Ring_System:
         sys_slot(a) // alt+0 opens N# if nothing has needed it yet
         ring_show_system(a)
+    case .Panel_Open:
+        panel_open(a)
+    case .Panel_Close:
+        panel_close(a)
+    case .Panel_Next:
+        panel_step(a, +1)
+    case .Panel_Prev:
+        panel_step(a, -1)
+    case .Panel_Size:
+        panel_resize(a)
     case .CL_Open:
         cl_show(a)
     case .CL_Sigil:

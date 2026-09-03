@@ -79,6 +79,11 @@ Command :: enum u8 {
     Ring_Alt_Lane,
     Ring_Close,
     Ring_System,
+    Panel_Open,
+    Panel_Close,
+    Panel_Next,
+    Panel_Prev,
+    Panel_Size,
     Jump_Back,
     Jump_Forward,
     CL_Open,
@@ -193,6 +198,11 @@ COMMANDS := [Command]Command_Info {
     .Ring_Alt_Lane       = {"ring.alt_lane", "the same toggle, kept inside the ring you are in", {.Global}},
     .Ring_Close          = {"ring.close", "close the focused slot; its number is never reused while others live", {.Global}},
     .Ring_System         = {"ring.system", "go to N#, the system session", {.Global}},
+    .Panel_Open          = {"panel.open", "a panel to the right of this one, standing on nothing", {.Global}},
+    .Panel_Close         = {"panel.close", "close the focused panel; what was in it stays in the ring", {.Global}},
+    .Panel_Next          = {"panel.next", "focus the panel to the right", {.Global}},
+    .Panel_Prev          = {"panel.prev", "focus the panel to the left", {.Global}},
+    .Panel_Size          = {"panel.size", "toggle the focused panel between full and half width", {.Global}},
     .Jump_Back           = {"jump.back", "to the previous position in the jump ring, across surfaces", {.Global}},
     .Jump_Forward        = {"jump.forward", "back toward the position you jumped from", {.Global}},
     .CL_Open             = {"cl.open", "open the command line", {.Global}},
@@ -315,10 +325,14 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     bind_put(&b, "TLDE", {.Alt, .Shift}, .Ring_Alt_Lane) // and Shift keeps it in one ring
     bind_put(&b, "AD01", {.Alt}, .Ring_Close) // alt+q
     bind_put(&b, "AE10", {.Alt}, .Ring_System) // alt+0: at the rotation's edge, not in it (§11)
-    // Browser back and forward, because that is what a jump ring is and everybody already knows
-    // the gesture. Alt keeps meaning "move between things", which is what the ring is (§5).
-    bind_put(&b, "LEFT", {.Alt}, .Jump_Back)
-    bind_put(&b, "RGHT", {.Alt}, .Jump_Forward)
+    // The strip (PANELS.md §3, §5). Alt keeps meaning "move between things": the numbers walk
+    // the ring, and the side arrows walk the panels. `jump.back` and `jump.forward` keep no
+    // default chord until there is a jump ring to walk.
+    bind_put(&b, "LEFT", {.Alt}, .Panel_Prev)
+    bind_put(&b, "RGHT", {.Alt}, .Panel_Next)
+    bind_put(&b, "AD10", {.Alt}, .Panel_Open) // alt+p
+    bind_put(&b, "AD10", {.Alt, .Shift}, .Panel_Close) // the panel, never the document in it
+    bind_put(&b, "AD02", {.Alt}, .Panel_Size) // alt+w, for width
     // The universal spelling, and it moves the TEXT rather than the grid: ctrl+= is bigger
     // glyphs, which is fewer cells.
     bind_put(&b, "AE12", {.Ctrl}, .Font_Bigger) // ctrl+=

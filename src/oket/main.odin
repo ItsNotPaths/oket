@@ -119,7 +119,8 @@ main :: proc() {
     for !glfw.WindowShouldClose(a.window) && !a.quit {
         w, h := glfw.GetFramebufferSize(a.window)
         cols, rows := gfx.painter_fit(&a.painter, w, h)
-        surface_fit(&a, cols, rows)
+        cw, ch := gfx.painter_cell(&a.painter)
+        surface_fit(&a, cols, rows, {cw, ch})
 
         // Writes land at one point in the frame (§6): every session's output into its
         // document first, then the exit code that advances a chain waiting on one.
