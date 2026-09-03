@@ -39,7 +39,7 @@ scratch :: proc(t: ^testing.T, name: string) -> (dir: string, ok: bool) {
 // the test binary, which races the parallel runner and is not this App's file to write.
 bare_app :: proc(cols := 50, rows := 4) -> (a: app.App, ok: bool) {
     a.theme = gfx.DEFAULT_THEME
-    a.binds = input.binds_default()
+    a.binds = app.binds_base()
     if !gfx.grid_init(&a.grid, cols, rows) {
         return {}, false
     }
@@ -59,6 +59,8 @@ listing_app :: proc(t: ^testing.T, name: string) -> (a: app.App, dir: string, ok
 }
 
 close_app :: proc(a: ^app.App) {
+    app.journals_destroy(a) // a clean exit leaves nothing to recover, the same as app_destroy
+    app.quarantine_destroy(a)
     app.job_destroy(a)
     app.io_destroy(a) // the worker thread, joined, the same way app_destroy ends one
     app.chain_clear(a)

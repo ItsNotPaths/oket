@@ -1,158 +1,275 @@
 package tests
 
 import "core:encoding/endian"
+import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import "core:testing"
-import "../edit"
-import "../txt"
+import "../desc"
+import "../store"
+import app "../oket"
 
-// The step-9 gate, third claim: unsaved work survives a crash.
+// Stage 13's gate: kill -9 mid-edit, restart, work intact.
 //
-// The point of §10's design is that recovery reads only bytes already on the platter. Nothing
-// here serializes a Buffer, so nothing here depends on the piece table being intact — which is
-// the state a crash is least entitled to trust.
+// The half a test cannot do to itself is the kill. `journal_detach` is that half — the fd goes
+// and the bytes stay, which is exactly what a process death leaves — and everything after it
+// runs in a SECOND App over the same home, so what is asserted is a restart and not a rollback.
+//
+// Nothing here serializes a piece table, which is the point of §10's design: recovery reads
+// bytes that were already on the platter, and the piece table is the state a crash is least
+// entitled to trust.
 
-@(test)
-journal_recovers_unsaved_edits :: proc(t: ^testing.T) {
-    dir, doc, made := journal_dirs()
-    if !testing.expect(t, made, "could not make a temp directory") {
-        return
+// An editor, a file open in it, and the journal running. Answers the home directory as well,
+// because the restart is another App over the same one.
+@(private = "file")
+crash_app :: proc(t: ^testing.T, name, text: string) ->
+                  (a: app.App, path, home: string, ok: bool) {
+    a = plug_app(t, name, "plugins/edit") or_return
+    app.plug_init(&a)
+    if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "edit")), a.message) {
+        close_plug_app(&a)
+        return {}, "", "", false
     }
-    defer cleanup_dir(dir)
-    defer delete(doc)
-
-    if !testing.expect_value(t, os.write_entire_file(doc, "one\ntwo\n"), nil) {
-        return
+    // A space in the name on purpose: the page's `enter` fills a hole, and the quote pair a
+    // hole adds has to come off again at the builtin.
+    path, _ = filepath.join({a.home, "my note.txt"}, context.allocator)
+    if err := os.write_entire_file(path, transmute([]u8)text); err != nil {
+        testing.expectf(t, false, "cannot write %s: %v", path, err)
+        close_plug_app(&a)
+        return {}, "", "", false
     }
-
-    b: edit.Buffer
-    edit.buffer_init(&b)
-    testing.expect(t, edit.buffer_load(&b, doc), "the buffer did not load")
-    testing.expect(t, edit.journal_begin(&b, dir), "the journal did not open")
-
-    // Edits, and never a save: this is the work a crash would otherwise take.
-    edit.buffer_insert_rune(&b, 'X')
-    edit.buffer_insert_rune(&b, 'Y')
-    want := txt.doc_string(&b.doc, context.temp_allocator)
-
-    // The process dies here. Nothing flushes, nothing serializes; the journal is whatever
-    // write() already handed the kernel.
-    journal, _ := filepath.join({dir, edit.journal_name(doc)}, context.temp_allocator)
-    testing.expect(t, os.exists(journal), "no journal file was written")
-
-    r, ok := edit.journal_recover(journal)
-    if !testing.expect(t, ok, "the journal did not replay") {
-        return
+    app.cl_exec(&a, fmt.tprintf(":open %q", path))
+    if !testing.expect(t, app.ring_focused(&a.ring) != nil, a.message) {
+        close_plug_app(&a)
+        return {}, "", "", false
     }
-    defer edit.recovered_destroy(&r)
-    testing.expect_value(t, r.path, doc)
-    testing.expect_value(t, r.content, want)
-    testing.expect_value(t, r.edits, 2)
-
-    // Only now, so the assertions above ran against a journal nobody closed.
-    edit.journal_end(&b)
-    edit.buffer_destroy(&b)
+    app.surface_draw(&a)
+    app.docs_settle(&a) // the frame that starts the journal, based on what the file said
+    return a, path, strings.clone(a.home), true
 }
 
-// A save is the end of the journal's job: the file now says what the journal said, and a
-// leftover would offer to recover work that is already on disk.
+// The restart. A fresh App over a home that already has a journal in it, with the plugins that
+// home holds, which is every start after a crash.
+@(private = "file")
+restart :: proc(home: string) -> (a: app.App, ok: bool) {
+    a = bare_app() or_return
+    a.home = strings.clone(home)
+    app.plug_init(&a)
+    app.plug_autoload(&a)
+    return a, true
+}
+
+// The gate, end to end.
 @(test)
-journal_clears_on_save :: proc(t: ^testing.T) {
-    dir, doc, made := journal_dirs()
-    if !testing.expect(t, made, "could not make a temp directory") {
+work_survives_a_crash_and_a_restart :: proc(t: ^testing.T) {
+    a, path, home, ok := crash_app(t, "oket-journal-gate", "one\ntwo\n")
+    if !ok {
         return
     }
-    defer cleanup_dir(dir)
-    defer delete(doc)
-    testing.expect_value(t, os.write_entire_file(doc, "one\n"), nil)
+    defer delete(home)
+    defer delete(path)
 
-    b: edit.Buffer
-    edit.buffer_init(&b)
-    defer edit.buffer_destroy(&b)
-    testing.expect(t, edit.buffer_load(&b, doc), "the buffer did not load")
-    testing.expect(t, edit.journal_begin(&b, dir), "the journal did not open")
-    edit.buffer_insert_rune(&b, 'Z')
+    id := app.ring_focused(&a.ring).doc
+    app.handle_chord(&a, chord("END"))
+    for r in "XY" {
+        app.text_input(&a, r)
+    }
+    want := doc_text(&a, id)
+    testing.expect_value(t, want, "oneXY\ntwo\n")
 
-    journal, _ := filepath.join({dir, edit.journal_name(doc)}, context.temp_allocator)
-    testing.expect(t, os.exists(journal), "no journal before the save")
+    // The process dies here: nothing is flushed and nothing is serialized.
+    testing.expect(t, app.journal_detach(&a, id), "the document was not being journaled")
+    close_plug_app(&a)
 
-    // buffer_save marks saved, and journaling restarts from the new clean base. With no
-    // journal_dir set for tests, that leaves nothing behind.
-    testing.expect_value(t, edit.buffer_save(&b), edit.Save_Result.Ok)
-    testing.expect(t, !os.exists(journal), "the journal outlived the save it recorded")
+    b, made := restart(home)
+    if !testing.expect(t, made, "the restart made no App") {
+        return
+    }
+    defer close_plug_app(&b)
+
+    work := app.recover_scan(&b)
+    if !testing.expect_value(t, len(work), 1) {
+        return
+    }
+    testing.expect_value(t, work[0].path, path)
+    testing.expect(t, work[0].edits > 0, "the journal recovered no edits at all")
+
+    // Through the home page, which is what a start after a crash opens: point on the row, and
+    // `enter`. No dialog, no mode, no key job — one bind over one field (§13).
+    page := app.home_open(&b)
+    app.ring_add(&b, page)
+    app.surface_draw(&b)
+    for _ in 0 ..< home_row(&b, page) {
+        app.handle_chord(&b, chord("DOWN"))
+    }
+    app.handle_chord(&b, chord("RTRN"))
+    testing.expect_value(t, focused_text(&b), want)
+    // And the offer is gone: the work is in a document now, and a second start must not offer
+    // it again over a file that still says something else.
+    testing.expect_value(t, len(app.recover_scan(&b)), 0)
 }
+
+// Which line of the page carries the first row of recovered work.
+@(private = "file")
+home_row :: proc(a: ^app.App, page: store.Id) -> int {
+    d := store.store_descriptor(&a.docs, page)
+    defer desc.release(d)
+    for f in d.fields {
+        if f.name == "path" {
+            return f.line
+        }
+    }
+    return 0
+}
+
+// A clean exit is not a crash. The journal goes with the App, or every start would open on a
+// page offering back work that nothing is missing.
+@(test)
+a_clean_exit_leaves_no_journal :: proc(t: ^testing.T) {
+    a, path, home, ok := crash_app(t, "oket-journal-clean", "one\n")
+    if !ok {
+        return
+    }
+    defer delete(home)
+    defer delete(path)
+    journal := strings.clone(app.journal_path(&a, path), context.allocator)
+    defer delete(journal)
+
+    app.text_input(&a, 'Z')
+    testing.expect(t, os.exists(journal), "no journal while a document was being edited")
+    close_plug_app(&a)
+    testing.expect(t, !os.exists(journal), "the journal outlived the exit that was clean")
+}
+
+// What is journaled is a descriptor read (§5): a file, and typing reaches it. A listing is
+// neither, and journaling one would make every directory you opened recoverable work.
+@(test)
+only_editable_files_are_journaled :: proc(t: ^testing.T) {
+    home, made := scratch(t, "oket-journal-who")
+    if !made {
+        return
+    }
+    a, ok := bare_app()
+    if !testing.expect(t, ok, "no App") {
+        return
+    }
+    defer close_plug_app(&a)
+    a.home = strings.clone(home)
+
+    file, _ := filepath.join({home, "alpha.txt"}, context.temp_allocator)
+    app.ring_add(&a, app.listing_open(&a, home)) // a file, and not editable
+    editable := scratch_doc(&a, file, "ab")
+    nameless := scratch_doc(&a, "", "cd") // editable, and no file to recover into
+    app.docs_settle(&a)
+
+    testing.expect(t, app.journal_detach(&a, editable), "the file was not journaled")
+    testing.expect(t, !app.journal_detach(&a, nameless), "a document with no file was journaled")
+    testing.expect_value(t, len(app.recover_scan(&a)), 1)
+}
+
+// The work reached its file before the crash. Offering it back is a decision that changes
+// nothing, so the scan drops it and the page stays about what is actually at stake.
+@(test)
+recovery_drops_what_the_file_already_says :: proc(t: ^testing.T) {
+    a, path, home, ok := crash_app(t, "oket-journal-saved", "one\n")
+    if !ok {
+        return
+    }
+    defer delete(home)
+    defer delete(path)
+
+    id := app.ring_focused(&a.ring).doc
+    app.handle_chord(&a, chord("END"))
+    app.text_input(&a, 'Z')
+    saved := doc_text(&a, id)
+    testing.expect_value(t, os.write_entire_file(path, transmute([]u8)saved), nil)
+    testing.expect(t, app.journal_detach(&a, id), "the document was not being journaled")
+    close_plug_app(&a)
+
+    b, made := restart(home)
+    if !testing.expect(t, made, "the restart made no App") {
+        return
+    }
+    defer close_plug_app(&b)
+    testing.expect_value(t, len(app.recover_scan(&b)), 0)
+    testing.expect(t, !os.exists(app.journal_path(&b, path)), "a spent journal was kept")
+}
+
+// Two `notes.md` in two directories are two documents. A journal keyed on what was typed at
+// `:open` would offer one back over the other, in whichever directory the next start ran from.
+@(test)
+a_journal_is_keyed_on_the_whole_path :: proc(t: ^testing.T) {
+    cwd, _ := os.get_working_directory(context.temp_allocator)
+    here, _ := filepath.join({cwd, "alpha.txt"}, context.temp_allocator)
+    testing.expect_value(t, app.journal_name("alpha.txt"), app.journal_name(here))
+    testing.expect(t, app.journal_name("one/alpha.txt") != app.journal_name("two/alpha.txt"),
+                   "two directories shared one journal")
+}
+
+// --- the replay, on its own ---
 
 // A torn tail is the normal way a journal ends: the process died mid-write. Everything before
 // the torn record still has to come back.
 @(test)
 journal_survives_a_torn_tail :: proc(t: ^testing.T) {
-    dir, doc, made := journal_dirs()
-    if !testing.expect(t, made, "could not make a temp directory") {
+    a, path, home, ok := crash_app(t, "oket-journal-torn", "abc")
+    if !ok {
         return
     }
-    defer cleanup_dir(dir)
-    defer delete(doc)
-    testing.expect_value(t, os.write_entire_file(doc, "abc"), nil)
+    defer delete(home)
+    defer delete(path)
 
-    b: edit.Buffer
-    edit.buffer_init(&b)
-    testing.expect(t, edit.buffer_load(&b, doc), "the buffer did not load")
-    testing.expect(t, edit.journal_begin(&b, dir), "the journal did not open")
-    edit.buffer_insert_rune(&b, 'Q')
-    edit.buffer_insert_rune(&b, 'R')
-    edit.journal_detach(&b) // what a crash leaves: fd gone, bytes on disk
-    edit.buffer_destroy(&b)
-
-    journal, _ := filepath.join({dir, edit.journal_name(doc)}, context.temp_allocator)
+    id := app.ring_focused(&a.ring).doc
+    app.handle_chord(&a, chord("END"))
+    for r in "QR" {
+        app.text_input(&a, r)
+    }
+    testing.expect(t, app.journal_detach(&a, id), "the document was not being journaled")
+    journal := strings.clone(app.journal_path(&a, path), context.temp_allocator)
     whole, err := os.read_entire_file(journal, context.temp_allocator)
     if !testing.expect_value(t, err, nil) {
+        close_plug_app(&a)
         return
     }
-    full, full_ok := edit.journal_recover(journal)
+    full, full_text, full_ok := app.journal_replay(journal, context.temp_allocator)
     if !testing.expect(t, full_ok, "the intact journal did not replay") {
+        close_plug_app(&a)
         return
     }
-    defer edit.recovered_destroy(&full)
 
     // Chop a byte off: the last record is now short, and only it should be lost.
     testing.expect_value(t, os.write_entire_file(journal, whole[:len(whole) - 1]), nil)
-    torn, torn_ok := edit.journal_recover(journal)
-    if !testing.expect(t, torn_ok, "a torn journal was refused outright") {
-        return
-    }
-    defer edit.recovered_destroy(&torn)
+    torn, torn_text, torn_ok := app.journal_replay(journal, context.temp_allocator)
+    testing.expect(t, torn_ok, "a torn journal was refused outright")
     testing.expect_value(t, torn.edits, full.edits - 1)
-    testing.expect(t, len(torn.content) > 0, "a torn journal recovered nothing at all")
+    testing.expect(t, len(torn_text) > 0 && len(torn_text) < len(full_text),
+                   "a torn journal recovered the whole tail, or none of it")
+    close_plug_app(&a)
 }
 
 // Garbage is refused rather than replayed into a wrong document.
 @(test)
 journal_refuses_a_foreign_file :: proc(t: ^testing.T) {
-    dir, doc, made := journal_dirs()
-    if !testing.expect(t, made, "could not make a temp directory") {
+    dir, made := scratch(t, "oket-journal-junk")
+    if !made {
         return
     }
-    defer cleanup_dir(dir)
-    defer delete(doc)
     junk, _ := filepath.join({dir, "junk.okjrnl"}, context.temp_allocator)
-    testing.expect_value(t, os.write_entire_file(junk, "not a journal at all"), nil)
-    _, ok := edit.journal_recover(junk)
+    testing.expect_value(t, os.write_entire_file(junk, transmute([]u8)string("not a journal")),
+                         nil)
+    _, _, ok := app.journal_replay(junk, context.temp_allocator)
     testing.expect(t, !ok, "a non-journal file replayed")
 }
 
-// The replay parses lengths a crash (or an attacker) wrote: a record claiming more bytes
-// than exist must end the replay, never index past the file or the document.
+// The replay parses lengths a crash (or an attacker) wrote: a record claiming more bytes than
+// exist must end the replay, never index past the file or the document.
 @(test)
 journal_refuses_hostile_lengths :: proc(t: ^testing.T) {
-    dir, doc, made := journal_dirs()
-    if !testing.expect(t, made, "could not make a temp directory") {
+    dir, made := scratch(t, "oket-journal-hostile")
+    if !made {
         return
     }
-    defer cleanup_dir(dir)
-    defer delete(doc)
-
     HUGE :: u64(0xFFFF_FFFF_FFFF_FFFF)
     body := [?]struct {
         pos, old_len, new_len: u64,
@@ -174,12 +291,11 @@ journal_refuses_hostile_lengths :: proc(t: ^testing.T) {
         if !testing.expect_value(t, werr, nil) {
             return
         }
-        r, ok := edit.journal_recover(file)
+        r, text, ok := app.journal_replay(file, context.temp_allocator)
         if !testing.expectf(t, ok, "record %d refused the whole journal, base and all", i) {
             continue
         }
-        defer edit.recovered_destroy(&r)
-        testing.expect_value(t, r.content, "ab") // the base survives, the lie does not
+        testing.expect_value(t, text, "ab") // the base survives, the lie does not
         testing.expect_value(t, r.edits, 0)
     }
 }
@@ -196,38 +312,4 @@ raw_u64 :: proc(b: ^strings.Builder, v: u64) {
     buf: [8]u8
     endian.put_u64(buf[:], .Little, v)
     strings.write_bytes(b, buf[:])
-}
-
-// A path is not a filename, and two documents must not share one journal.
-@(test)
-journal_names_are_distinct :: proc(t: ^testing.T) {
-    a := edit.journal_name("/home/x/a.txt", context.temp_allocator)
-    b := edit.journal_name("/home/y/a.txt", context.temp_allocator)
-    testing.expect(t, a != b, "two paths produced one journal name")
-    testing.expect(t, !strings.contains(a, "/"), "a journal name kept a separator")
-}
-
-@(private = "file")
-journal_dirs :: proc() -> (dir: string, doc: string, ok: bool) {
-    d, err := os.make_directory_temp("", "oket-journal-*", context.allocator)
-    if err != nil {
-        return "", "", false
-    }
-    joined, _ := filepath.join({d, "doc.txt"}, context.allocator)
-    return d, joined, true
-}
-
-@(private = "file")
-cleanup_dir :: proc(dir: string) {
-    f, err := os.open(dir)
-    if err == nil {
-        it := os.read_directory_iterator_create(f)
-        for info in os.read_directory_iterator(&it) {
-            os.remove(info.fullpath)
-        }
-        os.read_directory_iterator_destroy(&it)
-        os.close(f)
-    }
-    os.remove(dir)
-    delete(dir)
 }
