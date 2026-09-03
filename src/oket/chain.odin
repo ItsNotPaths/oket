@@ -75,7 +75,7 @@ cl_parse :: proc(a: ^App, line: string) {
         if s == "" {
             continue
         }
-        if strings.has_prefix(s, ":") {
+        if seg_builtin(s) {
             name := strings.trim_space(s[1:])
             if name == "" {
                 continue // a bare `:` names no builtin
@@ -123,8 +123,10 @@ cl_split_chain :: proc(s: string, alloc := context.temp_allocator) -> []CL_Seg {
             continue
         // The rest of the line is the shell's comment, and it is DROPPED rather than passed on:
         // a step is injected on one line with its exit report after it (job.odin), so a comment
-        // carried through would take the report with it and the chain would wait forever.
-        case c == '#' && word && !tick && depth == 0:
+        // carried through would take the report with it and the chain would wait forever. That
+        // reason is the shell's alone, and a builtin has no comments: `#` there is a ring slot
+        // (PANELS.md §4), which is exactly a word that starts with one.
+        case c == '#' && word && !tick && depth == 0 && !seg_builtin(s[start:i]):
             append(&out, CL_Seg{s[start:i], piped})
             return out[:]
         case c == '\\':
@@ -158,6 +160,12 @@ cl_split_chain :: proc(s: string, alloc := context.temp_allocator) -> []CL_Seg {
     }
     append(&out, CL_Seg{s[start:], piped})
     return out[:]
+}
+
+// Which half of the split a segment is in: a leading `:` names a builtin.
+@(private = "file")
+seg_builtin :: proc(seg: string) -> bool {
+    return strings.has_prefix(strings.trim_left_space(seg), ":")
 }
 
 // Advance as far as this frame allows: builtins run inline, a shell step goes out and the chain
