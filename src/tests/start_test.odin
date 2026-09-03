@@ -241,6 +241,72 @@ a_session_restores_the_ring :: proc(t: ^testing.T) {
     testing.expect_value(t, app.doc_title(&b, app.ring_get(&b, 1).doc), one)
 }
 
+// PANELS.md stage 4's other gate: a two-panel layout round-trips through a clean exit. The
+// strip is `@N` on the same `:open` lines, so there is still no session format — a layout is
+// two addresses, and both are ones the user could have typed. A slot no panel stands on rides
+// along, and its line runs before the strip is built so it cannot drag the focused panel.
+@(test)
+a_session_restores_the_strip :: proc(t: ^testing.T) {
+    a, ok := plug_app(t, "oket-start-strip", "plugins/browser")
+    if !testing.expect(t, ok, "no App") {
+        return
+    }
+    home := strings.clone(a.home, context.temp_allocator)
+    one, _ := filepath.join({home, "one"}, context.temp_allocator)
+    two, _ := filepath.join({home, "two"}, context.temp_allocator)
+    three, _ := filepath.join({home, "three"}, context.temp_allocator)
+    for dir in ([?]string{one, two, three}) {
+        if err := os.make_directory(dir); err != nil {
+            testing.expectf(t, false, "cannot make %s: %v", dir, err)
+            close_plug_app(&a)
+            return
+        }
+    }
+    config, _ := filepath.join({home, app.CONFIG_NAME}, context.temp_allocator)
+    testing.expect_value(t,
+                         os.write_entire_file(config,
+                                              transmute([]u8)string("[session]\nrestore = on\n")),
+                         nil)
+    app.plug_init(&a)
+    testing.expect(t, app.plug_load(&a, app.plug_path(&a, "browser")), a.message)
+    app.config_load(&a)
+
+    app.cl_exec(&a, fmt.tprintf(":open %s", one))
+    app.panel_open(&a)
+    app.cl_exec(&a, fmt.tprintf(":open %s", two))
+    app.panel_step(&a, -1) // focus back on the left, so the file has to carry that too
+    app.cl_exec(&a, fmt.tprintf(":open %s", three)) // slot 3, standing in no panel
+    app.ring_move(&a, app.Spot{app.ring_lane(&a), 1}) // and panel 1 back where it stood
+    app.session_save(&a)
+    close_plug_app(&a)
+
+    b, remade := bare_app()
+    if !testing.expect(t, remade, "no second App") {
+        return
+    }
+    defer close_plug_app(&b)
+    b.home = strings.clone(home)
+    app.plug_init(&b)
+    testing.expect(t, app.plug_load(&b, app.plug_path(&b, "browser")), b.message)
+    app.config_load(&b)
+    testing.expect(t, app.session_restore(&b), "the session restored nothing")
+
+    testing.expect_value(t, len(b.panels), 2)
+    testing.expect_value(t, b.focus, 0)
+    for want, i in ([?]string{one, two}) {
+        p := app.panel_get(&b, i)
+        slot := app.panel_slot(&b, p)
+        if !testing.expectf(t, slot != nil, "panel %d came back standing on nothing", i + 1) {
+            return
+        }
+        testing.expect_value(t, app.doc_title(&b, slot.doc), want)
+    }
+    third := app.ring_get(&b, 3)
+    if testing.expect(t, third != nil, "slot 3 came back empty") {
+        testing.expect_value(t, app.doc_title(&b, third.doc), three)
+    }
+}
+
 // A key config.conf does not know is reported, and the rows around it still land. Same rule
 // binds.conf follows: one typo does not cost the file, and it does not go quiet either.
 @(test)

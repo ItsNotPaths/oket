@@ -474,3 +474,127 @@ a_click_counts_from_the_grid_the_keys_are_aimed_at :: proc(t: ^testing.T) {
     testing.expect_value(t, app.active_panel(&a), -1) // the bar's row, which is no panel's
     testing.expect_value(t, app.active_rect(&a), a.bar)
 }
+
+// --- stage 4: addressing ---
+
+// One grammar for both axes (§4). A line carries one of each in either order, a bare number is
+// still a ring slot, and anything else is reported rather than aimed somewhere.
+@(test)
+two_sigils_and_a_bare_number :: proc(t: ^testing.T) {
+    for row in ([?]struct {
+        text:   string,
+        target: app.Target,
+    } {
+        {"", {}},
+        {"3", {slot = 3}},
+        {"#3", {slot = 3}},
+        {"@2", {panel = 2}},
+        {"@-1", {panel = -1, rel = true}},
+        {"@+2 #4", {slot = 4, panel = 2, rel = true}},
+        {"#4 @2", {slot = 4, panel = 2}},
+    }) {
+        target, _, ok := app.target_parse(row.text)
+        testing.expectf(t, ok, "%q is not an address", row.text)
+        testing.expectf(t, target == row.target, "%q parsed as %v", row.text, target)
+    }
+    for text in ([?]string{"x", "@", "#", "@0", "@+0", "#0", "-1", "#-1", "@2x"}) {
+        _, bad, ok := app.target_parse(text)
+        testing.expectf(t, !ok, "%q was taken for an address", text)
+        testing.expect_value(t, bad, text)
+    }
+}
+
+// A `#` is a comment where the shell would see one and a slot where a builtin would, so a ring
+// address survives the chain splitter and a shell step still loses its trailing note.
+@(test)
+a_builtin_line_has_no_comments_in_it :: proc(t: ^testing.T) {
+    a, ok := bare_app()
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    app.cl_parse(&a, ":open alpha.txt #2 && echo hi # a note")
+    testing.expect_value(t, len(a.chain.steps), 2)
+    testing.expect_value(t, a.chain.steps[0].text, "open alpha.txt #2")
+    testing.expect_value(t, a.chain.steps[1].text, "echo hi")
+}
+
+// The gate: `@N` puts the file in that panel whatever kind it held, and the ring decides which
+// slot — the panel was standing on a browser and now stands on an edit slot that did not exist.
+@(test)
+a_panel_takes_a_file_whatever_it_held :: proc(t: ^testing.T) {
+    a, ok := plug_app(t, "oket-panel-aim", "plugins/browser", "plugins/edit")
+    if !ok {
+        return
+    }
+    defer close_plug_app(&a)
+    app.plug_init(&a)
+    for plugin in ([?]string{"browser", "edit"}) {
+        if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, plugin)), a.message) {
+            return
+        }
+    }
+    path, _ := filepath.join({a.home, "alpha.txt"}, context.temp_allocator)
+
+    id, opened := app.files_open(&a, a.home)
+    if !testing.expect(t, opened, a.message) {
+        return
+    }
+    app.ring_add(&a, id)
+    app.panel_open(&a)
+    second, _ := app.files_open(&a, a.home) // panel 2, a browser of its own
+    app.ring_add(&a, second)
+    files := app.ring_lane(&a)
+    app.panel_step(&a, -1) // and the keys back on panel 1
+
+    app.cl_exec(&a, fmt.tprintf(":open %s @2", path))
+    testing.expect_value(t, a.focus, 1) // the open takes focus with it
+    testing.expect_value(t, app.kind_name(&a, app.doc_kind(&a, app.ring_focused(&a).doc)), "edit")
+    testing.expect(t, app.ring_lane(&a) != files, "the file landed in the browser's lane")
+    testing.expect_value(t, app.ring_slot(&a), 1) // its own lane's first free slot, not @2
+
+    // The browser it displaced is where it was, at the number it had.
+    testing.expect_value(t, app.lane_get(&a.ring, files, 1).doc, id)
+    testing.expect_value(t, len(a.panels), 2)
+}
+
+// An address the strip cannot answer MAKES the panel, the way `ring_put` grows a lane to reach a
+// slot. `@N` counts from the left; `@±N` is a walk, and it stops at the end it walks into.
+@(test)
+an_address_makes_the_panel_it_names :: proc(t: ^testing.T) {
+    a, _, ok := listing_app(t, "oket-panel-reach")
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    testing.expect_value(t, app.target_reach(&a, {panel = 3}), 2)
+    testing.expect_value(t, len(a.panels), 3)
+
+    app.panel_focus(&a, 0)
+    testing.expect_value(t, app.target_reach(&a, {panel = -1, rel = true}), 0)
+    testing.expect_value(t, len(a.panels), 4) // a new leftmost, and the old one moved right
+    testing.expect_value(t, a.focus, 1)
+
+    testing.expect_value(t, app.target_reach(&a, {panel = 9, rel = true}), 4)
+    testing.expect_value(t, len(a.panels), 5) // a walk stops at the end, and makes one there
+    testing.expect_value(t, app.target_reach(&a, {panel = 1, rel = true}), 2) // inside: nothing made
+    testing.expect_value(t, len(a.panels), 5)
+}
+
+// A target that is not an address opens nothing at all: the file is not read and no panel is
+// made, because the line said WHERE and the where was a typo.
+@(test)
+a_mistyped_target_opens_nothing :: proc(t: ^testing.T) {
+    a, dir, ok := listing_app(t, "oket-panel-typo")
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    app.cl_exec(&a, fmt.tprintf(":open %s @two", dir))
+    testing.expect_value(t, len(a.panels), 1)
+    testing.expect(t, app.ring_get(&a, 2) == nil, "the open ran anyway")
+    testing.expect(t, strings.contains(a.message, "@two"), a.message)
+}
