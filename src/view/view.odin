@@ -176,6 +176,10 @@ scrolled :: proc(r: Row, src: []u8, left, tab: int) -> Row {
 // The text `<name>` resolves to on a line (§5). The kernel reads it out of the descriptor's
 // span, so a bind that wants "the path of the row under point" needs no callback into whoever
 // produced the document.
+//
+// A field carrying a `value` answers with it instead: the span is where the link was DRAWN and
+// the value is what it POINTS AT, and a browser row showing a bare name is the case that needs
+// the two to differ (desc.Field).
 field_text :: proc(
     t: ^txt.Text,
     d: ^desc.Descriptor,
@@ -183,13 +187,16 @@ field_text :: proc(
     name: string,
     alloc := context.temp_allocator,
 ) -> (string, bool) {
-    lo, hi, ok := desc.field_span(d, line, name)
+    f, ok := desc.field_of(d, line, name)
     if !ok {
         return "", false
     }
+    if f.value != "" {
+        return f.value, true
+    }
     src := txt.text_line(t, line, alloc)
-    a := clamp(lo, 0, len(src))
-    b := clamp(hi, a, len(src))
+    a := clamp(f.lo, 0, len(src))
+    b := clamp(f.hi, a, len(src))
     return string(src[a:b]), true
 }
 
@@ -293,13 +300,6 @@ draw_columns :: proc(
             break
         }
         put_number(g, th, d, v, x, y + i, gut, Row{line, 0, 0, true})
-        // A columns document draws its fields, not its bytes, so the caret is the ROW it is on.
-        if d.selection != .None {
-            lo, hi := txt.cursor_range(v.point)
-            if line >= lo.line && line <= hi.line {
-                mark(g, x + gut, y + i, 0, w - gut)
-            }
-        }
         col := x + gut + indent(d, w - gut, line)
         for c in d.columns {
             left := x + w - col
@@ -310,6 +310,16 @@ draw_columns :: proc(
             run(g, col, y + i, transmute([]u8)pad(s, c.width, c.align), min(c.width, left),
                 d.tab_width, th[.Fg], th[.Bg])
             col += c.width + 1 // one column of air between fields
+        }
+        // AFTER the columns, never before: `run` writes whole cells, attributes included, so a
+        // mark laid down first survives only where no column reached — the row lit everywhere
+        // except its own text. A columns document draws its fields and not its bytes, so what
+        // is marked is the whole ROW rather than a span of it.
+        if d.selection != .None {
+            lo, hi := txt.cursor_range(v.point)
+            if line >= lo.line && line <= hi.line {
+                mark(g, x + gut, y + i, 0, w - gut)
+            }
         }
     }
 }
@@ -448,12 +458,16 @@ locate :: proc(
     r := scrolled(rs[cy - y], src, v.left, d.tab_width)
     col = max(col - indent(d, body, r.line), 0)
     p = {r.line, r.lo + byte_of(src[r.lo:r.hi], col, d.tab_width)}
+    // The NARROWEST field covering the cell, which is the most specific thing under the
+    // pointer. A row that names its whole line as well as the parts of it — a listing whose
+    // text is `ls -la` output — has both, and the wider one would answer for every cell of it.
+    best, found := desc.Field{}, false
     for f in desc.line_fields(d, r.line) {
-        if p.col >= f.lo && p.col < f.hi {
-            return p, f.name, true
+        if p.col >= f.lo && p.col < f.hi && (!found || f.hi - f.lo < best.hi - best.lo) {
+            best, found = f, true
         }
     }
-    return p, "", true
+    return p, found ? best.name : "", true
 }
 
 // The columns arm: the cell names a column, the column names the line's field.
