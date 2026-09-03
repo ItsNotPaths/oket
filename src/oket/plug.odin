@@ -123,6 +123,10 @@ plug_init :: proc(a: ^App) {
             snapshot = api_snapshot,
             release = api_release,
             message = api_message,
+            io_spawn = api_io_spawn,
+            io_write = api_io_write,
+            io_watch = api_io_watch,
+            io_close = api_io_close,
         },
         ctx = context,
     }
@@ -221,6 +225,7 @@ plug_unload :: proc(a: ^App, i: int) -> bool {
     for id in mine {
         doc_close(a, id) // calls close through plug_inst_close
     }
+    io_forget(a, i) // its children die with it, rather than reading into nobody (§9)
     p := &a.plugs[i]
     #reverse for r in p.ledger {
         switch r.what {
@@ -835,7 +840,8 @@ api_message :: proc "c" (api: ^plug.Api, self: plug.Self, text: [^]u8, text_len:
 
 // The kernel behind the pointer, and the plugin the handle names. A Self from an earlier load
 // carries the wrong generation and is refused here, which is the whole reason it is packed.
-@(private = "file")
+// Package-wide rather than file-private because io.odin's arms are api arms like these two.
+@(private)
 api_app :: proc "c" (api: ^plug.Api, self: plug.Self) -> (a: ^App, i: int, ok: bool) {
     if api == nil {
         return nil, 0, false
@@ -852,7 +858,7 @@ api_app :: proc "c" (api: ^plug.Api, self: plug.Self) -> (a: ^App, i: int, ok: b
     return a, i, true
 }
 
-@(private = "file")
+@(private)
 api_done :: proc "c" () {
     fault_busy(false)
 }
@@ -906,5 +912,5 @@ plug_at :: proc(a: ^App, i: int, id: store.Id) -> (plug.At, ^Plug_View) {
         return {}, nil
     }
     inst := a.insts[id]
-    return {plug_doc(id), inst.owner == i ? inst.inst : nil, &v.snap}, v
+    return {doc = plug_doc(id), inst = inst.owner == i ? inst.inst : nil, snap = &v.snap}, v
 }

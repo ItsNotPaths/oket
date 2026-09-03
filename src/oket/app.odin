@@ -7,6 +7,7 @@ import "vendor:glfw"
 import "../gfx"
 import "../input"
 import "../store"
+import "../work"
 
 // The kernel's whole mutable state: one window, a store of documents, the ring that says which
 // one is on screen, one bind table, and the command line.
@@ -30,6 +31,11 @@ App :: struct {
     kinds:        [dynamic]Plug_Kind,
     cmds:         [dynamic]Plug_Cmd,
     insts:        map[store.Id]Plug_Inst,
+    // §9's I/O workers, and the record of who a job's answers belong to. The pool holds the
+    // one thread that waits; io.odin holds the routing. By pointer: a started Pool must not
+    // move (work.odin), and an App is a value a test harness returns by copy.
+    io:           ^work.Pool,
+    io_jobs:      map[work.Id]Io_Job,
     // Style-token names, interned (tokens.odin). A span carries an id; the palette says what
     // the id looks like, so a plugin never names a colour.
     tokens:       [dynamic]Token_Def,
@@ -75,6 +81,7 @@ app_init :: proc(a: ^App) {
 
 app_destroy :: proc(a: ^App) {
     job_destroy(a)
+    io_destroy(a) // before the plugins: their close runs with no completion still arriving
     plug_destroy(a)
     tokens_destroy(a)
     chain_clear(a)

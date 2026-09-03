@@ -30,13 +30,16 @@
 extern "C" {
 #endif
 
-#define OKET_API 3
+#define OKET_API 4
 
 /* A plugin exports exactly this, and hidden visibility keeps everything else in. */
 #define OKET_EXPORT __attribute__((visibility("default")))
 
 typedef uint64_t oket_self;
 typedef uint64_t oket_doc;
+/* An I/O job — a subprocess, or a watched path (§9). Packed and refused like a doc, so a
+ * handle held past the job's end names nothing rather than whoever spawned next. */
+typedef uint64_t oket_io;
 typedef uint32_t oket_kind;
 
 /* --- the descriptor's vocabulary (§5). The kernel's enum order, and it is an ABI. --- */
@@ -211,7 +214,13 @@ typedef enum {
 typedef enum {
     OKET_EVENT_CHORD = 0, /* the bind table routed a chord here; text is its spelling */
     OKET_EVENT_TEXT  = 1, /* a rune was typed into this document; text is its UTF-8 */
-    OKET_EVENT_MOVED = 2  /* a generation moved, or a watcher has not seen this document yet */
+    OKET_EVENT_MOVED = 2, /* a generation moved, or a watcher has not seen this document yet */
+    /* An I/O job said something (§9). `at->io` names it; text is a frame's worth of a child's
+     * stdout, or the path a watch saw change. Nothing is held for you: what you do not copy
+     * inside this call is gone. */
+    OKET_EVENT_IO     = 3,
+    /* That job is over and `at->code` is its exit status. Never sent for a job you closed. */
+    OKET_EVENT_IO_END = 4
 } oket_event;
 
 /* Where a call is happening. `doc` is the FOCUSED document — or, for a watcher, the document
@@ -221,6 +230,9 @@ typedef struct {
     oket_doc             doc;
     void                *inst;
     const oket_snapshot *snap;
+    oket_io              io;   /* the job an IO event names; zero on every other event */
+    int32_t              code; /* OKET_EVENT_IO_END's exit status */
+    char                 _pad[4];
 } oket_at;
 
 struct oket_api;
@@ -230,7 +242,11 @@ struct oket_api;
  * A WATCHER's return means the other thing, and it is cooperative slicing (§9): non-zero says
  * "not finished, call me again next frame" and the kernel does, on the same document, whether or
  * not its generation moved again. A cold parse too big for one frame spreads over several that
- * way, with no thread and no seventh message. */
+ * way, with no thread and no seventh message.
+ *
+ * An I/O event's return is IGNORED. The latch is a record kept per DOCUMENT and a job need not
+ * name one, so there is nowhere honest to put it; work an answer starts is spread over frames on
+ * the document it writes to, through the latch that already exists. */
 typedef int32_t (*oket_event_fn)(const struct oket_api *api, oket_self self, const oket_at *at,
                                  oket_event ev, const char *text, size_t len);
 
@@ -326,6 +342,34 @@ typedef struct oket_api {
 
     /* The echo line. Lives until the next keystroke, same as the kernel's own messages. */
     void (*message)(const struct oket_api *api, oket_self self, const char *text, size_t len);
+
+    /* --- I/O (§9) ---
+     *
+     * Not a seventh message: what a job says arrives through `event`, at the same handler a
+     * moved generation would reach. `doc` is what does that routing — a job on one of your own
+     * documents reaches its kind, and doc = 0 reaches your watcher — and it is the only thing
+     * the kernel reads it for.
+     *
+     * Nothing here blocks. One kernel thread does the waiting for every plugin, and your
+     * handler is called on the main thread like all the rest, so you still never see a thread.
+     */
+
+    /* A child process. `argv` is `nargv` NUL-terminated strings, argv[0] resolved through PATH.
+     * Its STDERR IS INHERITED: merging it into stdout corrupts a framed protocol, and a shell
+     * redirect already captures it. Zero when it could not start. */
+    oket_io (*io_spawn)(const struct oket_api *api, oket_self self, oket_doc doc,
+                        const char *const *argv, size_t nargv, const char *cwd, size_t cwd_len);
+    /* Bytes for that child's stdin, queued: the write happens on the kernel's thread, so a full
+     * pipe costs you nothing. */
+    void (*io_write)(const struct oket_api *api, oket_self self, oket_io io,
+                     const char *bytes, size_t len);
+    /* A path. Its DIRECTORY is what is watched and the name is the filter, because a save by
+     * rename leaves a watch on the file holding an inode nobody will write again. */
+    oket_io (*io_watch)(const struct oket_api *api, oket_self self, oket_doc doc,
+                        const char *path, size_t path_len);
+    /* Ends it: the child's process group is signalled and the watch dropped. Silent — a job you
+     * ended is not one you need telling about. */
+    void (*io_close)(const struct oket_api *api, oket_self self, oket_io io);
 } oket_api;
 
 /* The one symbol you export. Non-zero refuses the load, and the ledger reverts whatever you
@@ -349,7 +393,7 @@ _Static_assert(sizeof(oket_descriptor) == 80, "oket_descriptor");
 _Static_assert(sizeof(oket_edit) == 32, "oket_edit");
 _Static_assert(sizeof(oket_span) == 24, "oket_span");
 _Static_assert(sizeof(oket_span_pub) == 40, "oket_span_pub");
-_Static_assert(sizeof(oket_at) == 24, "oket_at");
+_Static_assert(sizeof(oket_at) == 40, "oket_at");
 _Static_assert(sizeof(oket_kind_spec) == 56, "oket_kind_spec");
 
 #ifdef __cplusplus

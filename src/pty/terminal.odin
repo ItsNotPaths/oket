@@ -10,6 +10,7 @@ import "core:sys/posix"
 import "core:thread"
 import "core:time"
 import vt "../libvterm"
+import "../wake"
 
 // A terminal session: the libvterm VT state machine plus the PTY and child shell. A
 // per-session reader thread does the one blocking read() on the master fd; vterm_* stays
@@ -62,10 +63,6 @@ Terminal :: struct {
     on_altscreen: bool, // a TUI owns the screen; there is no scrollback to scroll into
     mouse_on:     bool, // the TUI enabled mouse tracking, so clicks are its input
 }
-
-// The host's frame-loop waker, called from reader threads; main points it at glfw, tests
-// leave it inert.
-wake := proc() {}
 
 // A clone of the cells libvterm handed us as the line scrolled off. Owned by the Terminal.
 ScrollLine :: struct {
@@ -481,7 +478,7 @@ term_reader_proc :: proc(th: ^thread.Thread) {
             sync.mutex_lock(&t.lock)
             append(&t.inbuf, ..buf[:n])
             sync.mutex_unlock(&t.lock)
-            wake()
+            wake.hook()
             continue
         }
         if n < 0 && posix.get_errno() == .EINTR {
@@ -493,7 +490,7 @@ term_reader_proc :: proc(th: ^thread.Thread) {
         break // n == 0 (EOF) or a real error
     }
     sync.atomic_store(&t.alive, false)
-    wake()
+    wake.hook()
 }
 
 // Stores a self-pointer in libvterm, so call it only once `t` has a stable address — the test

@@ -4,7 +4,7 @@ import "core:fmt"
 import "core:os"
 import "vendor:glfw"
 import "../gfx"
-import "../pty"
+import "../wake"
 
 WIDTH :: 1200
 HEIGHT :: 760
@@ -83,6 +83,11 @@ main :: proc() {
     app_init(&a)
     defer app_destroy(&a)
 
+    // A session's reader thread, and the I/O worker, both have to reach the frame loop, which
+    // is parked in WaitEvents. Before autoload: a plugin may start a job in its entry point,
+    // and a completion nobody wakes for is a frame that never comes.
+    wake.hook = proc() {glfw.PostEmptyEvent()}
+
     // §10's net, before anything can dispatch, and the watchdog that turns a hang into the
     // same named death a fault gets. Without them nothing below should be loading a plugin
     // by itself.
@@ -91,9 +96,6 @@ main :: proc() {
     if !flag(NO_PLUGINS) {
         plug_autoload(&a)
     }
-
-    // A session's reader thread has to reach the frame loop, which is parked in WaitEvents.
-    pty.wake = proc() {glfw.PostEmptyEvent()}
 
     // The ring opens on a listing of the working directory. The descriptor is what makes it
     // renderable without a kind of its own in here.
@@ -110,6 +112,7 @@ main :: proc() {
         sh_pump(&a)
         chain_pump(&a)
         docs_settle(&a)
+        io_pump(&a) // before the moved pass, so what an I/O handler wrote is reported once
         // Whose generation moved, told once the drain has settled. A plugin that answered
         // "not finished" is the one thing no keystroke and no reader thread will wake, so the
         // frame after it is polled rather than waited for (§9).

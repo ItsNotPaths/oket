@@ -15,7 +15,7 @@ import "../input"
 //     register   plugin -> kernel   kinds, commands, bind requests
 //     submit     plugin -> kernel   one transaction against a generation
 //     reveal     plugin -> kernel   a span, and where to put it in the viewport
-//     event      kernel -> plugin   a routed chord, or a generation that moved
+//     event      kernel -> plugin   a routed chord, a generation that moved, or an I/O job
 //     open       kernel -> plugin   an instance of a kind it registered
 //     close      kernel -> plugin   that instance, ending
 //
@@ -24,7 +24,7 @@ import "../input"
 // pointer, with no lock and no call back in (§6). Adding a field is a struct field, not a
 // message.
 
-API :: 3
+API :: 4
 
 // A plugin's own identity, handed back on every call so a plugin needs no state of its own.
 // Index plus load generation, packed: a handle kept across a reload resolves to nothing rather
@@ -34,6 +34,10 @@ Self :: distinct u64
 // A document, packed the same way and refused the same way. This is store.Id over the wire —
 // slot plus seq — so an Id kept across a close is dead, not dangerous.
 Doc :: distinct u64
+
+// An I/O job — a subprocess, or a watched path (§9). Packed and refused the same way, so a
+// handle held past the job's end names nothing rather than whoever spawned next.
+Io :: distinct u64
 
 // --- the read view (§6) ---
 //
@@ -215,15 +219,25 @@ Reveal :: enum c.int32_t {
 // what lets a plugin act on a buffer it did not create (§5). `inst` is non-nil only when the
 // document is this plugin's own instance.
 Event :: enum c.int32_t {
-    Chord, // the bind table routed a chord here; `text` is its physical spelling
-    Text,  // a rune was typed into this document; `text` is its UTF-8
-    Moved, // a document's generation moved, or a watcher has not seen this one yet
+    Chord,  // the bind table routed a chord here; `text` is its physical spelling
+    Text,   // a rune was typed into this document; `text` is its UTF-8
+    Moved,  // a document's generation moved, or a watcher has not seen this one yet
+    // An I/O job said something (§9). `at.io` names it; `text` is a frame's worth of a
+    // child's stdout, or the path a watch saw change. Nothing is held for you: what you do
+    // not copy inside this call is gone.
+    Io,
+    // That job is over, and `at.code` is the exit status. Never sent for a job the plugin
+    // closed itself.
+    Io_End,
 }
 
 At :: struct {
     doc:  Doc,
     inst: rawptr,
     snap: ^Snapshot,
+    io:   Io, // the job an .Io or .Io_End names, and zero on every other event
+    code: c.int32_t,
+    _:    [4]u8,
 }
 
 // A non-zero return claims the event; zero lets the kernel report it unhandled (§8).
@@ -315,6 +329,32 @@ Api :: struct {
 
     // The echo line. Lives until the next keystroke, same as the kernel's own messages.
     message:          proc "c" (api: ^Api, self: Self, text: [^]u8, text_len: c.size_t),
+
+    // --- I/O (§9) ---
+    //
+    // Not a seventh message: what a job says arrives through `event`, routed to the same
+    // handler a moved generation would reach. `doc` is what does that routing — a job on one
+    // of your own documents reaches its kind, and `doc = 0` reaches your watcher — and it is
+    // the only thing the kernel reads it for.
+    //
+    // Nothing here blocks. One kernel thread does the waiting for every plugin, and a handler
+    // is called on the main thread like all the rest, so a plugin still never sees a thread.
+
+    // A child process. `argv` is `nargv` NUL-terminated strings, argv[0] resolved through PATH; the
+    // child's STDERR IS INHERITED, because merging it into stdout corrupts a framed protocol
+    // and a shell redirect already captures it. Zero when it could not start.
+    io_spawn:         proc "c" (api: ^Api, self: Self, doc: Doc, argv: [^]cstring,
+                                nargv: c.size_t, cwd: [^]u8, cwd_len: c.size_t) -> Io,
+    // Bytes for that child's stdin, queued: the write happens on the kernel's thread, so a
+    // full pipe costs a plugin nothing.
+    io_write:         proc "c" (api: ^Api, self: Self, io: Io, bytes: [^]u8, len: c.size_t),
+    // A path. Its DIRECTORY is what is watched and the name is the filter, because a save by
+    // rename leaves a watch on the file holding an inode nobody will write again.
+    io_watch:         proc "c" (api: ^Api, self: Self, doc: Doc, path: [^]u8,
+                                path_len: c.size_t) -> Io,
+    // Ends it: the child's process group is signalled and the watch dropped. Silent — a job
+    // you ended is not one you need telling about.
+    io_close:         proc "c" (api: ^Api, self: Self, io: Io),
 }
 
 // The one symbol a plugin exports. Non-zero refuses the load, and the ledger reverts whatever
@@ -336,5 +376,5 @@ Entry_Fn :: #type proc "c" (api: ^Api, self: Self) -> c.int32_t
 #assert(size_of(Span) == 24)
 #assert(size_of(Span_Pub) == 40)
 #assert(size_of(Edit) == 32)
-#assert(size_of(At) == 24)
+#assert(size_of(At) == 40)
 #assert(size_of(Kind_Spec) == 56)
