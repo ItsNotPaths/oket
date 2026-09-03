@@ -2,6 +2,7 @@ package main
 
 import "core:math"
 import "../gfx"
+import "../input"
 import "../store"
 import "../strip"
 
@@ -199,6 +200,15 @@ panel_focus :: proc(a: ^App, i: int) {
         a.focus = i
         panels_relayout(a)
     }
+}
+
+// Which panel wears the caret. The armed picker's target, so steering is visible with no second
+// mark to invent: the caret is already what says where the next thing lands (§3).
+panel_marked :: proc(a: ^App) -> int {
+    if p, armed := a.pending.(input.Pending_Pick); armed {
+        return p.target
+    }
+    return a.focus
 }
 
 // The rectangle a document was last drawn in. A live slot the strip is not showing still has a

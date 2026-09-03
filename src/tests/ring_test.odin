@@ -100,7 +100,7 @@ the_alternate_crosses_lanes_and_the_shift_one_does_not :: proc(t: ^testing.T) {
 
     // alt+shift+` stays here: slot 1 of this lane, not the listing.
     code, _ := input.key_code("TLDE")
-    app.handle_chord(&a, {code, {.Alt, .Shift}})
+    app.handle_chord(&a, {code, {.Alt, .Shift}, 0})
     testing.expect_value(t, app.doc_title(&a, app.ring_focused(&a).doc), "a")
 }
 

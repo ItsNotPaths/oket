@@ -41,18 +41,20 @@ surface_draw :: proc(a: ^App) {
     }
 
     for &p, i in a.panels {
-        panel_draw(a, &p, i == a.focus)
+        panel_draw(a, &p, i == panel_marked(a))
     }
 }
 
 // One panel, into its own grid and its own cells. The rectangle is recorded before the document
 // is: a click is placed against it, and a panel with nothing in it still has a height.
 //
-// THE CARET IS WHAT SAYS WHICH PANEL IS FOCUSED (§3). Reverse video in a panel the keys are not
-// aimed at would be the surface lying about where the next keystroke goes, and the lane `alt+N`
-// addresses is the focused panel's — so which one that is has to be on screen.
+// THE CARET IS WHAT SAYS WHICH PANEL THE NEXT THING LANDS IN (§3). Reverse video in a panel the
+// keys are not aimed at would be the surface lying about where the next keystroke goes, and the
+// lane `alt+N` addresses is the focused panel's — so which one that is has to be on screen. It
+// is the armed picker's TARGET while one is armed, which is what makes steering visible with no
+// second mark to invent (PANELS.md §6).
 @(private = "file")
-panel_draw :: proc(a: ^App, p: ^Panel, focused: bool) {
+panel_draw :: proc(a: ^App, p: ^Panel, marked: bool) {
     th := a.theme
     p.body = {0, 0, p.grid.cols, p.grid.rows}
 
@@ -70,7 +72,7 @@ panel_draw :: proc(a: ^App, p: ^Panel, focused: bool) {
 
     b := p.body
     view.draw(&p.grid, th, &snap.text, d, s.view, b.x, b.y, b.w, b.h,
-              doc_styles(a, s.doc, &snap.text, s.view.top, b.h), focused)
+              doc_styles(a, s.doc, &snap.text, s.view.top, b.h), marked)
     if p.hover.on {
         view.underline(&p.grid, &snap.text, d, s.view, b.x, b.y, b.w, b.h,
                        p.hover.line, p.hover.lo, p.hover.hi)

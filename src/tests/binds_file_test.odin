@@ -57,7 +57,7 @@ binds_file_lays_over_the_defaults :: proc(t: ^testing.T) {
     line, is_line := click.target.(input.Bind_Line)
     testing.expect(t, is_line)
     testing.expect_value(t, line.text, ":open <path>")
-    testing.expect(t, !line.stage)
+    testing.expect_value(t, line.mode, input.Bind_Mode.Exec)
 }
 
 // A row naming nothing is reported and skipped. One typo does not cost the rest of the file.
@@ -83,16 +83,28 @@ binds_file_skips_what_it_cannot_read :: proc(t: ^testing.T) {
 // `stage` puts the line in the command line for aiming rather than running it, which is the
 // difference between Enter and Shift+Enter in one file (§5).
 @(test)
-binds_file_stages_as_well_as_runs :: proc(t: ^testing.T) {
+binds_file_stages_and_picks_as_well_as_runs :: proc(t: ^testing.T) {
     a := fixture()
     defer close(&a)
-    app.binds_parse(&a, "[surface]\nclick = stage :open <path>\n", "binds.conf")
+    app.binds_parse(&a, "[surface]\nclick = stage :open <path>\ntab+f2 = pick :open <path> @\n",
+                    "binds.conf")
 
     b, _ := find(&a, "click", .Surface)
     line, is_line := b.target.(input.Bind_Line)
-    testing.expect(t, is_line && line.stage)
+    testing.expect(t, is_line)
+    testing.expect_value(t, line.mode, input.Bind_Mode.Stage)
 
-    // A word, never a prefix: a verb whose name starts with one of the two is still a verb.
+    // The third mode is a file row like the other two, and `tab+f2` is a chord the parser has
+    // to read as a HELD key and a chord (PANELS.md §6).
+    tab, _ := input.key_code("TAB")
+    f2, _ := input.key_code("FK02")
+    p, held := input.bind_at(a.binds[:], {f2, {}, tab}, .Surface)
+    testing.expect(t, held)
+    pick, is_pick := p.target.(input.Bind_Line)
+    testing.expect(t, is_pick)
+    testing.expect_value(t, pick.mode, input.Bind_Mode.Pick)
+
+    // A word, never a prefix: a verb whose name starts with one of the three is still a verb.
     _, made := app.binds_target(&a, "execute")
     testing.expect(t, !made)
 }

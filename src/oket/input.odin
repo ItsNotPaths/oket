@@ -27,6 +27,7 @@ input_init :: proc(a: ^App) {
     input_ready = true
     glfw.SetWindowUserPointer(a.window, a)
     glfw.SetKeyCallback(a.window, key_callback)
+    glfw.SetWindowFocusCallback(a.window, focus_callback)
     glfw.SetCharCallback(a.window, char_callback)
     glfw.SetMouseButtonCallback(a.window, button_callback)
     glfw.SetCursorPosCallback(a.window, cursor_callback)
@@ -38,14 +39,45 @@ input_init :: proc(a: ^App) {
 key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods: i32) {
     context = runtime.default_context()
     a := (^App)(glfw.GetWindowUserPointer(window))
-    if a == nil || scancode <= 0 || action != glfw.PRESS && action != glfw.REPEAT {
+    if a == nil || scancode <= 0 {
         return
     }
     code := input.Code(scancode) + scancode_shift
     if input.code_is_modifier(code) {
         return // a held modifier is not a chord; wait for what it qualifies
     }
-    handle_chord(a, input.Chord{code, glfw_mods(mods)})
+    // RELEASES NEVER ENTER THE BIND TABLE (PANELS.md §6). One field holds the key that is down,
+    // its release clears the field, and an armed picker commits on the way past — so there is
+    // no keys-down set, no release axis on bind_find and nothing for describe to grow an arm
+    // for.
+    if action == glfw.RELEASE {
+        if a.held == code {
+            a.held = 0
+        }
+        pick_release(a, code)
+        return
+    }
+    if action != glfw.PRESS && action != glfw.REPEAT {
+        return
+    }
+    if a.held == 0 {
+        a.held = code
+    }
+    // The key that is down QUALIFIES the next one: `tab+enter` is a chord and `tab` on its own
+    // still is one, which is why holding it shadows nothing and repeats it instead.
+    handle_chord(a, input.Chord{code, glfw_mods(mods), a.held == code ? 0 : a.held})
+}
+
+// The window has lost the keyboard, so the release of whatever is down will be delivered
+// somewhere else. A `held` nobody clears would qualify every chord after it.
+focus_callback :: proc "c" (window: glfw.WindowHandle, focused: i32) {
+    context = runtime.default_context()
+    a := (^App)(glfw.GetWindowUserPointer(window))
+    if a == nil || focused != 0 {
+        return
+    }
+    a.held = 0
+    pick_drop(a)
 }
 
 // Text is not keys (§8): a rune arrives on its own channel, so a bind never sees an `a` on its
@@ -91,7 +123,7 @@ button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mods: i3
         return
     }
     if m, fired := input.mouse_release(&a.mouse, cx, cy, glfw.GetTime()); fired {
-        handle_chord(a, input.Chord{input.mouse_code(m), glfw_mods(mods)})
+        handle_chord(a, input.Chord{input.mouse_code(m), glfw_mods(mods), 0})
     }
 }
 
@@ -141,7 +173,7 @@ scroll_callback :: proc "c" (window: glfw.WindowHandle, xoff, yoff: f64) {
         term_mouse(a, tm, wheel, cx, cy, glfw_mods_now(window), true)
         return
     }
-    handle_chord(a, input.Chord{input.mouse_code(wheel), glfw_mods_now(window)})
+    handle_chord(a, input.Chord{input.mouse_code(wheel), glfw_mods_now(window), 0})
 }
 
 @(private = "file")

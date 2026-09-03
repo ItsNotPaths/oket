@@ -48,6 +48,12 @@ active_desc :: proc(a: ^App) -> (^Slot, ^desc.Descriptor) {
 // The focused document names its own context, and the descriptor is where it says so (§5). An
 // empty store leaves only Global.
 bind_ctx :: proc(a: ^App) -> (input.Bind_Ctx, input.Kind) {
+    // The armed picker is a context of its own (PANELS.md §6), entered at ARM time and not at
+    // the press of the key it holds: left and right choose a panel for exactly as long as the
+    // gesture lasts, and nothing else is shadowed.
+    if _, armed := a.pending.(input.Pending_Pick); armed {
+        return .Pick, 0
+    }
     _, d := active_desc(a)
     if d == nil {
         return .Global, 0
@@ -63,15 +69,15 @@ pending_take :: proc(a: ^App, chord: input.Chord) -> bool {
     esc, _ := input.key_code("ESC")
     #partial switch _ in a.pending {
     case input.Pending_Describe:
-        if chord == {esc, {}} {
-            input.pending_cancel(&a.pending)
+        if chord == {esc, {}, 0} {
+            input.pending_set(&a.pending)
             return true
         }
         ctx, kind := bind_ctx(a)
         answer := input.describe_chord(a.binds[:], chord, ctx, key_layout_name, names(a), kind,
                                        context.temp_allocator)
         message_set(a, answer)
-        a.pending = nil
+        input.pending_set(&a.pending)
         return true
     }
     return false
@@ -94,7 +100,7 @@ handle_chord :: proc(a: ^App, chord: input.Chord) {
         return
     }
     if line, is_line := b.target.(input.Bind_Line); is_line {
-        bind_line_fire(a, line)
+        bind_line_fire(a, chord, line)
         return
     }
     if slot, registered := b.target.(input.Slot); registered {
@@ -118,7 +124,7 @@ handle_chord :: proc(a: ^App, chord: input.Chord) {
     case .Quit:
         a.quit = true
     case .Describe_Key:
-        a.pending = input.Pending_Describe{}
+        input.pending_set(&a.pending, input.Pending_Describe{})
     case .View_Scroll_Up:
         scroll_by(a, -WHEEL_LINES)
     case .View_Scroll_Down:
@@ -166,6 +172,12 @@ handle_chord :: proc(a: ^App, chord: input.Chord) {
         panel_step(a, -1)
     case .Panel_Size:
         panel_resize(a)
+    case .Pick_Left:
+        pick_step(a, -1)
+    case .Pick_Right:
+        pick_step(a, +1)
+    case .Pick_Cancel:
+        pick_drop(a)
     case .CL_Open:
         cl_show(a)
     case .CL_Sigil:
@@ -346,17 +358,22 @@ mouse_events_target :: proc(a: ^App) -> ^Term {
     return d.mouse == .Events ? term_of(a, s.doc) : nil
 }
 
-// The line arm of a bind (§8): holes filled from point, then run or staged as the file said.
-// `exec` runs it, `stage` puts it in the command line for aiming — those two words are the
-// whole grammar, and they are what makes Enter and Shift+Enter two rows over one value rather
-// than two code paths in a plugin.
+// The line arm of a bind (§8): holes filled from point, then run, staged or armed as the file
+// said. `exec` runs it, `stage` puts it in the command line for aiming, `pick` waits for the
+// chord's held key to come up (PANELS.md §6) — those three words are the whole grammar, and
+// they are what makes Enter and Shift+Enter two rows over one value rather than two code paths
+// in a plugin.
 @(private = "file")
-bind_line_fire :: proc(a: ^App, line: input.Bind_Line) {
+bind_line_fire :: proc(a: ^App, chord: input.Chord, line: input.Bind_Line) {
+    if line.mode == .Pick {
+        pick_arm(a, chord, line)
+        return
+    }
     text, ok := bind_expand(a, line.text)
     if !ok {
         return
     }
-    if line.stage {
+    if line.mode == .Stage {
         cl_show(a, text)
         return
     }
@@ -600,7 +617,8 @@ line_covers :: proc(d: ^desc.Descriptor, template: string, line, lo, hi: int) ->
 // no field, so only a line has a hole for hover to underline.
 @(private = "file")
 click_line :: proc(a: ^App, d: ^desc.Descriptor, button: input.Mouse) -> (input.Bind_Line, bool) {
-    bind, _, bound := input.bind_lookup(a.binds[:], {input.mouse_code(button), {}}, d.ctx, d.kind)
+    chord := input.Chord{input.mouse_code(button), {}, 0}
+    bind, _, bound := input.bind_lookup(a.binds[:], chord, d.ctx, d.kind)
     if !bound {
         return {}, false
     }

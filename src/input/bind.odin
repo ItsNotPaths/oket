@@ -11,6 +11,9 @@ Bind_Ctx :: enum u8 {
     Text,
     Surface,
     Terminal,
+    // The armed picker (PANELS.md §6). Entered when a `pick` row fires and left when its held
+    // key comes up, so left and right choose a panel for exactly as long as the gesture lasts.
+    Pick,
 }
 
 Bind_Ctxs :: bit_set[Bind_Ctx;u8]
@@ -24,6 +27,7 @@ CTX_NAMES := [Bind_Ctx]string {
     .Text     = "text",
     .Surface  = "surface",
     .Terminal = "terminal",
+    .Pick     = "pick",
 }
 
 ctx_named :: proc(name: string) -> (Bind_Ctx, bool) {
@@ -84,6 +88,9 @@ Command :: enum u8 {
     Panel_Next,
     Panel_Prev,
     Panel_Size,
+    Pick_Left,
+    Pick_Right,
+    Pick_Cancel,
     Jump_Back,
     Jump_Forward,
     CL_Open,
@@ -118,12 +125,22 @@ Kind :: distinct u32
 //
 // The line arm is what keeps a plugin a value provider rather than a verb factory: the text is
 // what you would otherwise have typed, with `<name>` holes the focused surface fills in, and
-// `stage` decides whether it runs or lands in the command line for aiming (§5). One config line
-// is then the whole policy, so `exec rm <path>` needs nothing at all from the plugin that drew
-// the row it acts on.
+// the mode decides whether it runs, lands in the command line for aiming (§5), or waits (§6).
+// One config line is then the whole policy, so `exec rm <path>` needs nothing at all from the
+// plugin that drew the row it acts on.
+//
+// `pick` is the third of them (PANELS.md §6): the line expands at the PRESS, so its holes fill
+// from where point was, and it runs at the RELEASE of the chord's held key with `@` aimed at
+// the panel that was steered to.
+Bind_Mode :: enum u8 {
+    Exec,
+    Stage,
+    Pick,
+}
+
 Bind_Line :: struct {
-    text:  string, // owned; `<name>` marks a hole
-    stage: bool,
+    text: string, // owned; `<name>` marks a hole
+    mode: Bind_Mode,
 }
 
 Bind_Target :: union #no_nil {
@@ -203,6 +220,9 @@ COMMANDS := [Command]Command_Info {
     .Panel_Next          = {"panel.next", "focus the panel to the right", {.Global}},
     .Panel_Prev          = {"panel.prev", "focus the panel to the left", {.Global}},
     .Panel_Size          = {"panel.size", "toggle the focused panel between full and half width", {.Global}},
+    .Pick_Left           = {"pick.left", "steer the armed picker one panel left", {.Pick}},
+    .Pick_Right          = {"pick.right", "steer the armed picker one panel right", {.Pick}},
+    .Pick_Cancel         = {"pick.cancel", "drop the armed picker; nothing is opened", {.Pick}},
     .Jump_Back           = {"jump.back", "to the previous position in the jump ring, across surfaces", {.Global}},
     .Jump_Forward        = {"jump.forward", "back toward the position you jumped from", {.Global}},
     .CL_Open             = {"cl.open", "open the command line", {.Global}},
@@ -350,11 +370,23 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     // alt+. — the lane switch for every OTHER kind, which is a plugin's and so has no letter of
     // its own here. Staged rather than run: the line is `:ring ` with the name left to type, and
     // a bare `:ring` lists the lanes for the times you have forgotten what one is called.
-    bind_line(&b, "AB09", {.Alt}, ":ring ", stage = true)
+    bind_line(&b, "AB09", {.Alt}, ":ring ", .Stage)
     // A listing's rows are paths, and `enter` is what opens one. Written at the SURFACE tier
     // rather than for one kind: a surface whose lines carry no `path` reports that it cannot
     // fill the hole, which is data rather than a refusal decided per call (§8).
     bind_line(&b, "RTRN", {}, ":open <path>", ctx = {.Surface})
+    // The picker (PANELS.md §6): hold tab, press enter on a link, steer, let tab go. `tab` and
+    // `tab+enter` are DIFFERENT chords, so this shadows nothing — an editor keeps its indent.
+    // `@` on its own is the panel steered to, which is the one address only a gesture can name.
+    bind_line(&b, "RTRN", {}, ":open <path> @", .Pick, {.Surface}, held = "TAB")
+    // The same open, one panel over, with no gesture at all. §6: the direction preference is a
+    // ROW and not a config key, because a row is greppable, rebindable and describable.
+    bind_line(&b, "RTRN", {.Ctrl}, ":open <path> @-1", ctx = {.Surface})
+    // While the picker is armed the side arrows choose a panel rather than move a caret. Rows,
+    // because the context is entered at ARM time and shadows only what should be shadowed.
+    bind_put(&b, "LEFT", {}, .Pick_Left)
+    bind_put(&b, "RGHT", {}, .Pick_Right)
+    bind_put(&b, "ESC", {}, .Pick_Cancel)
 
     // The mouse, as ordinary rows (§8). A button chord has none: the kernel moves point before
     // it dispatches one, so `click` with nothing bound already does the thing a click does, and
@@ -375,22 +407,25 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     return b
 }
 
-// `text` is the line WITHOUT the `exec` or `stage` word: those two spell the choice in a config
-// row, and here it is the `stage` argument. Not file-private: the kernel writes the rows that
-// name a KIND, because a kind id is its own (kinds.odin) and this package holds one as identity
-// it never reads.
-bind_line :: proc(b: ^[dynamic]Bind, key: string, mods: Mods, text: string, stage := false,
-                  ctx := Bind_Ctxs{.Global}, kind := Kind(0)) {
+// `text` is the line WITHOUT its `exec`, `stage` or `pick` word: those three spell the choice in
+// a config row, and here it is the `mode` argument. `held` is the key a gesture holds, named the
+// way a row names one. Not file-private: the kernel writes the rows that name a KIND, because a
+// kind id is its own (kinds.odin) and this package holds one as identity it never reads.
+bind_line :: proc(b: ^[dynamic]Bind, key: string, mods: Mods, text: string,
+                  mode := Bind_Mode.Exec, ctx := Bind_Ctxs{.Global}, kind := Kind(0),
+                  held := "") {
     code, ok := key_code(key)
     assert(ok, "a kernel default names a key that is not in the table")
-    bind_add(b, {code, mods}, Bind_Line{strings.clone(text), stage}, ctx, kind = kind)
+    down, held_ok := key_code(held)
+    assert(held == "" || held_ok, "a kernel default holds a key that is not in the table")
+    bind_add(b, {code, mods, down}, Bind_Line{strings.clone(text), mode}, ctx, kind = kind)
 }
 
 @(private = "file")
 bind_put :: proc(b: ^[dynamic]Bind, key: string, mods: Mods, cmd: Command) {
     code, ok := key_code(key)
     assert(ok, "a kernel default names a key that is not in the table")
-    bind_add(b, {code, mods}, cmd, COMMANDS[cmd].ctx, cmd == .Ring_Goto ? 8 : 0)
+    bind_add(b, {code, mods, 0}, cmd, COMMANDS[cmd].ctx, cmd == .Ring_Goto ? 8 : 0)
 }
 
 // Narrowest row wins: one written for this surface kind, then one for the context, then a
@@ -415,6 +450,7 @@ bind_find :: proc(binds: []Bind, chord: Chord, ctx: Bind_Ctx, kind: Kind = 0) ->
 bind_scan :: proc(binds: []Bind, chord: Chord, want: Bind_Ctxs, kind: Kind) -> (Bind, bool) {
     for b in binds {
         if b.chord.mods == chord.mods &&
+           b.chord.held == chord.held &&
            chord.code >= b.chord.code &&
            chord.code <= b.chord.code + b.run &&
            b.kind == kind &&
@@ -448,7 +484,7 @@ bind_lookup :: proc(
         return b, false, true
     }
     if .Shift in chord.mods {
-        b, ok = bind_find(binds, {chord.code, chord.mods - {.Shift}}, ctx, kind)
+        b, ok = bind_find(binds, {chord.code, chord.mods - {.Shift}, chord.held}, ctx, kind)
         return b, ok, ok
     }
     return {}, false, false
@@ -474,7 +510,14 @@ target_info :: proc(t: Bind_Target, names: Names) -> (name, doc: string) {
         }
         return "?", "a registered command this caller cannot name"
     case Bind_Line:
-        return v.text, v.stage ? "staged in the command line for aiming" : "run as typed"
+        switch v.mode {
+        case .Exec:
+            return v.text, "run as typed"
+        case .Stage:
+            return v.text, "staged in the command line for aiming"
+        case .Pick:
+            return v.text, "expanded now, run at the release on the panel you steer to"
+        }
     }
     return "", ""
 }
@@ -545,8 +588,13 @@ describe_chord :: proc(
         }
     }
     verb := "runs"
-    if line, is_line := b.target.(Bind_Line); is_line && line.stage {
-        verb = "stages"
+    if line, is_line := b.target.(Bind_Line); is_line {
+        #partial switch line.mode {
+        case .Stage:
+            verb = "stages"
+        case .Pick:
+            verb = "arms"
+        }
     }
     if moves_point {
         verb = fmt.tprintf("moves point, then %s", verb)

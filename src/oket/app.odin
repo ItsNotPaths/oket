@@ -72,6 +72,10 @@ App :: struct {
     reqs:         [dynamic]Bind_Request,
     clashes:      [dynamic]Bind_Clash,
     pending:      input.Pending,
+    // The key that is down, if one is (PANELS.md §6). It qualifies the next chord — `tab+enter`
+    // is not `enter` — and its release is what commits an armed picker. One field, because a
+    // chord holds one key and a release never reaches the bind table.
+    held:         input.Code,
     mouse:        input.Mouse_State,
     hand:         glfw.CursorHandle, // the pointer over a field a click would act on
     // Where the command line's row was drawn, past the prompt, in chrome cells. A document's
@@ -110,6 +114,7 @@ app_destroy :: proc(a: ^App) {
     store.store_destroy(&a.docs)
     input.binds_destroy(&a.binds)
     binds_requests_destroy(a)
+    input.pending_set(&a.pending) // an armed picker owns the line it captured
     message_set(a, "")
     delete(a.home)
     glfw.DestroyCursor(a.hand)

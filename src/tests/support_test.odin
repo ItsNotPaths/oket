@@ -80,6 +80,7 @@ close_app :: proc(a: ^app.App) {
     store.store_destroy(&a.docs)
     input.binds_destroy(&a.binds)
     app.binds_requests_destroy(a)
+    input.pending_set(&a.pending) // an armed picker owns its line, the same as app_destroy
     app.message_set(a, "")
     app.panels_destroy(a)
     gfx.grid_destroy(&a.chrome)
@@ -190,9 +191,12 @@ point :: proc(a: ^app.App) -> txt.Cursor {
     return app.active(a).view.point
 }
 
-chord :: proc(name: string, mods: input.Mods = {}) -> input.Chord {
+// `held` is the key that is DOWN when the chord fires, spelled the way a bind row spells it
+// (PANELS.md §6). Empty for every chord that is not part of a gesture.
+chord :: proc(name: string, mods: input.Mods = {}, held := "") -> input.Chord {
     code, _ := input.key_code(name)
-    return {code, mods}
+    down, _ := input.key_code(held)
+    return {code, mods, down}
 }
 
 // --- a listing, as a FIXTURE ---

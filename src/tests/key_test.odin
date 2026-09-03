@@ -36,17 +36,17 @@ chord_parse_spellings :: proc(t: ^testing.T) {
 
     c, ok := input.chord_parse("ctrl+alt+@AC07", nil)
     testing.expect(t, ok)
-    testing.expect_value(t, c, input.Chord{ac07, {.Ctrl, .Alt}})
+    testing.expect_value(t, c, input.Chord{ac07, {.Ctrl, .Alt}, 0})
 
     c, ok = input.chord_parse("alt+j", qwerty_j)
     testing.expect(t, ok)
-    testing.expect_value(t, c, input.Chord{ac07, {.Alt}})
+    testing.expect_value(t, c, input.Chord{ac07, {.Alt}, 0})
 
     // A label spelling, for keys no layout names.
     f1, _ := input.key_code("FK01")
     c, ok = input.chord_parse("shift+f1", nil)
     testing.expect(t, ok)
-    testing.expect_value(t, c, input.Chord{f1, {.Shift}})
+    testing.expect_value(t, c, input.Chord{f1, {.Shift}, 0})
 
     // A numeric physical spelling reaches codes the name table does not cover.
     c, ok = input.chord_parse("@300", nil)
@@ -57,7 +57,7 @@ chord_parse_spellings :: proc(t: ^testing.T) {
     kpad, _ := input.key_code("KPAD")
     c, ok = input.chord_parse("ctrl+kp+", nil)
     testing.expect(t, ok)
-    testing.expect_value(t, c, input.Chord{kpad, {.Ctrl}})
+    testing.expect_value(t, c, input.Chord{kpad, {.Ctrl}, 0})
 
     _, ok = input.chord_parse("bogus+j", qwerty_j)
     testing.expect(t, !ok)
@@ -70,7 +70,7 @@ chord_parse_spellings :: proc(t: ^testing.T) {
 @(test)
 chord_physical_parses_back :: proc(t: ^testing.T) {
     for e in input.KEY_NAMES {
-        chord := input.Chord{e.code, {.Alt}}
+        chord := input.Chord{e.code, {.Alt}, 0}
         spelling := input.chord_physical(chord)
         defer delete(spelling)
         parsed, ok := input.chord_parse(spelling, nil)
@@ -87,17 +87,17 @@ chord_format_falls_back :: proc(t: ^testing.T) {
         return input.key_name(code) == "AC07" ? "j" : ""
     }
 
-    s := input.chord_format(input.Chord{ac07, {.Ctrl}}, layout)
+    s := input.chord_format(input.Chord{ac07, {.Ctrl}, 0}, layout)
     testing.expect_value(t, s, "ctrl+j")
     delete(s)
 
     // No layout glyph: the label table answers.
-    s = input.chord_format(input.Chord{esc, {}}, layout)
+    s = input.chord_format(input.Chord{esc, {}, 0}, layout)
     testing.expect_value(t, s, "esc")
     delete(s)
 
     // No glyph and no label: the physical spelling is the floor.
-    s = input.chord_format(input.Chord{300, {.Alt}}, layout)
+    s = input.chord_format(input.Chord{300, {.Alt}, 0}, layout)
     testing.expect_value(t, s, "alt+@300")
     delete(s)
 }

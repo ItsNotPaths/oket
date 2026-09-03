@@ -21,9 +21,13 @@ Mod :: enum u8 {
 
 Mods :: bit_set[Mod;u8]
 
+// `held` is a key that is DOWN, not a modifier: `Mods` is four members over a bit_set and tab
+// cannot join them, so a chord names one instead (PANELS.md §6). Zero for every chord that is
+// not part of a hold-steer-release gesture, which is all of them by default.
 Chord :: struct {
     code: Code,
     mods: Mods,
+    held: Code,
 }
 
 // Resolves a layout spelling ("j") to the position that types it. The front-end supplies it,
@@ -113,8 +117,49 @@ key_label :: proc(c: Code) -> string {
     return ""
 }
 
-// Both config spellings (§6): the key part is a layout glyph ("j"), a display label ("f1"),
-// or a physical position ("@AC06", "@57" for a code with no name).
+// One key spelling, resolved: a mouse button, a physical position ("@AC06", "@57"), a layout
+// glyph ("j"), or a display label ("f1"). Shared by the key a chord ends on and by a held one,
+// so the two can never accept different spellings.
+@(private = "file")
+key_of :: proc(text: string, resolve: Layout_Resolve) -> (Code, bool) {
+    if text == "" {
+        return 0, false
+    }
+    if code, is_mouse := mouse_named(text); is_mouse {
+        return code, true
+    }
+    if text[0] == '@' {
+        if n, is_num := strconv.parse_uint(text[1:]); is_num {
+            return Code(n), n != 0
+        }
+        return key_code(text[1:])
+    }
+    if resolve != nil {
+        if code, found := resolve(text); found {
+            return code, true
+        }
+    }
+    for e in KEY_LABELS {
+        if e.label == text {
+            return key_code(e.name)
+        }
+    }
+    return 0, false
+}
+
+@(private = "file")
+mod_named :: proc(text: string) -> (Mod, bool) {
+    for label, m in MOD_NAMES {
+        if text == label {
+            return m, true
+        }
+    }
+    return .Shift, false
+}
+
+// Both config spellings (§6), and one name left of a `+` that is not a modifier is a key held
+// DOWN: `tab+enter` is the picker's chord and is not the same chord as `enter` (PANELS.md §6).
+// Only one key can be held, because only one field holds it.
 chord_parse :: proc(text: string, resolve: Layout_Resolve) -> (c: Chord, ok: bool) {
     rest := text
     for {
@@ -122,89 +167,85 @@ chord_parse :: proc(text: string, resolve: Layout_Resolve) -> (c: Chord, ok: boo
         if i < 0 || i == len(rest) - 1 { // a trailing '+' is the + key itself
             break
         }
-        mod_ok: bool
-        for label, m in MOD_NAMES {
-            if rest[:i] == label {
-                c.mods += {m}
-                mod_ok = true
+        if m, is_mod := mod_named(rest[:i]); is_mod {
+            c.mods += {m}
+        } else {
+            if c.held != 0 {
+                return {}, false
             }
-        }
-        if !mod_ok {
-            return {}, false
+            c.held = key_of(rest[:i], resolve) or_return
         }
         rest = rest[i + 1:]
     }
-    if rest == "" {
-        return {}, false
-    }
-
-    if code, is_mouse := mouse_named(rest); is_mouse {
-        c.code = code
-        return c, true
-    }
-    if rest[0] == '@' {
-        if n, is_num := strconv.parse_uint(rest[1:]); is_num {
-            c.code = Code(n)
-            return c, c.code != 0
-        }
-        c.code = key_code(rest[1:]) or_return
-        return c, true
-    }
-    if resolve != nil {
-        if code, found := resolve(rest); found {
-            c.code = code
-            return c, true
-        }
-    }
-    for e in KEY_LABELS {
-        if e.label == rest {
-            c.code = key_code(e.name) or_else 0
-            return c, c.code != 0
-        }
-    }
-    return {}, false
+    c.code = key_of(rest, resolve) or_return
+    return c, true
 }
 
-// The physical spelling, always valid to parse back: "alt+@AC06", "@57" for a nameless code.
+// The physical spelling, always valid to parse back: "alt+@AC06", "@57" for a nameless code,
+// "@TAB+@RTRN" for a held chord.
 chord_physical :: proc(c: Chord, allocator := context.allocator) -> string {
-    b := builder_with_mods(c.mods, allocator)
-    name := key_name(c.code)
-    switch {
-    case code_is_mouse(c.code):
-        strings.write_string(&b, name) // a button has one spelling; no layout can shift it
-    case name == "":
-        fmt.sbprintf(&b, "@%d", c.code)
-    case:
-        strings.write_byte(&b, '@')
-        strings.write_string(&b, name)
+    b := strings.builder_make(allocator)
+    write_mods(&b, c.mods)
+    if c.held != 0 {
+        write_physical(&b, c.held)
+        strings.write_byte(&b, '+')
     }
+    write_physical(&b, c.code)
     return strings.to_string(b)
 }
 
 // The layout spelling for display: the glyph the position types, a label for keys that type
-// nothing, the physical spelling as the last resort.
+// nothing, the physical spelling as the last resort. A held key is a prefix like a modifier,
+// so `tab+enter` reads as the gesture it is (PANELS.md §6).
 chord_format :: proc(c: Chord, layout: Layout_Name, allocator := context.allocator) -> string {
-    key := layout != nil ? layout(c.code) : ""
-    if key == "" {
-        key = key_label(c.code)
-    }
+    key := key_spelling(c.code, layout)
     if key == "" {
         phys := chord_physical(c, context.temp_allocator)
         return strings.clone(phys, allocator)
     }
-    b := builder_with_mods(c.mods, allocator)
+    b := strings.builder_make(allocator)
+    write_mods(&b, c.mods)
+    if c.held != 0 {
+        if h := key_spelling(c.held, layout); h != "" {
+            strings.write_string(&b, h)
+        } else {
+            write_physical(&b, c.held)
+        }
+        strings.write_byte(&b, '+')
+    }
     strings.write_string(&b, key)
     return strings.to_string(b)
 }
 
+// The glyph a position types, then a label for the keys that type nothing. "" for a code with
+// neither, which is what sends chord_format to the physical spelling for the whole chord.
 @(private = "file")
-builder_with_mods :: proc(mods: Mods, allocator := context.allocator) -> strings.Builder {
-    b := strings.builder_make(allocator)
+key_spelling :: proc(code: Code, layout: Layout_Name) -> string {
+    if key := layout != nil ? layout(code) : ""; key != "" {
+        return key
+    }
+    return key_label(code)
+}
+
+@(private = "file")
+write_physical :: proc(b: ^strings.Builder, code: Code) {
+    name := key_name(code)
+    switch {
+    case code_is_mouse(code):
+        strings.write_string(b, name) // a button has one spelling; no layout can shift it
+    case name == "":
+        fmt.sbprintf(b, "@%d", code)
+    case:
+        fmt.sbprintf(b, "@%s", name)
+    }
+}
+
+@(private = "file")
+write_mods :: proc(b: ^strings.Builder, mods: Mods) {
     for label, m in MOD_NAMES {
         if m in mods {
-            strings.write_string(&b, label)
-            strings.write_byte(&b, '+')
+            strings.write_string(b, label)
+            strings.write_byte(b, '+')
         }
     }
-    return b
 }

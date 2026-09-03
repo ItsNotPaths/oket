@@ -12,7 +12,7 @@ import "../input"
 @(test)
 mouse_chords_spell_and_parse_back :: proc(t: ^testing.T) {
     for spelling, m in input.MOUSE_SPELLING {
-        chord := input.Chord{input.mouse_code(m), {}}
+        chord := input.Chord{input.mouse_code(m), {}, 0}
         shown := input.chord_format(chord, nil, context.temp_allocator)
         phys := input.chord_physical(chord, context.temp_allocator)
         testing.expect_value(t, shown, spelling)
@@ -28,7 +28,7 @@ mouse_chords_spell_and_parse_back :: proc(t: ^testing.T) {
             nil,
         )
         testing.expect(t, mod_ok)
-        testing.expect_value(t, with_mods, input.Chord{input.mouse_code(m), {.Ctrl}})
+        testing.expect_value(t, with_mods, input.Chord{input.mouse_code(m), {.Ctrl}, 0})
     }
 }
 
@@ -48,11 +48,11 @@ describe_answers_for_a_click :: proc(t: ^testing.T) {
 
     // Unbound is not the same as inert: a button chord moves point whether or not a row claims
     // it, and describe must say so rather than call it a no-op.
-    click := input.describe_chord(binds[:], {input.mouse_code(.Click), {}}, .Surface, nil)
+    click := input.describe_chord(binds[:], {input.mouse_code(.Click), {}, 0}, .Surface, nil)
     defer delete(click)
     testing.expect_value(t, click, "click moves point; nothing further is bound")
 
-    double := input.describe_chord(binds[:], {input.mouse_code(.Double_Click), {}}, .Surface, nil)
+    double := input.describe_chord(binds[:], {input.mouse_code(.Double_Click), {}, 0}, .Surface, nil)
     defer delete(double)
     testing.expect_value(
         t,
@@ -62,7 +62,7 @@ describe_answers_for_a_click :: proc(t: ^testing.T) {
 
     // The wheel scrolls what is under it and leaves the caret alone, so it says nothing about
     // point.
-    wheel := input.describe_chord(binds[:], {input.mouse_code(.Wheel_Up), {}}, .Surface, nil)
+    wheel := input.describe_chord(binds[:], {input.mouse_code(.Wheel_Up), {}, 0}, .Surface, nil)
     defer delete(wheel)
     testing.expect_value(
         t,

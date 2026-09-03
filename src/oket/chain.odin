@@ -250,10 +250,16 @@ sh_quote :: proc(s: string, alloc := context.allocator) -> string {
 
 first_field :: proc(s: string) -> string {
     i := 0
-    for i < len(s) && s[i] != ' ' && s[i] != '\t' {
+    for i < len(s) && !field_sep(s[i]) {
         i += 1
     }
     return s[:i]
+}
+
+// The ONE reading of where a field ends, so the address grammar and the picker that aims one
+// cannot drift about what a bare `@` is surrounded by (PANELS.md §4, §6).
+field_sep :: proc(c: byte) -> bool {
+    return c == ' ' || c == '\t'
 }
 
 // The whole of `s` as ONE argument, quotes off. A hole fills quoted when its value would

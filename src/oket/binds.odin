@@ -19,7 +19,8 @@ import "../input"
 // A section is a bind context: `global`, `text`, `surface`, `terminal`, or a KIND's name —
 // `[files]` is narrower than `[surface]` and wins where it applies, which is how `enter` means
 // one thing in a listing and another in the editor while both are surfaces. A value is a verb's
-// registry name, or `exec`/`stage` and a command line whose `<name>` holes fill from point.
+// registry name, or `exec`/`stage`/`pick` and a command line whose `<name>` holes fill from
+// point.
 //
 // Appended, never rewritten: a rewrite would have to re-emit what it read, and that eats
 // comments and ordering.
@@ -160,14 +161,17 @@ binds_ctx :: proc(a: ^App, name: string) -> (ctx: input.Bind_Ctx, kind: input.Ki
     return .Global, 0, false
 }
 
-// `exec <line>` and `stage <line>` are command lines; anything else names a verb — a kernel
-// one, or one a plugin registered. Those two words are the whole grammar.
+// `exec <line>`, `stage <line>` and `pick <line>` are command lines; anything else names a verb
+// — a kernel one, or one a plugin registered. Those three words are the whole grammar.
 binds_target :: proc(a: ^App, value: string) -> (input.Bind_Target, bool) {
     if rest, cut := cut_word(value, "exec"); cut {
-        return input.Bind_Line{strings.clone(rest), false}, true
+        return input.Bind_Line{strings.clone(rest), .Exec}, true
     }
     if rest, cut := cut_word(value, "stage"); cut {
-        return input.Bind_Line{strings.clone(rest), true}, true
+        return input.Bind_Line{strings.clone(rest), .Stage}, true
+    }
+    if rest, cut := cut_word(value, "pick"); cut {
+        return input.Bind_Line{strings.clone(rest), .Pick}, true
     }
     if cmd, found := input.command_named(value); found {
         return cmd, true

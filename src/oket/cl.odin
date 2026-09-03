@@ -60,13 +60,13 @@ cl_active :: proc(a: ^App) -> bool {
 // line's `stage` passes the whole expanded line.
 cl_show :: proc(a: ^App, prefix := "") {
     cl_init(a) // a zero Id resolves to whatever took slot 0, so the line owns its document first
-    a.pending = input.Pending_Cmdline{}
+    input.pending_set(&a.pending, input.Pending_Cmdline{})
     cl_set(a, prefix)
     a.cl.hist_idx = len(a.cl.history)
 }
 
 cl_hide :: proc(a: ^App) {
-    a.pending = nil
+    input.pending_set(&a.pending)
     cl_set(a, "")
 }
 

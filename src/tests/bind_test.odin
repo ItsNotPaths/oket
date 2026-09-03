@@ -13,16 +13,16 @@ describe_answers_every_chord :: proc(t: ^testing.T) {
 
     for e in input.KEY_NAMES {
         for mods in ([?]input.Mods{{}, {.Ctrl}, {.Ctrl, .Alt, .Shift}}) {
-            s := input.describe_chord(binds[:], {e.code, mods}, .Global, nil)
+            s := input.describe_chord(binds[:], {e.code, mods, 0}, .Global, nil)
             defer delete(s)
             testing.expectf(t, s != "", "no answer for @%s", e.name)
-            _, _, bound := input.bind_lookup(binds[:], {e.code, mods}, .Global)
+            _, _, bound := input.bind_lookup(binds[:], {e.code, mods, 0}, .Global)
             testing.expect_value(t, strings.contains(s, "unbound"), !bound)
         }
     }
 
     // A code outside the name table still gets an answer, and its spelling parses back.
-    s := input.describe_chord(binds[:], {999, {.Alt}}, .Global, nil)
+    s := input.describe_chord(binds[:], {999, {.Alt}, 0}, .Global, nil)
     defer delete(s)
     testing.expect_value(t, s, "alt+@999 is unbound")
 }
@@ -33,12 +33,12 @@ describe_names_the_command :: proc(t: ^testing.T) {
     defer input.binds_destroy(&binds)
     esc, _ := input.key_code("ESC")
 
-    s := input.describe_chord(binds[:], {esc, {}}, .Global, nil)
+    s := input.describe_chord(binds[:], {esc, {}, 0}, .Global, nil)
     defer delete(s)
     testing.expect_value(t, s, "esc (@ESC) runs quit: close the window [global, kernel default]")
 
     // The same key with a modifier is a different chord, and says so.
-    s2 := input.describe_chord(binds[:], {esc, {.Ctrl}}, .Global, nil)
+    s2 := input.describe_chord(binds[:], {esc, {.Ctrl}, 0}, .Global, nil)
     defer delete(s2)
     testing.expect_value(t, s2, "ctrl+esc (ctrl+@ESC) is unbound")
 }
@@ -52,16 +52,16 @@ shift_extends_or_names_its_own_verb :: proc(t: ^testing.T) {
     down, _ := input.key_code("DOWN")
     z, _ := input.key_code("AB01")
 
-    b, extend, ok := input.bind_lookup(binds[:], {down, {.Shift}}, .Text)
+    b, extend, ok := input.bind_lookup(binds[:], {down, {.Shift}, 0}, .Text)
     testing.expect(t, ok && extend)
     testing.expect_value(t, b.target, input.Bind_Target(input.Command.Nav_Down))
 
-    b, extend, ok = input.bind_lookup(binds[:], {z, {.Ctrl, .Shift}}, .Text)
+    b, extend, ok = input.bind_lookup(binds[:], {z, {.Ctrl, .Shift}, 0}, .Text)
     testing.expect(t, ok && !extend) // the exact row wins, no extending
     testing.expect_value(t, b.target, input.Bind_Target(input.Command.Redo))
 
     // A Text bind is invisible from Global context: nothing to type into, nothing to run.
-    _, _, ok = input.bind_lookup(binds[:], {down, {}}, .Global)
+    _, _, ok = input.bind_lookup(binds[:], {down, {}, 0}, .Global)
     testing.expect(t, !ok)
 }
 
@@ -80,7 +80,7 @@ pending_states_always_have_a_label :: proc(t: ^testing.T) {
     testing.expect(t, input.pending_describe(input.Pending_Describe{}) != "")
 
     p: input.Pending = input.Pending_Describe{}
-    input.pending_cancel(&p)
+    input.pending_set(&p)
     testing.expect(t, p == nil)
 }
 
@@ -92,11 +92,11 @@ terminal_esc_shadows_quit :: proc(t: ^testing.T) {
     defer input.binds_destroy(&binds)
     esc, _ := input.key_code("ESC")
 
-    b, _, ok := input.bind_lookup(binds[:], {esc, {}}, .Terminal)
+    b, _, ok := input.bind_lookup(binds[:], {esc, {}, 0}, .Terminal)
     testing.expect(t, ok)
     testing.expect_value(t, b.target, input.Bind_Target(input.Command.Surface_Send))
 
-    b, _, ok = input.bind_lookup(binds[:], {esc, {}}, .Text)
+    b, _, ok = input.bind_lookup(binds[:], {esc, {}, 0}, .Text)
     testing.expect(t, ok)
     testing.expect_value(t, b.target, input.Bind_Target(input.Command.Quit))
 }
@@ -111,7 +111,7 @@ the_terminal_keeps_the_chords_editing_took :: proc(t: ^testing.T) {
 
     ctrl :: proc(key: string) -> input.Chord {
         code, _ := input.key_code(key)
-        return {code, {.Ctrl}}
+        return {code, {.Ctrl}, 0}
     }
 
     for e in ([?]struct {
