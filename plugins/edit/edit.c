@@ -336,7 +336,7 @@ static int32_t write_cmd(const oket_api *api, oket_self self, const oket_at *at,
         free(e->path);
         e->path = oket_dup(args, args_len);
         describe(e, &d); /* the buffer takes the name it was written under */
-        api->submit(api, self, s->doc, s->gen, NULL, 0, &d, NULL);
+        api->submit(api, self, s->doc, s->gen, NULL, 0, &d, NULL, 0);
         /* The watch follows the name: the file this buffer IS is the one worth hearing about. */
         api->io_close(api, self, e->watch);
         e->watch = e->path == NULL

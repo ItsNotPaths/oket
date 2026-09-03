@@ -30,7 +30,7 @@
 extern "C" {
 #endif
 
-#define OKET_API 4
+#define OKET_API 5
 
 /* A plugin exports exactly this, and hidden visibility keeps everything else in. */
 #define OKET_EXPORT __attribute__((visibility("default")))
@@ -114,10 +114,17 @@ typedef struct {
     uint8_t     _pad[3];
 } oket_column;
 
-/* A named byte span inside one line, offsets from that line's start. */
+/* A named byte span inside one line, offsets from that line's start.
+ *
+ * THE SPAN IS WHAT IS DRAWN AND `value` IS WHAT IS ACTED ON. NULL, the common case, means the
+ * two are the same and the span's own bytes fill `<name>`. Set it and a line may show a bare
+ * `browser.c` while `<path>` hands on the whole of where it lives — which is what makes a row
+ * a LINK, and the one thing a span alone cannot say. */
 typedef struct {
     const char *name;
     size_t      name_len;
+    const char *value; /* NULL: the span's own bytes are the value */
+    size_t      value_len;
     int32_t     line, lo, hi;
     uint8_t     _pad[4];
 } oket_field;
@@ -137,6 +144,21 @@ typedef struct oket_descriptor {
     int32_t            tab_width;
     uint8_t render, wrap, numbers, selection, follow, input, mouse, editable;
 } oket_descriptor;
+
+/* What a submit is, beyond its bytes. The kernel cannot read this off the edits: replacing a
+ * whole document and replacing a whole selection are the same two offsets.
+ *
+ * REGEN says this text is DERIVED rather than typed, and two rules follow from the one word.
+ * The carets stay on their rows, because navigation put them there: a tree that expands a
+ * directory rewrites every row under it, and point following that splice to the end of the
+ * document is a tree you cannot walk. And the undo log is forgotten, because there is nothing
+ * of the user's in derived text to take back.
+ *
+ * Typing into that same tree to rename a file carries no flag: it collapses and it undoes, the
+ * way an editor's must. A document that takes no typing at all keeps its carets either way. */
+enum {
+    OKET_SUBMIT_REGEN = 1 << 0
+};
 
 /* One replacement, in bytes. A batch is the transaction and one undo entry. The kernel copies
  * the text at submit, so your buffer may die the moment the call returns. */
@@ -326,13 +348,23 @@ typedef struct oket_api {
      *
      * `spans` may be NULL to leave every layer as it stands. Edits, descriptor and spans land
      * together at ONE generation, so nothing ever paints a colour against bytes it was not
-     * measured over. */
+     * measured over. `flags` is OKET_SUBMIT_* and 0 for an ordinary edit. */
     void (*submit)(const struct oket_api *api, oket_self self, oket_doc doc, uint64_t gen,
                    const oket_edit *edits, size_t nedits, const oket_descriptor *d,
-                   const oket_span_pub *spans);
+                   const oket_span_pub *spans, uint32_t flags);
 
     void (*reveal)(const struct oket_api *api, oket_self self, oket_doc doc,
                    size_t lo, size_t hi, oket_reveal at);
+
+    /* Point, put somewhere. The kernel owns the cursors and every motion verb writes them, so
+     * this is not how a document is navigated — it is for the case where the row point was on
+     * STOPS EXISTING because of what you just submitted. A tree collapsing a subtree has to
+     * leave point on the parent, and the line it was standing on is gone.
+     *
+     * A byte offset, and it collapses every cursor to one caret there. It lands with the
+     * transaction, not before it: writes still happen at one point in the frame, so a submit
+     * and the point that goes with it arrive at the same generation. */
+    void (*point)(const struct oket_api *api, oket_self self, oket_doc doc, size_t off);
 
     /* Not a message: taking a REFERENCE is a call, reading through it is memory (§6). The
      * snapshot handed with a message is good for that call; take your own here to hold one
@@ -388,7 +420,7 @@ _Static_assert(sizeof(oket_seg) == 32, "oket_seg");
 _Static_assert(sizeof(oket_cursor) == 40, "oket_cursor");
 _Static_assert(sizeof(oket_snapshot) == 128, "oket_snapshot");
 _Static_assert(sizeof(oket_column) == 24, "oket_column");
-_Static_assert(sizeof(oket_field) == 32, "oket_field");
+_Static_assert(sizeof(oket_field) == 48, "oket_field");
 _Static_assert(sizeof(oket_descriptor) == 80, "oket_descriptor");
 _Static_assert(sizeof(oket_edit) == 32, "oket_edit");
 _Static_assert(sizeof(oket_span) == 24, "oket_span");

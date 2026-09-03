@@ -24,7 +24,7 @@ import "../input"
 // pointer, with no lock and no call back in (§6). Adding a field is a struct field, not a
 // message.
 
-API :: 4
+API :: 5
 
 // A plugin's own identity, handed back on every call so a plugin needs no state of its own.
 // Index plus load generation, packed: a handle kept across a reload resolves to nothing rather
@@ -110,13 +110,18 @@ Column :: struct {
     _:        [3]u8,
 }
 
+// The span is what is DRAWN and `value` is what is ACTED ON; a nil value means the two are the
+// same and the span's own bytes fill `<name>` (desc.Field). A row that shows a bare name and
+// hands on a whole path is a LINK, and it is the one thing a span alone cannot say.
 Field :: struct {
-    name:     [^]u8,
-    name_len: c.size_t,
-    line:     c.int32_t,
-    lo:       c.int32_t,
-    hi:       c.int32_t,
-    _:        [4]u8,
+    name:      [^]u8,
+    name_len:  c.size_t,
+    value:     [^]u8,
+    value_len: c.size_t,
+    line:      c.int32_t,
+    lo:        c.int32_t,
+    hi:        c.int32_t,
+    _:         [4]u8,
 }
 
 Descriptor :: struct {
@@ -203,6 +208,23 @@ Span_Pub :: struct {
     hi:     c.size_t,
     spans:  [^]Span,
     nspans: c.size_t,
+}
+
+// What a submit is, beyond its bytes (§5). The kernel cannot read this off the edits, because
+// replacing a whole document and replacing a whole selection are the same two offsets.
+//
+// REGEN says this text is DERIVED rather than typed, and two rules follow from the one word.
+// The carets stay on their rows, because navigation put them there: a tree expanding a
+// directory rewrites the rows under it, and point following that splice to the end of the
+// document is a tree that cannot be walked. And the undo log is forgotten, because there is
+// nothing of the user's in derived text to take back — an undo that walked back into a listing
+// its producer has since rebuilt would leave the two describing different documents.
+//
+// Typing into the same tree to rename a file carries no flag: it collapses and it undoes, the
+// way an editor's must.
+Submit_Flags :: distinct bit_set[Submit_Flag; u32]
+Submit_Flag :: enum u32 {
+    Regen = 0,
 }
 
 // Where a revealed span lands in the viewport (§11).
@@ -313,13 +335,20 @@ Api :: struct {
     // `spans` may be nil to leave every layer as it stands. Edits, descriptor and spans land
     // together at ONE generation, so nothing ever paints a colour against bytes it was not
     // measured over.
+    // `flags` is Submit_Flags and 0 for an ordinary edit.
     submit:           proc "c" (api: ^Api, self: Self, doc: Doc, gen: u64,
                                 edits: [^]Edit, nedits: c.size_t, d: ^Descriptor,
-                                spans: ^Span_Pub),
+                                spans: ^Span_Pub, flags: u32),
 
     // reveal.
     reveal:           proc "c" (api: ^Api, self: Self, doc: Doc,
                                 lo: c.size_t, hi: c.size_t, at: Reveal),
+
+    // Point, put somewhere. Not how a document is navigated — every motion verb is the
+    // kernel's — but for the case where the row point was on STOPS EXISTING because of what
+    // was just submitted: a tree collapsing a subtree has to leave point on the parent. It
+    // lands WITH the transaction, so writes still happen at one point in the frame.
+    point:            proc "c" (api: ^Api, self: Self, doc: Doc, off: c.size_t),
 
     // Not a message: taking a REFERENCE is a call, reading through it is memory (§6). A
     // snapshot handed with a message is good for that call; a plugin that needs one for longer
@@ -371,7 +400,7 @@ Entry_Fn :: #type proc "c" (api: ^Api, self: Self) -> c.int32_t
 #assert(size_of(Cursor) == 40)
 #assert(size_of(Snapshot) == 128)
 #assert(size_of(Column) == 24)
-#assert(size_of(Field) == 32)
+#assert(size_of(Field) == 48)
 #assert(size_of(Descriptor) == 80)
 #assert(size_of(Span) == 24)
 #assert(size_of(Span_Pub) == 40)

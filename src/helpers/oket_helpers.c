@@ -559,7 +559,18 @@ void oket_build_span(oket_build *b, const char *name, size_t lo, size_t hi) {
      * offset never appears on either side. */
     f->lo = (int32_t)(b->cell_start + lo);
     f->hi = (int32_t)(b->cell_start + hi);
+    f->value = NULL; /* the span's own bytes are the value */
+    f->value_len = 0;
     memset(f->_pad, 0, sizeof f->_pad);
+}
+
+void oket_build_link(oket_build *b, const char *name, size_t lo, size_t hi,
+                     const char *value, size_t value_len) {
+    oket_build_span(b, name, lo, hi);
+    if (b->nfields > 0 && value != NULL) {
+        b->fields[b->nfields - 1].value = value;
+        b->fields[b->nfields - 1].value_len = value_len;
+    }
 }
 
 void oket_build_cell(oket_build *b, const char *name, const char *text, size_t len) {
@@ -622,12 +633,25 @@ void oket_replace(const oket_api *api, oket_self self, oket_doc doc,
     e.hi = hi;
     e.text = text;
     e.text_len = len;
-    api->submit(api, self, doc, s->gen, &e, 1, NULL, NULL);
+    api->submit(api, self, doc, s->gen, &e, 1, NULL, NULL, 0);
     api->release(api, self, s);
 }
 
+static void set(const oket_api *api, oket_self self, oket_doc doc,
+                const char *text, size_t len, const oket_descriptor *d, uint32_t flags);
+
 void oket_set(const oket_api *api, oket_self self, oket_doc doc,
               const char *text, size_t len, const oket_descriptor *d) {
+    set(api, self, doc, text, len, d, 0);
+}
+
+void oket_regen(const oket_api *api, oket_self self, oket_doc doc,
+                const char *text, size_t len, const oket_descriptor *d) {
+    set(api, self, doc, text, len, d, OKET_SUBMIT_REGEN);
+}
+
+static void set(const oket_api *api, oket_self self, oket_doc doc,
+                const char *text, size_t len, const oket_descriptor *d, uint32_t flags) {
     const oket_snapshot *s = api->snapshot(api, self, doc);
     oket_edit e;
 
@@ -638,7 +662,7 @@ void oket_set(const oket_api *api, oket_self self, oket_doc doc,
     e.hi = s->size;
     e.text = text;
     e.text_len = len;
-    api->submit(api, self, doc, s->gen, &e, 1, d, NULL);
+    api->submit(api, self, doc, s->gen, &e, 1, d, NULL, flags);
     api->release(api, self, s);
 }
 
@@ -673,7 +697,7 @@ int oket_batch_submit(const oket_api *api, oket_self self, oket_doc doc, uint64_
     if (b->oom || b->n == 0) {
         return 0;
     }
-    api->submit(api, self, doc, gen, b->edits, b->n, NULL, NULL);
+    api->submit(api, self, doc, gen, b->edits, b->n, NULL, NULL, 0);
     return 1;
 }
 
@@ -708,7 +732,7 @@ int oket_spans_publish(const oket_api *api, oket_self self, oket_doc doc, uint64
     pub.nspans = b->n;
     /* An EMPTY list still goes: a range-scoped replace with nothing in it is how a layer says
      * "no colours here any more", and refusing it would leave the last parse's on screen. */
-    api->submit(api, self, doc, gen, NULL, 0, NULL, &pub);
+    api->submit(api, self, doc, gen, NULL, 0, NULL, &pub, 0);
     return 1;
 }
 

@@ -100,7 +100,10 @@ view_desc :: proc(v: ^Plug_View) -> ^plug.Descriptor {
     }
     v.flds = make([]plug.Field, len(d.fields))
     for f, i in d.fields {
-        v.flds[i] = {raw_data(f.name), len(f.name), i32(f.line), i32(f.lo), i32(f.hi), {}}
+        // "" is the kernel's "no value"; the ABI spells it NULL, so hand exactly that across.
+        value := f.value != "" ? raw_data(f.value) : nil
+        v.flds[i] = {raw_data(f.name), len(f.name), value, len(f.value),
+                     i32(f.line), i32(f.lo), i32(f.hi), {}}
     }
     v.dpth = make([]c.int32_t, len(d.depth))
     for n, i in d.depth {
@@ -150,7 +153,8 @@ plug_desc_take :: proc(a: ^App, id: store.Id, p: ^plug.Descriptor) -> ^desc.Desc
     }
     flds := make([]desc.Field, p.nfields, context.temp_allocator)
     for f, i in p.fields[:p.nfields] {
-        flds[i] = {int(f.line), string(f.name[:f.name_len]), int(f.lo), int(f.hi)}
+        value := f.value != nil ? string(f.value[:f.value_len]) : ""
+        flds[i] = {int(f.line), string(f.name[:f.name_len]), int(f.lo), int(f.hi), value}
     }
     dpth := make([]int, p.ndepth, context.temp_allocator)
     for n, i in p.depth[:p.ndepth] {

@@ -198,10 +198,19 @@ void oket_build_column(oket_build *b, const char *name, int32_t width, oket_alig
  * separated by a tab, which nothing downstream parses: the fields say where they are. */
 void oket_build_cell(oket_build *b, const char *name, const char *text, size_t len);
 
-/* Records a second field over a span of the cell just appended — a file's NAME inside its
- * PATH, say, so a row DRAWS the tail and ACTS on the whole (§14). The offsets are from the
- * start of that cell. */
+/* Records a second field over a span of the cell just appended. The offsets are from the start
+ * of that cell. */
 void oket_build_span(oket_build *b, const char *name, size_t lo, size_t hi);
+
+/* The same span, pointing SOMEWHERE ELSE: what is drawn is [lo, hi) of the cell and what
+ * `<name>` hands on is `value`. That is what makes a row a LINK — a line showing a bare
+ * `browser.c` while `<path>` carries the whole of where it lives — and it is the only way to
+ * say it in a document with no columns to hide a cell in.
+ *
+ * `value` is BORROWED until the submit, exactly like the names above: the kernel copies it
+ * there, so it must outlive the oket_set or oket_batch_submit that carries this descriptor. */
+void oket_build_link(oket_build *b, const char *name, size_t lo, size_t hi,
+                     const char *value, size_t value_len);
 
 /* Sets how deep the current row sits. A tree, an outline and folding are this one number: the
  * kernel draws the indent, so nothing here writes padding into the text a bind reads. */
@@ -231,6 +240,14 @@ void oket_replace(const oket_api *api, oket_self self, oket_doc doc,
  * leaves the descriptor as it stands, and a zero `len` empties the text. */
 void oket_set(const oket_api *api, oket_self self, oket_doc doc,
               const char *text, size_t len, const oket_descriptor *d);
+
+/* The same, as a REGENERATION: the carets in this document were put where they are by
+ * NAVIGATION, so they stay on their rows instead of collapsing onto the splice
+ * (OKET_SUBMIT_REGEN). A tree rewriting itself to expand a directory wants this one; the same
+ * tree taking a typed rune does not, and the difference is not in the offsets. A document that
+ * takes no typing at all keeps its carets either way. */
+void oket_regen(const oket_api *api, oket_self self, oket_doc doc,
+                const char *text, size_t len, const oket_descriptor *d);
 
 
 /* --- writing several places at once ---

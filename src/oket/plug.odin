@@ -120,6 +120,7 @@ plug_init :: proc(a: ^App) {
             register_watch = api_register_watch,
             submit = api_submit,
             reveal = api_reveal,
+            point = api_point,
             snapshot = api_snapshot,
             release = api_release,
             message = api_message,
@@ -757,7 +758,7 @@ api_register_watch :: proc "c" (api: ^plug.Api, self: plug.Self, fn: plug.Event_
 @(private = "file")
 api_submit :: proc "c" (api: ^plug.Api, self: plug.Self, doc: plug.Doc, gen: u64,
                         edits: [^]plug.Edit, nedits: uint, d: ^plug.Descriptor,
-                        spans: ^plug.Span_Pub) {
+                        spans: ^plug.Span_Pub, flags: u32) {
     a, i, ok := api_app(api, self)
     defer api_done()
     if !ok {
@@ -771,7 +772,8 @@ api_submit :: proc "c" (api: ^plug.Api, self: plug.Self, doc: plug.Doc, gen: u64
     }
     nd := d != nil ? plug_desc_take(a, id, d) : nil
     defer desc.release(nd)
-    tag := store.store_submit(&a.docs, id, gen, own, nd, plug_spans_take(a, spans))
+    tag := store.store_submit(&a.docs, id, gen, own, nd, plug_spans_take(a, spans),
+                              .Regen in transmute(plug.Submit_Flags)flags)
     if inst, held := &a.insts[id]; held && inst.owner == i {
         inst.tag = tag
     }
@@ -817,6 +819,19 @@ api_reveal :: proc "c" (api: ^plug.Api, self: plug.Self, doc: plug.Doc,
     }
     context = a.api.ctx
     reveal_span(a, store_id(doc), int(lo), int(hi), at)
+}
+
+// Queued on the slot rather than written now: the submit it belongs to has not landed yet, and
+// the drain rebuilds the cursors after every splice it applies (store_point).
+@(private = "file")
+api_point :: proc "c" (api: ^plug.Api, self: plug.Self, doc: plug.Doc, off: uint) {
+    a, _, ok := api_app(api, self)
+    defer api_done()
+    if !ok {
+        return
+    }
+    context = a.api.ctx
+    store.store_point(&a.docs, store_id(doc), int(min(off, uint(max(int)))))
 }
 
 @(private = "file")
