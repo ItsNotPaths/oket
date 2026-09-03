@@ -9,7 +9,8 @@ import "../input"
 //   2. `tab+enter` fires the `pick` row, and the line EXPANDS NOW, so `<path>` reads the field
 //      point was on rather than one it may have wandered off
 //   3. left and right steer, because arming enters the `[pick]` context
-//   4. the release runs the captured line with `@` aimed at the panel steered to
+//   4. the chord again MAKES a panel and steers to it — `[pick] tab+enter = :np`, a row
+//   5. the release runs the captured line with `@` aimed at the panel steered to
 //
 // Off a link there is no path, the expansion reports what it cannot fill, and nothing arms.
 
@@ -17,7 +18,7 @@ import "../input"
 // a gesture nothing would ever finish.
 pick_arm :: proc(a: ^App, chord: input.Chord, line: input.Bind_Line) {
     if _, already := a.pending.(input.Pending_Pick); already {
-        return // key repeat on the chord that armed it, not a second gesture over the first
+        return // a second gesture over a live one; the first still owns the keys
     }
     if chord.held == 0 {
         message_set(a, "a pick row needs a held key, as in tab+enter")
@@ -28,25 +29,29 @@ pick_arm :: proc(a: ^App, chord: input.Chord, line: input.Bind_Line) {
         return // bind_expand said which hole it could not fill
     }
     panels_ready(a)
-    input.pending_set(&a.pending, input.Pending_Pick{chord.held, strings.clone(text), a.focus})
+    input.pending_set(&a.pending, input.Pending_Pick{chord, strings.clone(text), a.focus})
+}
+
+// A REPEAT of the arming chord is the key never having come up, and the `[pick]` row it now
+// resolves to would make a panel per repeat. Only the caller knows which one it was holding.
+pick_armed_by :: proc(a: ^App, chord: input.Chord) -> bool {
+    p, armed := a.pending.(input.Pending_Pick)
+    return armed && p.chord == chord
 }
 
 // Step 3. Clamped to the strip: a walk off the end that MADE a panel would leave one behind
-// every time the gesture is cancelled, and `@-1` is the row for opening past the leftmost.
+// every time the gesture is cancelled, and `:np` is the row for asking for one on purpose.
 pick_step :: proc(a: ^App, by: int) {
-    p, armed := a.pending.(input.Pending_Pick)
-    if !armed {
-        return
+    if p, armed := a.pending.(input.Pending_Pick); armed {
+        panel_aim(a, p.target + by)
     }
-    p.target = clamp(p.target + by, 0, len(a.panels) - 1)
-    a.pending = p // the same captured line, so this is the one write that must not free it
 }
 
-// Step 4, from the release of the key the arming chord held. Any other release is somebody
+// Step 5, from the release of the key the arming chord held. Any other release is somebody
 // else's key coming up.
 pick_release :: proc(a: ^App, code: input.Code) {
     p, armed := a.pending.(input.Pending_Pick)
-    if !armed || p.held != code {
+    if !armed || p.chord.held != code {
         return
     }
     line := target_aim(p.line, p.target)

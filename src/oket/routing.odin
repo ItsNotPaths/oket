@@ -83,8 +83,13 @@ pending_take :: proc(a: ^App, chord: input.Chord) -> bool {
     return false
 }
 
-handle_chord :: proc(a: ^App, chord: input.Chord) {
+handle_chord :: proc(a: ^App, chord: input.Chord, repeat := false) {
     if pending_take(a, chord) {
+        return
+    }
+    // A repeat of the chord that armed the picker is the key never having come up, and the
+    // `[pick]` row it resolves to makes a panel (§6). One press, one panel.
+    if repeat && pick_armed_by(a, chord) {
         return
     }
     message_set(a, "")
@@ -170,6 +175,10 @@ handle_chord :: proc(a: ^App, chord: input.Chord) {
         panel_step(a, +1)
     case .Panel_Prev:
         panel_step(a, -1)
+    case .Panel_Move_Left:
+        panel_shift(a, -1)
+    case .Panel_Move_Right:
+        panel_shift(a, +1)
     case .Panel_Size:
         panel_resize(a)
     case .Pick_Left:

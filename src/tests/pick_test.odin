@@ -105,7 +105,7 @@ holding_the_key_arms_nothing_and_the_chord_arms :: proc(t: ^testing.T) {
     app.handle_chord(&a, chord("RTRN", {}, TAB))
     armed, is_armed := a.pending.(input.Pending_Pick)
     testing.expect(t, is_armed)
-    testing.expect_value(t, armed.held, code_of(TAB))
+    testing.expect_value(t, armed.chord.held, code_of(TAB))
     testing.expect_value(t, armed.target, a.focus)
     // Expanded at the PRESS: the hole is already a path, not a `<path>` waiting for one.
     testing.expect(t, strings.has_prefix(armed.line, ":open "), armed.line)
@@ -133,14 +133,8 @@ the_armed_picker_steers_on_rows :: proc(t: ^testing.T) {
     testing.expect_value(t, app.panel_marked(&a), 1) // the caret is the mark (§3)
     testing.expect_value(t, a.focus, 0) // steering aims the OPEN, never the keys
 
-    // Key repeat on the chord that armed it does not re-arm, or holding enter while steering
-    // would drag the target back to the panel the gesture started in.
-    app.handle_chord(&a, chord("RTRN", {}, TAB))
-    armed, _ = a.pending.(input.Pending_Pick)
-    testing.expect_value(t, armed.target, 1)
-
     // Clamped at both ends: a walk off the strip that made a panel would leave one behind
-    // every time the gesture is cancelled.
+    // every time the gesture is cancelled. `:np` is how you ask for one on purpose.
     app.handle_chord(&a, chord("LEFT"))
     app.handle_chord(&a, chord("LEFT"))
     armed, _ = a.pending.(input.Pending_Pick)
@@ -148,6 +142,53 @@ the_armed_picker_steers_on_rows :: proc(t: ^testing.T) {
 
     // And the caret has not moved: while armed, the arrows are the picker's.
     testing.expect_value(t, point(&a).head.line, 0)
+}
+
+// Claim 4. The chord again, while armed: there is nowhere to throw this yet, so make somewhere.
+// A ROW (`[pick] tab+enter = :np`), so the picker grew no second meaning of its own — and the
+// aim goes with the panel, because a target you cannot see is the thing §1 exists to kill.
+@(test)
+the_chord_again_makes_a_panel_and_steers_to_it :: proc(t: ^testing.T) {
+    a, _, ok := listing_app(t, "oket-pick-np")
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    app.handle_chord(&a, chord("RTRN", {}, TAB))
+    testing.expect_value(t, len(a.panels), 1)
+
+    app.handle_chord(&a, chord("RTRN", {}, TAB))
+    armed, still := a.pending.(input.Pending_Pick)
+    testing.expect(t, still, "the gesture ended when it should have grown a panel")
+    testing.expect_value(t, len(a.panels), 2)
+    testing.expect_value(t, armed.target, 1) // the new one, and the caret says so
+    testing.expect_value(t, app.panel_marked(&a), 1)
+    testing.expect_value(t, a.focus, 0) // the keys never moved: it is the OPEN being aimed
+    // The captured line survived the panel, or the release would have nothing to run.
+    testing.expect(t, strings.has_prefix(armed.line, ":open "), armed.line)
+
+    // A REPEAT of the same chord is the key never having come up, so it makes nothing.
+    app.handle_chord(&a, chord("RTRN", {}, TAB), true)
+    testing.expect_value(t, len(a.panels), 2)
+}
+
+// The same panel, from the command line, and the same one from `alt+p`: `:np` IS `panel.open`,
+// so a strip cannot grow two ways that disagree about where a panel lands.
+@(test)
+np_is_the_panel_open_verb :: proc(t: ^testing.T) {
+    a, ok := bare_app(40, 5)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    app.cl_exec(&a, ":np")
+    testing.expect_value(t, len(a.panels), 2)
+    testing.expect_value(t, a.focus, 1) // unarmed, the aim IS the focus
+    app.cl_exec(&a, ":new-panel")
+    testing.expect_value(t, len(a.panels), 3)
+    testing.expect_value(t, a.focus, 2)
 }
 
 // Claim 3, the way out. Escape is a `[pick]` row like the other two, and it runs nothing.
@@ -235,4 +276,42 @@ hold_steer_release_opens_where_you_steered :: proc(t: ^testing.T) {
     // And the listing stayed where it was: a pick moves what it opens, nothing else.
     kept := app.panel_slot(&a, app.panel_get(&a, 0))
     testing.expect(t, kept != nil && kept.doc != landed.doc)
+}
+
+// The same gate with no panel to steer to: the second `tab+enter` makes one, and the release
+// opens into it. This is the gesture from one panel to two without touching `alt+p` first.
+@(test)
+the_chord_again_makes_the_panel_the_release_opens_into :: proc(t: ^testing.T) {
+    a, ok := plug_app(t, "oket-pick-np-gate", "plugins/edit")
+    if !ok {
+        return
+    }
+    defer close_plug_app(&a)
+    app.plug_init(&a)
+    if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "edit")), a.message) {
+        return
+    }
+
+    dir, _ := filepath.join({a.home, "notes"}, context.temp_allocator)
+    path, _ := filepath.join({dir, "note.txt"}, context.temp_allocator)
+    os.make_directory(dir)
+    if err := os.write_entire_file(path, transmute([]u8)string("alpha\n")); err != nil {
+        testing.expectf(t, false, "cannot write %s: %v", path, err)
+        return
+    }
+    app.ring_add(&a, listing_doc(&a, dir))
+    app.surface_draw(&a)
+    testing.expect_value(t, len(a.panels), 1)
+
+    app.handle_chord(&a, chord("RTRN", {}, TAB))
+    app.handle_chord(&a, chord("RTRN", {}, TAB)) // nowhere to throw it, so make somewhere
+    app.pick_release(&a, code_of(TAB))
+
+    testing.expect(t, a.pending == nil)
+    testing.expect_value(t, len(a.panels), 2)
+    landed := app.panel_slot(&a, app.panel_get(&a, 1))
+    if !testing.expect(t, landed != nil, a.message) {
+        return
+    }
+    testing.expect_value(t, app.doc_title(&a, landed.doc), path)
 }

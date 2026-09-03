@@ -20,11 +20,13 @@ Pending_Switcher :: struct {
     since: f64,
 }
 
-// The picker is ARMED (PANELS.md §6): the line is already expanded and waiting, `held` is the
-// key whose release runs it, and `target` is the panel the side arrows have steered to. The
+// The picker is ARMED (PANELS.md §6): the line is already expanded and waiting, `chord` is the
+// one whose release runs it, and `target` is the panel the side arrows have steered to. The
 // state does not exist until a `pick` row arms it, so there is no flag to be false.
 Pending_Pick :: struct {
-    held:   Code,
+    // The whole chord, not just its held key: its release commits the gesture and a REPEAT of
+    // it is the key never having come up, which is not a second press of a row.
+    chord:  Chord,
     // Owned, and expanded at the PRESS, so its holes read the point the chord fired on.
     line:   string,
     target: int,
@@ -46,8 +48,10 @@ pending_describe :: proc(p: Pending) -> string {
     case Pending_Switcher:
         return "alt: 1-9 goes to a slot, 0 the system session, ` alternates, q closes"
     case Pending_Pick:
-        return fmt.tprintf("pick: @%d; left and right choose, release to open, esc cancels",
-                           v.target + 1)
+        return fmt.tprintf(
+            "pick: @%d; arrows choose, the chord again makes a panel, release opens, esc cancels",
+            v.target + 1,
+        )
     }
     return ""
 }

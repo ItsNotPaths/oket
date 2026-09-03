@@ -65,7 +65,8 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
     }
     // The key that is down QUALIFIES the next one: `tab+enter` is a chord and `tab` on its own
     // still is one, which is why holding it shadows nothing and repeats it instead.
-    handle_chord(a, input.Chord{code, glfw_mods(mods), a.held == code ? 0 : a.held})
+    handle_chord(a, input.Chord{code, glfw_mods(mods), a.held == code ? 0 : a.held},
+                 action == glfw.REPEAT)
 }
 
 // The window has lost the keyboard, so the release of whatever is down will be delivered

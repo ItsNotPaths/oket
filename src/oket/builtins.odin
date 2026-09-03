@@ -36,6 +36,10 @@ cl_builtin :: proc(a: ^App, step: CL_Step) -> bool {
         ring_close(a, ring_slot(a))
     case "recover":
         return builtin_recover(a, args)
+    case "np", "new-panel":
+        // `panel.open` as a command line, which is what the picker's second `tab+enter` runs:
+        // a panel to the right of the one the keys are aimed at, and the aim goes with it.
+        panel_open(a)
     case "home":
         ring_add(a, home_open(a))
     case "plug":

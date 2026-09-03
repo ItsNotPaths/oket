@@ -87,6 +87,8 @@ Command :: enum u8 {
     Panel_Close,
     Panel_Next,
     Panel_Prev,
+    Panel_Move_Left,
+    Panel_Move_Right,
     Panel_Size,
     Pick_Left,
     Pick_Right,
@@ -219,6 +221,8 @@ COMMANDS := [Command]Command_Info {
     .Panel_Close         = {"panel.close", "close the focused panel; what was in it stays in the ring", {.Global}},
     .Panel_Next          = {"panel.next", "focus the panel to the right", {.Global}},
     .Panel_Prev          = {"panel.prev", "focus the panel to the left", {.Global}},
+    .Panel_Move_Left     = {"panel.move_left", "swap this panel with the one to its left", {.Global}},
+    .Panel_Move_Right    = {"panel.move_right", "swap this panel with the one to its right", {.Global}},
     .Panel_Size          = {"panel.size", "toggle the focused panel between full and half width", {.Global}},
     .Pick_Left           = {"pick.left", "steer the armed picker one panel left", {.Pick}},
     .Pick_Right          = {"pick.right", "steer the armed picker one panel right", {.Pick}},
@@ -350,6 +354,10 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     // default chord until there is a jump ring to walk.
     bind_put(&b, "LEFT", {.Alt}, .Panel_Prev)
     bind_put(&b, "RGHT", {.Alt}, .Panel_Next)
+    // Shift on the walk MOVES what you are looking at, which is the pairing every strip and
+    // tab bar already uses. An exact Shift row, so the Shift fallback cannot reach `panel.prev`.
+    bind_put(&b, "LEFT", {.Alt, .Shift}, .Panel_Move_Left)
+    bind_put(&b, "RGHT", {.Alt, .Shift}, .Panel_Move_Right)
     bind_put(&b, "AD10", {.Alt}, .Panel_Open) // alt+p
     bind_put(&b, "AD10", {.Alt, .Shift}, .Panel_Close) // the panel, never the document in it
     bind_put(&b, "AD02", {.Alt}, .Panel_Size) // alt+w, for width
@@ -382,6 +390,10 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     // The same open, one panel over, with no gesture at all. §6: the direction preference is a
     // ROW and not a config key, because a row is greppable, rebindable and describable.
     bind_line(&b, "RTRN", {.Ctrl}, ":open <path> @-1", ctx = {.Surface})
+    // The same chord again, while armed: there is nowhere to throw this yet, so make somewhere.
+    // A row, not a second meaning grown inside the picker — `[surface] tab+enter` is out of
+    // reach while the `[pick]` context is on, so the two cannot be the same row by accident.
+    bind_line(&b, "RTRN", {}, ":np", ctx = {.Pick}, held = "TAB")
     // While the picker is armed the side arrows choose a panel rather than move a caret. Rows,
     // because the context is entered at ARM time and shadows only what should be shadowed.
     bind_put(&b, "LEFT", {}, .Pick_Left)
