@@ -235,6 +235,157 @@ a_grammar_that_arrives_late_is_picked_up_by_the_chain :: proc(t: ^testing.T) {
     testing.expect(t, len(all_styles(&a, id)) > 0, "the late grammar never coloured anything")
 }
 
+// --- the grammar list ---
+
+// Three hundred languages as a DOCUMENT (§5, §11): the rows are text the kernel draws, point
+// IS the selection, and `enter` is a binds.conf row carrying the registry entry into a shell
+// step. No widget, no key handler of its own, and nothing in the plugin spawns anything.
+
+// The list, opened the way anything of a plugin's kind is: a lane (§5). A plugin cannot open a
+// document — there is no message for it — and `:ring` already answers the question.
+@(private = "file")
+list_open :: proc(t: ^testing.T, a: ^app.App) -> (store.Id, bool) {
+    app.cl_exec(a, ":ring grammars")
+    app.surface_draw(a)
+    s := app.ring_focused(&a.ring)
+    if !testing.expect(t, s != nil, a.message) {
+        return {}, false
+    }
+    kind, registered := app.kind_named(a, "grammars")
+    if !testing.expect(t, registered, "nothing registered the grammars kind") {
+        return {}, false
+    }
+    testing.expect_value(t, app.doc_kind(a, s.doc), kind)
+    return s.doc, true
+}
+
+@(private = "file")
+lines_of :: proc(a: ^app.App, id: store.Id) -> []string {
+    return strings.split_lines(doc_text(a, id), context.temp_allocator)
+}
+
+@(private = "file")
+type_text :: proc(a: ^app.App, text: string) {
+    for r in text {
+        app.text_input(a, r)
+    }
+}
+
+// The row point is on, which is the only selection this document has.
+@(private = "file")
+row_at_point :: proc(a: ^app.App, id: store.Id) -> string {
+    s := app.ring_focused(&a.ring)
+    rows := lines_of(a, id)
+    line := s.view.point.head.line
+    return line >= 0 && line < len(rows) ? rows[line] : ""
+}
+
+@(test)
+the_grammar_list_is_a_document_of_rows :: proc(t: ^testing.T) {
+    a, ok := syntax_app(t, "oket-grammars-list")
+    if !ok {
+        return
+    }
+    defer close_plug_app(&a)
+
+    id, opened := list_open(t, &a)
+    if !opened {
+        return
+    }
+    rows := lines_of(&a, id)
+    testing.expectf(t, len(rows) > 100, "a registry of %d rows is not a registry", len(rows))
+    testing.expect(t, strings.contains(rows[0], "installed"), rows[0])
+
+    // The gate built json into this directory, so its row is the one that is marked. Every
+    // other row is a language you could have, drawn the same and starred when you do.
+    marked, plain := 0, 0
+    for row in rows[1:] {
+        if strings.has_prefix(row, "*") {
+            marked += 1
+            testing.expect(t, strings.contains(row, "json"), row)
+        } else {
+            plain += 1
+        }
+    }
+    testing.expect_value(t, marked, 1)
+    testing.expect(t, plain > 100, "nothing was listed as missing")
+}
+
+// Typing is the filter, and nothing else: the document takes runes so they REACH the plugin
+// (§5), and what a keystroke moves is which rows there are, never the text.
+@(test)
+typing_into_the_list_filters_it :: proc(t: ^testing.T) {
+    a, ok := syntax_app(t, "oket-grammars-filter")
+    if !ok {
+        return
+    }
+    defer close_plug_app(&a)
+
+    id, opened := list_open(t, &a)
+    if !opened {
+        return
+    }
+    whole := len(lines_of(&a, id))
+
+    type_text(&a, "rust")
+    rows := lines_of(&a, id)
+    testing.expectf(t, len(rows) < whole && len(rows) > 1, "%d rows matched `rust`", len(rows) - 1)
+    for row in rows[1:] {
+        testing.expect(t, strings.contains(row, "rust"), row)
+    }
+    // Point is put on the first match, because the row it was standing on may not be in the
+    // list any more.
+    testing.expect(t, strings.contains(row_at_point(&a, id), "rust"), row_at_point(&a, id))
+
+    // An extension is a way in too: `rs` is not a substring of `rust`, and it is what somebody
+    // with the file open has to hand.
+    app.cl_exec(&a, ":gr.clear")
+    type_text(&a, "rs")
+    found := false
+    for row in lines_of(&a, id)[1:] {
+        found ||= strings.contains(row, " rust ")
+    }
+    testing.expect(t, found, "`rs` did not reach the grammar that colours one")
+
+    // Backspace takes a rune off it and esc drops it, both through rows the plugin ASKED for.
+    app.handle_chord(&a, chord("BKSP"))
+    testing.expect(t, strings.contains(lines_of(&a, id)[0], "/r"), lines_of(&a, id)[0])
+    app.handle_chord(&a, chord("ESC"))
+    testing.expect(t, !a.quit, "esc quit oket instead of clearing the filter")
+    testing.expect_value(t, len(lines_of(&a, id)), whole)
+
+    // Backspace with nothing typed is a no-op, not a size_t underflow.
+    app.handle_chord(&a, chord("BKSP"))
+    testing.expect_value(t, len(lines_of(&a, id)), whole)
+}
+
+// THE ROW IS THE INSTALL. Four holes over one row, filled from fields the plugin published, so
+// the whole of what it takes to build a grammar is a line in binds.conf — and a rev or a
+// subpath the registry does not carry fills as an EMPTY argument rather than as the row's name.
+@(test)
+a_row_carries_its_whole_registry_entry :: proc(t: ^testing.T) {
+    a, ok := syntax_app(t, "oket-grammars-row")
+    if !ok {
+        return
+    }
+    defer close_plug_app(&a)
+
+    _, opened := list_open(t, &a)
+    if !opened {
+        return
+    }
+    type_text(&a, "rust") // the first match, and point is on it
+
+    line, filled := app.bind_expand(&a, "oket-grammar <lang> <repo> <rev> <sub>")
+    if !testing.expect(t, filled, a.message) {
+        return
+    }
+    testing.expect(t, strings.has_prefix(line,
+                   "oket-grammar rust https://github.com/tree-sitter/tree-sitter-rust "), line)
+    testing.expect(t, strings.has_suffix(line, " ''"), line)
+    testing.expect_value(t, len(strings.fields(line, context.temp_allocator)), 5)
+}
+
 // --- fixtures ---
 
 // Roughly `size` bytes of JSON with enough strings and numbers in it to make a query do work.

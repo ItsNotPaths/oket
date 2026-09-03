@@ -43,6 +43,26 @@ two_chords_open_the_line_and_one_of_them_types_the_sigil :: proc(t: ^testing.T) 
     testing.expect_value(t, app.cl_line(&a), ":")
 }
 
+// alt+. is the lane switch for the kinds that have no letter: a `stage` row, so the line opens
+// with the builtin typed and the NAME left to you. Nothing about it is special-cased — it is a
+// default bind whose text happens to end in a space, and the caret lands past it.
+@(test)
+one_chord_stages_the_ring_for_a_lane_with_no_letter :: proc(t: ^testing.T) {
+    a, ok := bare_app()
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+    app.ring_add(&a, scratch_doc(&a, "note", "x"))
+
+    app.handle_chord(&a, chord("AB09", {.Alt})) // alt+.
+    testing.expect(t, app.cl_active(&a))
+    testing.expect_value(t, app.cl_line(&a), ":ring")
+    testing.expect_value(t, app.active(&a).view.point.head.col, len(":ring "))
+    type(&a, "grammars")
+    testing.expect_value(t, app.cl_line(&a), ":ring grammars")
+}
+
 // The line is a real editable document (§11): typing, the delete verbs and the motions serve it
 // through the same bind table and the same text ops a document gets.
 @(test)
