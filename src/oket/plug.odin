@@ -185,6 +185,7 @@ plug_load :: proc(a: ^App, path: string) -> bool {
         return false
     }
 
+    quarantine_clear(a, name) // an explicit load is the author saying it is fixed (§13)
     i := plug_slot(a, name, path)
     p := &a.plugs[i]
     p.lib = lib
@@ -293,8 +294,22 @@ plug_autoload :: proc(a: ^App) {
     // Sorted, so which kind registers first is a property of the names and not of the
     // directory's order.
     slice.sort(found[:])
+    held := make([dynamic]string, context.temp_allocator)
     for path in found {
+        // A plugin an earlier start died IN is not loaded into this one (§13). The check is
+        // here rather than in plug_load, because plug_load is also how the quarantine is
+        // lifted: `:plug load <name>` is the author saying they fixed it.
+        name := strings.trim_suffix(filepath.base(path), ".so")
+        if quarantined(a, name) {
+            append(&held, name)
+            continue
+        }
         plug_load(a, path)
+    }
+    if len(held) > 0 {
+        message_set(a, fmt.tprintf(":plug: %s took a start down and %s not loaded (:plug load)",
+                                   strings.join(held[:], ", ", context.temp_allocator),
+                                   len(held) == 1 ? "is" : "are"))
     }
 }
 
@@ -606,7 +621,7 @@ plug_dispatch :: proc(a: ^App, i: int, c: Plug_Call) -> (r: Plug_Ret, ok: bool) 
         fault_reap() // reads the guard, never this frame: those registers made no promises
         return {}, false
     }
-    fault_arm(a, i, a.plugs[i].base)
+    fault_arm(a, i, a.plugs[i].base, a.plugs[i].name)
     r = plug_run(a, i, c)
     fault_disarm()
     return r, plug_intact(a, i)
