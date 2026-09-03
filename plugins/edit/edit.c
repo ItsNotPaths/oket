@@ -7,7 +7,7 @@
  *
  * WHAT IS HERE is the part that is genuinely an editor's, and it is small:
  *
- *   - reading a file in, and writing it back (`:w`)
+ *   - reading a file in, writing it back (`:w`), and taking it back when it changes on disk
  *   - self-insert: what a typed rune MEANS. The kernel routes the rune and interprets none of
  *     it (§7) — a rune is the one input the bind table never sees, so the kernel deciding what
  *     it does would be an editing policy nobody could audit or rebind (§8).
@@ -35,12 +35,41 @@
 
 static oket_kind EDIT;
 
-/* Per-document state. The path is all of it: the text, the cursors and the undo history are
- * the kernel's, and re-reading them is a pointer walk rather than a copy we would have to keep
- * in step (§6). */
+/* Per-document state. The text, the cursors and the undo history are the kernel's, and
+ * re-reading them is a pointer walk rather than a copy we would have to keep in step (§6).
+ *
+ * `disk` is the exception: the file as we last saw it, and the only way to tell OUR unsaved
+ * edits from somebody else's write. */
 typedef struct {
-    char *path; /* owned; NULL for a buffer with no file yet */
+    char   *path; /* owned; NULL for a buffer with no file yet */
+    char   *disk; /* owned; the bytes the file had when we last read or wrote it */
+    size_t  disk_len;
+    oket_io watch; /* that path, watched (§9) */
 } editor;
+
+static int same(const char *a, size_t alen, const char *b, size_t blen) {
+    return alen == blen && (alen == 0 || memcmp(a, b, alen) == 0);
+}
+
+/* Takes ownership of `bytes`. */
+static void disk_keep(editor *e, char *bytes, size_t len) {
+    free(e->disk);
+    e->disk = bytes;
+    e->disk_len = len;
+}
+
+/* The document, flat. A piece table is what it is stored as; a file is a run of bytes. */
+static char *buffer_bytes(const oket_snapshot *s, size_t *len) {
+    char *buf = malloc(s->size + 1);
+
+    *len = 0;
+    if (buf == NULL) {
+        return NULL;
+    }
+    *len = oket_copy(s, 0, s->size, buf, s->size);
+    buf[*len] = '\0';
+    return buf;
+}
 
 /* The descriptor this kind publishes (§5). `bound`, not `raw`: every chord goes through the
  * bind table, so an editor's keys are as auditable as any other document's — what reaches this
@@ -101,20 +130,70 @@ static void *open_edit(const oket_api *api, oket_self self, oket_doc doc,
     }
     describe(e, &d);
     oket_set(api, self, doc, text, len, &d);
-    free(text);
+    disk_keep(e, text, len);
+    /* Naming the DOCUMENT routes the answer to this kind's event, not a watcher (§9). A path
+     * that does not exist yet is watched all the same: the file appearing is reported. */
+    if (e->path != NULL) {
+        e->watch = api->io_watch(api, self, doc, e->path, strlen(e->path));
+    }
     return e;
 }
 
 static void close_edit(const oket_api *api, oket_self self, oket_doc doc, void *inst) {
     editor *e = inst;
 
-    (void)api;
-    (void)self;
     (void)doc;
     if (e != NULL) {
+        api->io_close(api, self, e->watch);
         free(e->path);
+        free(e->disk);
         free(e);
     }
+}
+
+/* --- the file, changing underneath --- */
+
+/* Three answers, told apart by the baseline: our own write coming back, a clean buffer that
+ * takes the new file whole, or two edits of one file — say so and change nothing.
+ * Only the changed MIDDLE is submitted: a whole-buffer replace drags every caret onto the
+ * splice. */
+static void changed(const oket_api *api, oket_self self, const oket_at *at, editor *e) {
+    const oket_snapshot *s = at->snap;
+    size_t now_len, buf_len, lo, a, b;
+    char *now, *buf;
+    char note[512];
+
+    now = read_file(e->path, &now_len);
+    if (now == NULL) {
+        return; /* deleted, or being written this instant; the buffer is what we still have */
+    }
+    if (same(now, now_len, e->disk, e->disk_len)) {
+        free(now);
+        return;
+    }
+    buf = buffer_bytes(s, &buf_len);
+    if (buf == NULL) {
+        free(now);
+        return;
+    }
+    if (!same(buf, buf_len, e->disk, e->disk_len)) {
+        snprintf(note, sizeof note, "edit: %s changed on disk", e->path);
+        oket_say(api, self, note);
+        free(buf);
+        free(now);
+        return;
+    }
+    for (lo = 0; lo < buf_len && lo < now_len && buf[lo] == now[lo]; lo++) {
+    }
+    a = buf_len;
+    b = now_len;
+    while (a > lo && b > lo && buf[a - 1] == now[b - 1]) {
+        a--;
+        b--;
+    }
+    oket_replace(api, self, s->doc, lo, a, now + lo, b - lo);
+    disk_keep(e, now, now_len);
+    free(buf);
 }
 
 /* --- writing --- */
@@ -173,7 +252,16 @@ static int newline_each_cursor(const oket_api *api, oket_self self, const oket_a
  * chord already. A generation that moved needs no repair — the text IS the state (§6). */
 static int32_t event(const oket_api *api, oket_self self, const oket_at *at,
                      oket_event ev, const char *text, size_t len) {
-    if (!oket_mine(at) || ev != OKET_EVENT_TEXT) {
+    editor *e = at->inst;
+
+    if (!oket_mine(at)) {
+        return 0;
+    }
+    if (ev == OKET_EVENT_IO && at->io == e->watch) {
+        changed(api, self, at, e);
+        return 0;
+    }
+    if (ev != OKET_EVENT_TEXT) {
         return 0;
     }
     return insert_each_cursor(api, self, at, text, len);
@@ -249,15 +337,19 @@ static int32_t write_cmd(const oket_api *api, oket_self self, const oket_at *at,
         e->path = oket_dup(args, args_len);
         describe(e, &d); /* the buffer takes the name it was written under */
         api->submit(api, self, s->doc, s->gen, NULL, 0, &d, NULL);
+        /* The watch follows the name: the file this buffer IS is the one worth hearing about. */
+        api->io_close(api, self, e->watch);
+        e->watch = e->path == NULL
+                       ? 0
+                       : api->io_watch(api, self, s->doc, e->path, strlen(e->path));
     }
     if (e->path == NULL) {
         return refuse(api, self, "w <path>");
     }
-    buf = malloc(s->size + 1);
+    buf = buffer_bytes(s, &n);
     if (buf == NULL) {
         return refuse(api, self, "w: out of memory");
     }
-    n = oket_copy(s, 0, s->size, buf, s->size);
     f = fopen(e->path, "wb");
     if (f == NULL || fwrite(buf, 1, n, f) != n) {
         free(buf);
@@ -267,7 +359,9 @@ static int32_t write_cmd(const oket_api *api, oket_self self, const oket_at *at,
         return refuse(api, self, "w: the write failed");
     }
     fclose(f);
-    free(buf);
+    /* The baseline moves to what we just wrote, so the watch that fires for our own save
+     * has nothing to report. */
+    disk_keep(e, buf, n);
     n = (size_t)snprintf(note, sizeof note, "wrote %zu bytes to %s", n, e->path);
     api->message(api, self, note, n < sizeof note ? n : sizeof note - 1);
     return 0;
