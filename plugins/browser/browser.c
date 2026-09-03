@@ -49,8 +49,6 @@
 
 #include "oket_helpers.h"
 
-#define LIT(s) s, sizeof(s) - 1
-
 #define INDENT 2 /* cells per level, for a subtree opened in place */
 #define PATH_CAP 4096
 #define NAME_CAP 256

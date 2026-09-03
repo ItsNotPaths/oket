@@ -28,8 +28,6 @@
 
 #include "oket_helpers.h"
 
-#define LIT(s) s, sizeof(s) - 1
-
 #define TAB_WIDTH 4
 #define INDENT_MAX 256 /* a pasted-in wall of indent is not worth a heap allocation */
 

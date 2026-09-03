@@ -30,6 +30,9 @@ extern "C" {
  * Not about text. Each is one line over `oket_api`, `oket_at` or malloc that a plugin would
  * otherwise carry a private copy of. */
 
+/* A string literal as the (bytes, length) pair every seam call takes: LIT("files"). */
+#define LIT(s) s, sizeof(s) - 1
+
 /* The echo line, for a message you already have NUL-terminated. */
 void oket_say(const oket_api *api, oket_self self, const char *text);
 
