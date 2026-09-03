@@ -43,6 +43,11 @@ Slot :: struct {
     desc:  ^desc.Descriptor,
     seen:  u64, // the highest generation store_check has seen; it may never go backwards
     spans: [Layer][dynamic]Span, // the style layers (spans.odin)
+    // Where the document's owner asked point to be, applied at the drain so it lands WITH the
+    // transaction it belongs to (store_point). -1 is nobody asking, and `point_tag` is the
+    // transaction it rides on, or 0 for a bare move with no write behind it.
+    point:     int,
+    point_tag: u64,
 }
 
 // One transaction against the generation its author read. Owns its edits and their text, the
@@ -57,6 +62,9 @@ Txn :: struct {
     edits: []txt.Edit,
     desc:  ^desc.Descriptor, // nil = leave the descriptor as it stands
     spans: Maybe(Spans),     // nil = leave every layer as it stands
+    // The carets here were put where they are by NAVIGATION, so leave them on their rows
+    // (regen_cursors). Said by the author, because the offsets cannot say it.
+    regen: bool,
 }
 
 store_destroy :: proc(s: ^Store) {
@@ -96,6 +104,8 @@ store_open :: proc(s: ^Store, text := "") -> Id {
     s.slots[slot].doc = d
     s.slots[slot].desc = desc.new_from(desc.DEFAULT)
     s.slots[slot].seen = 0 // a new document, so store_check's high-water mark starts again
+    s.slots[slot].point = -1
+    s.slots[slot].point_tag = 0
     for &list in s.slots[slot].spans {
         clear(&list) // the slot may be a reused one, and its colours were somebody else's
     }
@@ -141,11 +151,16 @@ store_spans_publish :: proc(s: ^Store, id: Id, pub: Spans) -> bool {
 
 // A reference the caller owns and must release, taken at the same point as the snapshot it
 // pairs with. Immutable, so it stays readable however the document moves (§5).
+//
+// Every reader comes through here, which is what lets the spans be brought up to the text
+// LAZILY (fields.odin): no caller can be handed a field the document has moved out from under,
+// and a document nobody is reading pays nothing.
 store_descriptor :: proc(s: ^Store, id: Id) -> ^desc.Descriptor {
     slot, ok := resolve(s, id)
     if !ok {
         return nil
     }
+    fields_follow(slot)
     desc.retain(slot.desc)
     return slot.desc
 }
@@ -180,7 +195,8 @@ store_snapshot :: proc(s: ^Store, id: Id) -> ^txt.Snapshot {
 // The tag it answers names this transaction in store_landed, for a caller that has to tell its
 // own write from somebody else's. A caller that does not care ignores it.
 store_submit :: proc(s: ^Store, id: Id, gen: u64, edits: []txt.Edit,
-                     d: ^desc.Descriptor = nil, spans: Maybe(Spans) = nil) -> (tag: u64) {
+                     d: ^desc.Descriptor = nil, spans: Maybe(Spans) = nil,
+                     regen := false) -> (tag: u64) {
     owned := make([]txt.Edit, len(edits))
     for e, i in edits {
         owned[i] = e
@@ -195,8 +211,31 @@ store_submit :: proc(s: ^Store, id: Id, gen: u64, edits: []txt.Edit,
         kept = pub
     }
     s.tag += 1
-    append(&s.pending, Txn{id, gen, s.tag, owned, d, kept})
+    append(&s.pending, Txn{id, gen, s.tag, owned, d, kept, regen})
     return s.tag
+}
+
+// Where point goes when this drain is done (§5). The kernel owns the cursors, so this is not
+// how a document is navigated: it is for the owner whose submit is about to delete the row
+// point is standing on, and the two have to land together.
+//
+// TOGETHER MEANS BOTH WAYS. The offset was measured against text a pending transaction is about
+// to write, so it rides that transaction's tag: if the write is dropped at the drain for having
+// lost the race, the caret it was measured for is dropped with it rather than jumping into text
+// that never arrived. A point asked for with nothing pending is a bare move and always lands.
+store_point :: proc(s: ^Store, id: Id, off: int) {
+    slot, ok := resolve(s, id)
+    if !ok {
+        return
+    }
+    slot.point = max(off, 0)
+    slot.point_tag = 0
+    #reverse for t in s.pending {
+        if t.id == id {
+            slot.point_tag = t.tag
+            break
+        }
+    }
 }
 
 // Which transactions the last drain applied. Valid until the next one.
@@ -216,11 +255,20 @@ store_drain :: proc(s: ^Store) -> (applied, stale: int) {
             stale += 1
             continue
         }
-        txt.doc_commit(slot.doc, t.edits, regen_cursors(slot))
+        txt.doc_commit(slot.doc, t.edits, regen_cursors(slot, t))
+        if t.regen {
+            // REGEN's other half (Submit_Flags): derived text holds nothing of the user's to
+            // take back, so the log goes — what was typed before it is still in the text.
+            txt.doc_forget_undo(slot.doc)
+        }
         if pub, publishing := t.spans.?; publishing {
             spans_apply(slot, pub)
         }
         if t.desc != nil {
+            // A published descriptor was written against the text this transaction just landed,
+            // so its spans are already true: acking is what stops fields.odin shifting them a
+            // second time for the same splice.
+            txt.doc_changes_ack(slot.doc, .Fields)
             desc.release(slot.desc)
             desc.retain(t.desc)
             slot.desc = t.desc
@@ -229,6 +277,24 @@ store_drain :: proc(s: ^Store) -> (applied, stale: int) {
         applied += 1
     }
     clear(&s.pending)
+
+    // After the splices, because the offset was written against the text they land: an owner
+    // that rewrites its rows and says where point goes is describing the document it just made.
+    // It counts as APPLIED, which is what makes the caller re-read the caret and keep it on
+    // screen — a point that moved with no splice behind it still moved.
+    for &slot in s.slots {
+        if slot.doc == nil || slot.point < 0 {
+            continue
+        }
+        want := slot.point
+        tag := slot.point_tag
+        slot.point, slot.point_tag = -1, 0
+        if tag != 0 && !slice.contains(s.landed[:], tag) {
+            continue // its transaction was dropped, so the offset describes text nobody wrote
+        }
+        txt.doc_reset_cursor(slot.doc, txt.doc_pos(slot.doc, min(want, txt.doc_len(slot.doc))))
+        applied += 1
+    }
 
     // Amortised housekeeping, off the edit path and after the generation has settled. Anyone
     // holding a snapshot keeps the arena compaction leaves behind, so this is safe here and
@@ -260,13 +326,19 @@ store_check :: proc(s: ^Store) -> bool {
 
 // --- internals ---
 
-// A document that takes no typing is REGENERATED, not edited: a browser rewrites its rows to
-// expand a directory, and the carets there are navigation rather than the place a keystroke
-// landed. Point stays on its line, instead of collapsing onto the splice the way it must for
-// the editor (§5, §6). nil is that collapse, which is doc_commit's own default.
+// A REGENERATION, not an edit: a browser rewrites its rows to expand a directory, and the
+// carets there are navigation rather than the place a keystroke landed. Point stays on its
+// line, instead of collapsing onto the splice the way it must for the editor (§5, §6). nil is
+// that collapse, which is doc_commit's own default.
+//
+// Two things answer it. A document that takes no typing has nothing in it a keystroke put
+// there, so every write to one is a regeneration. A document that takes typing AND rewrites
+// itself — a browser you rename in — is per TRANSACTION, and the transaction has to SAY so: the
+// offsets cannot, because replacing a whole document and replacing a whole selection are the
+// same two numbers.
 @(private = "file")
-regen_cursors :: proc(slot: ^Slot) -> []txt.Cursor {
-    if slot.desc == nil || slot.desc.editable {
+regen_cursors :: proc(slot: ^Slot, t: Txn) -> []txt.Cursor {
+    if slot.desc != nil && slot.desc.editable && !t.regen {
         return nil
     }
     return slice.clone(slot.doc.cursors[:], context.temp_allocator)
