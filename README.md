@@ -70,14 +70,28 @@ A slot is in at most one panel, because the viewport lives on the slot. Asking f
 panel is standing on swaps the two.
 
 One grammar addresses both. `#N` is a ring slot, `@N` is a panel counted from the left, `@+N` and
-`@-N` are panels either side of the one you are in, and a bare `N` still means `#N`. A command
-takes one of each, in any order, and names a panel the strip does not have yet by making it.
+`@-N` are panels either side of the one you are in, `@=` is the panel already showing it, and a
+bare `N` still means `#N`. A command takes one of each, in any order, and names a panel the strip
+does not have yet by making it.
 
 ```
 # slot 3 of the editor's lane, in the second panel
 :open src/oket/app.odin #3 @2
 # in the panel to the left, made if there is none
 :open src/oket/ring.odin @-1
+# where it already is, and where you are when it is nowhere
+:open src/oket/ring.odin @=
+```
+
+A line with no `@` lands in the panel you are in, so `enter` replaces what you were looking at
+and nothing chooses a panel for you. `@=` is the other policy, and it is a word in a row rather
+than a mode: put it on `enter` and an open goes to the panel that already has the file, leaving
+the rest of the strip alone. If no panel has it, the row does what the one without `@=` does.
+
+```conf
+# a file already up is where you go; anything else opens here
+[surface]
+enter = exec :open <path> @=
 ```
 
 One path is one document. A file the ring already holds goes back to where it is, so `#N` places
