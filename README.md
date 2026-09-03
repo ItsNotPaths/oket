@@ -157,14 +157,25 @@ the row is the whole of the install:
 
 ```conf
 [grammars]
-enter = exec oket-grammar <lang> <repo> <rev> <sub> && :grammar ready <lang>
+enter = exec :gr.build <lang> && oket-grammar <lang> <repo> <rev> <sub> || true && :grammar ready <lang>
 ```
 
-Four holes over one row, a shell step you can watch in N#, and a plugin command that runs only
-when the build exited 0. The list spawns nothing and knows nothing about git. `oket-grammar`
-ships beside `oket`, so it is on `PATH` wherever oket is, and it takes a directory as well as a
-URL — which is how a checkout you already have gets built, and how the tests build one with no
-network.
+Four holes over one row, a shell step you can watch in N#, and a plugin command either side of
+it. The list spawns nothing and knows nothing about git. `oket-grammar` ships beside `oket`, so
+it is on `PATH` wherever oket is, and it takes a directory as well as a URL — which is how a
+checkout you already have gets built, and how the tests build one with no network.
+
+The two plugin commands are the feedback. `:gr.build` marks the row and starts a bar on it, so a
+clone and a compile are not a frozen list:
+
+```text
+  rust             ░░░░████████░░░░░░░░░░░  building
+```
+
+`:grammar ready` is the other end, and the shell step is `|| true` so that it always runs. It
+stats `<lang>.so` and the row stops on what is there: `done` beside a fresh `*`, or `failed`
+with the reason already in N#. A refusal comes early — a name the registry does not carry, or a
+build already out, stops the chain at the first step rather than four steps later.
 
 The grammar lands in `grammars/` beside the binary as `<name>.so` plus its `<name>.scm` query,
 and an open file takes its colours on the next frame. `:grammar status` counts what is installed
