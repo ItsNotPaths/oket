@@ -61,15 +61,23 @@ panel_slot :: proc(a: ^App, p: ^Panel) -> ^Slot {
     return lane_get(&a.ring, p.at.lane, p.at.slot)
 }
 
-// The panel standing on a spot, nil for one no panel is showing. A live slot is in at most one
-// panel (§2), and this is what ring_move asks to keep that true.
-panel_showing :: proc(a: ^App, at: Spot) -> ^Panel {
-    for &p in a.panels {
+// The panel standing on a spot, -1 for one no panel is showing. A live slot is in at most one
+// panel (§2), so this answers once — and it answers as an INDEX because an address names a
+// panel by number and a pointer into a [dynamic] is not one (`@=`, target.odin).
+panel_at_spot :: proc(a: ^App, at: Spot) -> int {
+    for p, i in a.panels {
         if p.at == at {
-            return &p
+            return i
         }
     }
-    return nil
+    return -1
+}
+
+// The same walk, for the callers that want the panel itself. ring_move is the one that asks, to
+// keep the rule above true.
+panel_showing :: proc(a: ^App, at: Spot) -> ^Panel {
+    i := panel_at_spot(a, at)
+    return i < 0 ? nil : &a.panels[i]
 }
 
 // --- the verbs (§5) ---

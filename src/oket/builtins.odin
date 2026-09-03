@@ -84,7 +84,7 @@ builtin_open :: proc(a: ^App, args: string) -> bool {
     if !ok {
         return false
     }
-    panel_focus(a, target_reach(a, target))
+    panel_focus(a, target_reach(a, target, id))
     if target.slot == 0 {
         ring_add(a, id)
     } else if !ring_put(a, id, target.slot) {
