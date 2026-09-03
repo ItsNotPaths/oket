@@ -169,8 +169,14 @@ The two plugin commands are the feedback. `:gr.build` marks the row and starts a
 clone and a compile are not a frozen list:
 
 ```text
-  rust             ░░░░████████░░░░░░░░░░░  building
+  rust             ░░░░░░░░░██████░░░░░░░░  building 4s
 ```
+
+One lit run crosses in 1.26 s and the seconds count up. Both move on a monotonic clock, not on
+frames: the loop polls rather than waits while anything is latched, so a frame count would run
+the bar at whatever the display and the GPU allow. Nothing here can measure a clone, so nothing
+fills — the seconds are the only real number on the row, and they are what says a build is slow
+rather than hung.
 
 `:grammar ready` is the other end, and the shell step is `|| true` so that it always runs. It
 stats `<lang>.so` and the row stops on what is there: `done` beside a fresh `*`, or `failed`
