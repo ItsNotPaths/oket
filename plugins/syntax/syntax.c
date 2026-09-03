@@ -3,17 +3,18 @@
  * crosses the seam, which is the point: an in-kernel parser would freeze a tree API into the
  * ABI forever, and the tree drives indentation, folding and text objects too.
  *
- * This plugin DRAWS NOTHING and opens nothing. It is reached because it asks to be:
- * register_watch tells it about every document, and a `moved` handler that answers non-zero is
- * called again next frame. A parse too big for one frame says so and resumes — that is the
- * whole of cooperative slicing, and it needs no thread and no seventh message.
+ * This plugin DRAWS NOTHING. It is reached because it asks to be: register_watch tells it about
+ * every document, and a `moved` handler that answers non-zero is called again next frame. A
+ * parse too big for one frame says so and resumes — that is the whole of cooperative slicing,
+ * and it needs no thread and no seventh message.
  *
  * Grammars are not shipped and are not fetched from here. `tools/oket-grammar` builds one into
  * <home>/grammars, and it is reached the way §7 says composition is reached — a command line:
  *
- *     :oket-grammar json https://github.com/tree-sitter/tree-sitter-json && :grammar ready json
+ *     oket-grammar json https://github.com/tree-sitter/tree-sitter-json && :grammar ready json
  *
- * A shell step and a plugin command, chained. The seam grows nothing for it.
+ * A shell step and a plugin command, chained. The seam grows nothing for it, and grammars.c
+ * puts that line under `enter` over a list of every grammar there is.
  */
 /* clock_gettime and readlink: stage.sh builds at -std=c11, which hides POSIX by default. */
 #define _POSIX_C_SOURCE 200809L
@@ -28,6 +29,8 @@
 #include <tree_sitter/api.h>
 
 #include "oket_helpers.h"
+
+#include "grammars.h"
 
 /* How long one call may parse for. The kernel kills a plugin that holds a dispatch past its
  * hang deadline, and a frame at 60 is 16 ms, so this has to sit well under both; what is left
@@ -52,7 +55,7 @@
 static char dir_override[PATH_MAX_];
 
 /* Beside the binary, like binds.conf and plugins/ (§10). */
-static const char *grammars_dir(void) {
+const char *grammars_dir(void) {
     static char dir[PATH_MAX_];
     const char *home;
     char exe[PATH_MAX_ - 16];
@@ -86,28 +89,25 @@ static const char *grammars_dir(void) {
 
 /* --- an extension names a grammar --- */
 
-/* The extension IS the grammar's name, and this table is only the exceptions. A registry of
- * three hundred languages belongs to whatever installs them, not to the thing that reads
- * `<name>.so` off a disk — and a language nobody listed still works the moment its grammar is
- * built under the name of its own extension. */
+/* Three answers, narrowest first. The registry the list is built on already says which
+ * extensions each grammar claims, so it answers this too and the two cannot drift — a name
+ * typed into the list and a file opened by hand reach the same `<name>.so`.
+ *
+ * This table is what is left: the exceptions to the registry, and there is one. Helix hands
+ * `.h` to cpp, and a header in a C project wants C.
+ *
+ * Past both, THE EXTENSION IS THE NAME, so a language nobody listed still colours the moment
+ * its grammar is built under the name of its own extension. */
 static const struct {
     const char *ext, *lang;
 } ALIASES[] = {
-    {"h", "c"},          {"cc", "cpp"},        {"cxx", "cpp"},      {"hpp", "cpp"},
-    {"hh", "cpp"},       {"rs", "rust"},       {"py", "python"},    {"pyi", "python"},
-    {"js", "javascript"},{"mjs", "javascript"},{"cjs", "javascript"},
-    {"ts", "typescript"},{"jsx", "javascript"},{"tsx", "tsx"},
-    {"md", "markdown"},  {"rb", "ruby"},       {"kt", "kotlin"},    {"kts", "kotlin"},
-    {"yml", "yaml"},     {"sh", "bash"},       {"bash", "bash"},    {"zsh", "bash"},
-    {"htm", "html"},     {"tf", "hcl"},        {"cs", "c_sharp"},   {"ml", "ocaml"},
-    {"ex", "elixir"},    {"exs", "elixir"},    {"hs", "haskell"},   {"pl", "perl"},
-    {"odin", "odin"},
+    {"h", "c"},
 };
 
 /* The grammar name a path selects, written into `out`. Zero when the path has no extension. */
 static size_t lang_of_path(const char *path, size_t len, char *out, size_t cap) {
     size_t i = len, n, k;
-    const char *ext;
+    const char *ext, *listed;
 
     while (i > 0 && path[i - 1] != '/') {
         i--;
@@ -121,6 +121,11 @@ static size_t lang_of_path(const char *path, size_t len, char *out, size_t cap) 
                 snprintf(out, cap, "%s", ALIASES[k].lang);
                 return strlen(out);
             }
+        }
+        listed = grammar_for_ext(ext, n);
+        if (listed != NULL) {
+            snprintf(out, cap, "%s", listed);
+            return strlen(out);
         }
         /* A name that could name a file elsewhere is not one to open a .so by. */
         for (k = 0; k < n; k++) {
@@ -268,7 +273,7 @@ static loaded *grammar_load(const oket_api *api, oket_self self, const char *nam
     return l;
 }
 
-static int grammar_installed(const char *name) {
+int grammar_installed(const char *name) {
     const char *dir = grammars_dir();
     char path[PATH_MAX_];
 
@@ -351,7 +356,7 @@ static void doc_release(tracked *d) {
 /* `:grammar ready` and `:grammar dir` throw the cache away, so a grammar built while oket was
  * running is picked up without a reload. Every document is unbound FIRST: its parser, tree and
  * cursor reference the library this dlcloses. */
-static void grammar_forget(void) {
+void grammar_forget(void) {
     int i;
 
     for (i = 0; i < MAX_DOCS; i++) {
@@ -654,6 +659,7 @@ static int cmd_dir(const oket_api *api, oket_self self, const char *name, size_t
         dir_override[nlen] = 0;
         grammar_forget(); /* the old directory's grammars are not this one's */
     }
+    grammars_refresh(api, self); /* another directory holds another set of them */
     snprintf(msg, sizeof msg, "grammars in %s", grammars_dir() ? grammars_dir() : "?");
     oket_say(api, self, msg);
     return 0;
@@ -668,7 +674,9 @@ static int cmd_status(const oket_api *api, oket_self self) {
             n++;
         }
     }
-    snprintf(msg, sizeof msg, "%d document(s) parsing; grammars in %s", n,
+    grammars_refresh(api, self); /* counted off the platter, not remembered from a start */
+    snprintf(msg, sizeof msg, "%d document(s) parsing; %d of %d grammars in %s", n,
+             grammars_installed(), grammars_count(),
              grammars_dir() ? grammars_dir() : "?");
     oket_say(api, self, msg);
     return 0;
@@ -683,6 +691,7 @@ static int cmd_ready(const oket_api *api, oket_self self, const char *name, size
 
     grammar_forget();
     api->register_watch(api, self, on_moved);
+    grammars_refresh(api, self); /* the row for it is a `*` now, wherever the list is open */
     snprintf(msg, sizeof msg, "grammar %.*s ready", (int)nlen, name);
     oket_say(api, self, msg);
     return 0;
@@ -713,5 +722,8 @@ OKET_MAIN {
     api->register_watch(api, self, on_moved);
     api->register_command(api, self, "grammar", 7,
                           "syntax: status | ready <lang> | dir <path>", 41, grammar_cmd);
-    return 0;
+    /* The list is a KIND, so `:ring grammars` opens it and alt+g is one requested row. A plugin
+     * cannot open a document — there is no message for it, and the ring already answers the
+     * question (§5, §7). */
+    return grammars_register(api, self) == 0 ? 1 : 0;
 }
