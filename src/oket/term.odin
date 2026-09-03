@@ -105,10 +105,11 @@ term_pump :: proc(a: ^App) {
 @(private = "file")
 term_session_pump :: proc(a: ^App, tm: ^Term) {
     s := term_slot(a, tm.doc)
+    r := doc_rect(a, tm.doc)
     // The body is last frame's, and it is zero until the first draw. Resizing to that would
     // hand the shell a one-cell window and mangle the prompt it is in the middle of writing.
-    if s != nil && a.body.w > 0 && a.body.h > 0 {
-        pty.terminal_resize(&tm.t, a.body.h, a.body.w)
+    if s != nil && r.w > 0 && r.h > 0 {
+        pty.terminal_resize(&tm.t, r.h, r.w)
     }
     pty.terminal_drain(&tm.t)
 
@@ -119,7 +120,7 @@ term_session_pump :: proc(a: ^App, tm: ^Term) {
     was := txt.doc_line_count(doc)
     term_trim(a, tm, doc)
     term_rewrite(a, tm, doc)
-    term_follow(s, doc, was, max(a.body.h, 1))
+    term_follow(s, doc, was, max(r.h, 1))
     term_point(tm, s, doc)
     if tm.events != tm.t.mouse_on {
         term_publish(a, tm)
@@ -433,8 +434,9 @@ term_mouse_at :: proc(a: ^App, tm: ^Term, cx, cy: int, mods: input.Mods) -> bool
     if s == nil {
         return false
     }
-    row := s.view.top + cy - a.body.y - (tm.t.sb_total - tm.base)
-    col := cx - a.body.x
+    r := doc_rect(a, tm.doc) // the cell arrived in the panel's own lattice, so this is too
+    row := s.view.top + cy - r.y - (tm.t.sb_total - tm.base)
+    col := cx - r.x
     if row < 0 || row >= tm.t.rows || col < 0 || col >= tm.t.cols {
         return false
     }

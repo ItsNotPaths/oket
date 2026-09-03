@@ -50,7 +50,7 @@ a_faulting_plugin_dies_alone_and_is_named :: proc(t: ^testing.T) {
     testing.expect(t, strings.contains(bar, "SIGSEGV"), bar)
     // Alone: the ring, the store and the renderer are untouched by somebody else's fault.
     app.surface_draw(&a)
-    drawn := gfx.grid_snapshot(&a.panel, context.temp_allocator)
+    drawn := gfx.grid_snapshot(panel_grid(&a), context.temp_allocator)
     testing.expect(t, strings.contains(drawn, "alpha.txt"), drawn)
     // And the command line still answers, which is the difference between recovering and
     // limping.

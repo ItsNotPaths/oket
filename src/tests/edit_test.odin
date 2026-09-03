@@ -37,7 +37,7 @@ edit_app :: proc(t: ^testing.T, name, text: string) -> (a: app.App, path: string
         return {}, "", false
     }
     app.cl_exec(&a, fmt.tprintf(":open %s", path))
-    if !testing.expect(t, app.ring_focused(&a.ring) != nil, a.message) {
+    if !testing.expect(t, app.ring_focused(&a) != nil, a.message) {
         close_plug_app(&a)
         return {}, "", false
     }
@@ -47,7 +47,7 @@ edit_app :: proc(t: ^testing.T, name, text: string) -> (a: app.App, path: string
 
 @(private = "file")
 focused :: proc(a: ^app.App) -> store.Id {
-    return app.ring_focused(&a.ring).doc
+    return app.ring_focused(a).doc
 }
 
 // The whole shape in one pass: a file the kernel does not read reaches a plugin that does, and

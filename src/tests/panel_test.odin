@@ -20,8 +20,8 @@ the_panel_is_the_fit_without_the_bar :: proc(t: ^testing.T) {
     app.surface_fit(&a, 40, 10)
     testing.expect_value(t, a.chrome.cols, 40)
     testing.expect_value(t, a.chrome.rows, 10)
-    testing.expect_value(t, a.panel.cols, 40)
-    testing.expect_value(t, a.panel.rows, 9)
+    testing.expect_value(t, panel_grid(&a).cols, 40)
+    testing.expect_value(t, panel_grid(&a).rows, 9)
 }
 
 // The gate's own sentence: a panel snapshot is its own text block. The document is on the panel
@@ -34,7 +34,7 @@ the_panel_diffs_without_the_bar_in_it :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    panel := gfx.grid_snapshot(&a.panel, context.temp_allocator)
+    panel := gfx.grid_snapshot(panel_grid(&a), context.temp_allocator)
     chrome := gfx.grid_snapshot(&a.chrome, context.temp_allocator)
     bar := app.bar_text(&a)
 
@@ -61,16 +61,16 @@ a_one_row_window_leaves_no_panel :: proc(t: ^testing.T) {
     app.surface_fit(&a, 20, 1)
     app.surface_draw(&a)
 
-    testing.expect_value(t, a.panel.rows, 0)
-    testing.expect_value(t, a.body.h, 0)
+    testing.expect_value(t, panel_grid(&a).rows, 0)
+    testing.expect_value(t, app.panel_focused(&a).body.h, 0)
     chrome := gfx.grid_snapshot(&a.chrome, context.temp_allocator)
     testing.expect_value(t, len(strings.split_lines(chrome, context.temp_allocator)), 1)
     testing.expect(t, strings.has_prefix(app.bar_text(&a), chrome), chrome) // clipped at 20
 
     // And back out: the panel regrows from the zeroed grid the no-panel state left behind.
     app.surface_fit(&a, 20, 5)
-    testing.expect_value(t, a.panel.cols, 20)
-    testing.expect_value(t, a.panel.rows, 4)
+    testing.expect_value(t, panel_grid(&a).cols, 20)
+    testing.expect_value(t, panel_grid(&a).rows, 4)
 }
 
 // The scissor is the one piece of the split a text diff cannot see: GL counts its box from the
@@ -83,3 +83,4 @@ a_clip_flips_to_gls_corner :: proc(t: ^testing.T) {
     testing.expect_value(t, w, i32(100))
     testing.expect_value(t, h, i32(40))
 }
+

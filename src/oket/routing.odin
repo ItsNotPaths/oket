@@ -18,13 +18,13 @@ import "../view"
 // (§11). One accessor is the whole reason the line needs no key code of its own — every motion,
 // every selection verb and the renderer all reach it through here.
 active :: proc(a: ^App) -> ^Slot {
-    return cl_active(a) ? &a.cl.slot : ring_focused(&a.ring)
+    return cl_active(a) ? &a.cl.slot : ring_focused(a)
 }
 
-// Where that document was drawn, for a click. The line's row while it is open, the body
-// otherwise, so a click never lands in a document the keys are not aimed at.
+// Where that document was drawn, for a click. The line's row while it is open, the focused
+// panel's body otherwise, so a click never lands in a document the keys are not aimed at.
 active_rect :: proc(a: ^App) -> Rect {
-    return cl_active(a) ? a.bar : a.body
+    return cl_active(a) ? a.bar : panel_focused(a).body
 }
 
 // The active slot and its descriptor, which is what every routing question below reads its
@@ -141,11 +141,11 @@ handle_chord :: proc(a: ^App, chord: input.Chord) {
         // One bind covers alt+1..9: the offset past the row's own code is the slot (§8).
         ring_open(a, int(chord.code - b.chord.code) + 1)
     case .Ring_Alt:
-        ring_alt(&a.ring)
+        ring_alt(a)
     case .Ring_Alt_Lane:
-        ring_alt_lane(&a.ring)
+        ring_alt_lane(a)
     case .Ring_Close:
-        ring_close(a, a.ring.focused)
+        ring_close(a, ring_slot(a))
     case .Ring_System:
         sys_slot(a) // alt+0 opens N# if nothing has needed it yet
         ring_show_system(a)
@@ -397,7 +397,7 @@ bind_expand :: proc(a: ^App, template: string) -> (string, bool) {
 // what it is called. The recovery floor and nothing more — writing a buffer BACK to its file is
 // the opener's, because what a file is on disk is what the opener knew and the kernel does not.
 dump_doc :: proc(a: ^App) -> bool {
-    s := ring_focused(&a.ring)
+    s := ring_focused(a)
     doc := s != nil ? store.store_doc(&a.docs, s.doc) : nil
     if doc == nil {
         message_set(a, "file.dump: nothing is focused")
@@ -508,7 +508,7 @@ point_place :: proc(a: ^App, cx, cy: int, extend := false) {
 }
 
 point_drag :: proc(a: ^App, cx, cy: int) {
-    a.hover = {}
+    hover_clear(a)
     point_place(a, cx, cy, true)
 }
 
@@ -591,40 +591,50 @@ click_line :: proc(a: ^App, d: ^desc.Descriptor, button: input.Mouse) -> (input.
     return line, is_line
 }
 
+// Either button chord, because the question is "would clicking here do something" and a
+// document whose single click only moves point may still answer the second one — which is
+// what a listing you can also type into wants (the row navigates, the click lands a caret).
+@(private = "file")
+hover_line :: proc(a: ^App, d: ^desc.Descriptor) -> (input.Bind_Line, bool) {
+    if line, is_line := click_line(a, d, .Click); is_line {
+        return line, true
+    }
+    return click_line(a, d, .Double_Click)
+}
+
 // Ask the bind table whether a click here would do anything, and underline the field it would
 // act on. Three consequences of "a click is a chord", and no surface writes a line of any of
-// them.
-hover_update :: proc(a: ^App, cx, cy: int) {
-    was := a.hover
-    a.hover = {}
-    defer if a.hover != was && a.window != nil {
-        glfw.SetCursor(a.window, a.hover.on ? a.hand : nil)
+// them. The panel is the POINTER'S and not the focused one's, because that is where the
+// underline goes; leaving every panel puts it away.
+hover_update :: proc(a: ^App, panel, cx, cy: int) {
+    was := hover_on(a)
+    hover_clear(a)
+    defer if hover_on(a) != was && a.window != nil {
+        glfw.SetCursor(a.window, hover_on(a) ? a.hand : nil)
+    }
+    pn := panel_get(a, panel)
+    if pn == nil {
+        return
     }
 
-    s := ring_focused(&a.ring)
+    s := panel_slot(a, pn)
     snap, d, ok := reading(a, s)
     if !ok {
         return
     }
     defer txt.snapshot_release(snap)
     defer desc.release(d)
-    b := a.body
+    b := pn.body
     p, field, hit := view.locate(&snap.text, d, s.view, b.x, b.y, b.w, b.h, cx, cy)
     if !hit || field == "" {
         return
     }
-    // Either button chord, because the question is "would clicking here do something" and a
-    // document whose single click only moves point may still answer the second one — which is
-    // what a listing you can also type into wants (the row navigates, the click lands a caret).
-    line, is_line := click_line(a, d, .Click)
-    if !is_line {
-        line, is_line = click_line(a, d, .Double_Click)
-    }
+    line, is_line := hover_line(a, d)
     if !is_line {
         return
     }
     lo, hi, named := desc.field_span(d, p.line, field)
     if named && line_covers(d, line.text, p.line, lo, hi) {
-        a.hover = {p.line, lo, hi, true}
+        pn.hover = {p.line, lo, hi, true}
     }
 }

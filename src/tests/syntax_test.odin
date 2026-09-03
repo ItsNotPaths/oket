@@ -131,7 +131,7 @@ a_grammar_colours_a_file_it_never_opened :: proc(t: ^testing.T) {
 
     // And through the one renderer: the cell under `1` of `12` carries the number's colour.
     app.surface_draw(&a)
-    cell := gfx.grid_at(&a.panel, 9 + gutter(&a, id), 0)
+    cell := gfx.grid_at(panel_grid(&a), 9 + gutter(&a, id), 0)
     if testing.expect(t, cell != nil, "nothing was drawn") {
         testing.expect_value(t, cell.fg, num.fg)
     }
@@ -247,7 +247,7 @@ a_grammar_that_arrives_late_is_picked_up_by_the_chain :: proc(t: ^testing.T) {
 list_open :: proc(t: ^testing.T, a: ^app.App) -> (store.Id, bool) {
     app.cl_exec(a, ":ring grammars")
     app.surface_draw(a)
-    s := app.ring_focused(&a.ring)
+    s := app.ring_focused(a)
     if !testing.expect(t, s != nil, a.message) {
         return {}, false
     }
@@ -305,7 +305,7 @@ type_text :: proc(a: ^app.App, text: string) {
 // The row point is on, which is the only selection this document has.
 @(private = "file")
 row_at_point :: proc(a: ^app.App, id: store.Id) -> string {
-    s := app.ring_focused(&a.ring)
+    s := app.ring_focused(a)
     rows := lines_of(a, id)
     line := s.view.point.head.line
     return line >= 0 && line < len(rows) ? rows[line] : ""

@@ -16,10 +16,13 @@ App :: struct {
     window:       glfw.WindowHandle,
     painter:      gfx.Painter,
     // Two lattices, not one (PANELS.md §7). The chrome is the screen's, at whole cells: the
-    // bar, and the ground a panel is drawn onto. The panel is a window onto a document and
-    // takes an origin of its own, so it can slide without dragging the bar with it.
+    // bar, and the ground a panel is drawn onto. A panel is a window onto a document and takes
+    // an origin of its own, so it can slide without dragging the bar with it.
     chrome:       gfx.Grid,
-    panel:        gfx.Grid,
+    // The strip (PANELS.md §2). One panel at full width today, which is a strip of length one
+    // and not a special case; `focus` says which one the ring and the keys act on.
+    panels:       [dynamic]Panel,
+    focus:        int,
     theme:        gfx.Theme,
     docs:         store.Store,
     ring:         Ring,
@@ -62,13 +65,10 @@ App :: struct {
     clashes:      [dynamic]Bind_Clash,
     pending:      input.Pending,
     mouse:        input.Mouse_State,
-    hover:        Hover,
     hand:         glfw.CursorHandle, // the pointer over a field a click would act on
-    // Where each was drawn last frame. A click is placed against them, so the hit test reads
-    // the layout the eye saw rather than recomputing one. Both in screen cells: the panel sits
-    // at the screen's origin while there is one of it.
-    body:         Rect, // the focused document
-    bar:          Rect, // the command line's row, past the prompt
+    // Where the command line's row was drawn, past the prompt, in chrome cells. A document's
+    // own rectangle is its panel's (panel.odin), because a cell number counts from one grid.
+    bar:          Rect,
     message:      string, // owned; lives until the next keystroke
     home:         string, // owned; where binds.conf lives, empty in a test
     quit:         bool,
@@ -76,13 +76,6 @@ App :: struct {
 
 Rect :: struct {
     x, y, w, h: int,
-}
-
-// The field under the pointer that a bound click would act on (§8). Underlined, and no surface
-// writes a line of it: the bind table is asked what a click there would do.
-Hover :: struct {
-    line, lo, hi: int,
-    on:           bool,
 }
 
 app_init :: proc(a: ^App) {
@@ -112,7 +105,7 @@ app_destroy :: proc(a: ^App) {
     message_set(a, "")
     delete(a.home)
     glfw.DestroyCursor(a.hand)
-    gfx.grid_destroy(&a.panel)
+    panels_destroy(a)
     gfx.grid_destroy(&a.chrome)
     gfx.painter_destroy(&a.painter) // the atlas and its faces go with it
 }

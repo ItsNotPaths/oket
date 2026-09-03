@@ -62,7 +62,7 @@ a_plugin_registers_opens_renders_and_unloads :: proc(t: ^testing.T) {
     // Drawn by the kernel's one renderer, with no arm of its own: a plugin produces a document
     // and a descriptor, and that is the whole of what it produces (§12).
     app.surface_draw(&a)
-    drawn := gfx.grid_snapshot(&a.panel, context.temp_allocator)
+    drawn := gfx.grid_snapshot(panel_grid(&a), context.temp_allocator)
     testing.expect(t, strings.contains(drawn, "kind"), drawn)
 
     // --- unload, and the ledger ---
@@ -190,7 +190,7 @@ a_registered_command_runs_from_the_command_line :: proc(t: ^testing.T) {
         return
     }
     app.ring_add(&a, scratch_doc(&a, "note", "alpha\nbeta\ngamma"))
-    doc := store.store_doc(&a.docs, app.ring_focused(&a.ring).doc)
+    doc := store.store_doc(&a.docs, app.ring_focused(&a).doc)
     doc.cursors[doc.primary] = {{1, 0}, {1, 0}, 0}
 
     app.cl_exec(&a, ":hello")

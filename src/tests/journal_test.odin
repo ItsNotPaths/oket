@@ -40,7 +40,7 @@ crash_app :: proc(t: ^testing.T, name, text: string) ->
         return {}, "", "", false
     }
     app.cl_exec(&a, fmt.tprintf(":open %q", path))
-    if !testing.expect(t, app.ring_focused(&a.ring) != nil, a.message) {
+    if !testing.expect(t, app.ring_focused(&a) != nil, a.message) {
         close_plug_app(&a)
         return {}, "", "", false
     }
@@ -70,7 +70,7 @@ work_survives_a_crash_and_a_restart :: proc(t: ^testing.T) {
     defer delete(home)
     defer delete(path)
 
-    id := app.ring_focused(&a.ring).doc
+    id := app.ring_focused(&a).doc
     app.handle_chord(&a, chord("END"))
     for r in "XY" {
         app.text_input(&a, r)
@@ -179,7 +179,7 @@ recovery_drops_what_the_file_already_says :: proc(t: ^testing.T) {
     defer delete(home)
     defer delete(path)
 
-    id := app.ring_focused(&a.ring).doc
+    id := app.ring_focused(&a).doc
     app.handle_chord(&a, chord("END"))
     app.text_input(&a, 'Z')
     saved := doc_text(&a, id)
@@ -220,7 +220,7 @@ journal_survives_a_torn_tail :: proc(t: ^testing.T) {
     defer delete(home)
     defer delete(path)
 
-    id := app.ring_focused(&a.ring).doc
+    id := app.ring_focused(&a).doc
     app.handle_chord(&a, chord("END"))
     for r in "QR" {
         app.text_input(&a, r)

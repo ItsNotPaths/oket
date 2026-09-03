@@ -26,7 +26,7 @@ session_save :: proc(a: ^App) {
         return
     }
     b := strings.builder_make(context.temp_allocator)
-    focused := ring_focused(&a.ring)
+    focused := ring_focused(a)
     for l in a.ring.lanes {
         for s, i in l.slots {
             if !s.live || (focused != nil && s.doc == focused.doc) {
@@ -38,7 +38,7 @@ session_save :: proc(a: ^App) {
     // The focused slot last, because `:open` focuses what it opens: the layout restores in one
     // pass and the surface you were looking at is the one you come back to.
     if focused != nil {
-        session_line(a, &b, focused.doc, a.ring.focused)
+        session_line(a, &b, focused.doc, ring_slot(a))
     }
     _ = os.write_entire_file(session_path(a), transmute([]u8)strings.to_string(b))
 }
@@ -59,7 +59,7 @@ session_restore :: proc(a: ^App) -> bool {
             cl_exec(a, line)
         }
     }
-    return ring_focused(&a.ring) != nil
+    return ring_focused(a) != nil
 }
 
 @(private = "file")

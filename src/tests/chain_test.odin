@@ -158,13 +158,13 @@ a_shell_step_reports_to_the_system_session :: proc(t: ^testing.T) {
     text := doc_text(&a, sys)
     testing.expect(t, strings.contains(text, "echo out && echo more"), text)
     testing.expect(t, strings.contains(text, "out\nmore"), text)
-    testing.expect(t, a.ring.focused != app.SLOT_SYSTEM, "a run that worked surfaces nothing")
+    testing.expect(t, app.ring_slot(&a) != app.SLOT_SYSTEM, "a run that worked surfaces nothing")
 
     // && short-circuits, and the failure is what brings N# forward. The second step is a
     // BUILTIN, so this is our chain stopping and not bash's own &&. The subshell is the test's:
     // a bare `exit` at the top level ends the session's shell, which is a different failure.
     run_line(&a, "(exit 3) && :close")
-    testing.expect_value(t, a.ring.focused, app.SLOT_SYSTEM)
+    testing.expect_value(t, app.ring_slot(&a), app.SLOT_SYSTEM)
     testing.expect(t, app.lane_first(&a.ring, 0) != 0, ":close never ran")
 }
 
@@ -183,7 +183,7 @@ a_failure_the_chain_was_reading_reports_rather_than_surfaces :: proc(t: ^testing
     app.ring_add(&a, id)
     run_line(&a, "false | :put")
 
-    testing.expect(t, a.ring.focused != app.SLOT_SYSTEM, "a chain feeding :put must not jump to N#")
+    testing.expect(t, app.ring_slot(&a) != app.SLOT_SYSTEM, "a chain feeding :put must not jump to N#")
     testing.expect_value(t, a.message, "the shell step exited 1")
     testing.expect_value(t, doc_text(&a, id), "keep me") // && short-circuited, so :put never ran
 }
@@ -202,7 +202,7 @@ a_step_that_kills_the_shell_stops_the_chain :: proc(t: ^testing.T) {
     app.ring_add(&a, scratch_doc(&a, "note", "x"))
     run_line(&a, "exit 0 && :close")
     testing.expect_value(t, a.message, "the system session's shell exited mid-step")
-    testing.expect_value(t, a.ring.focused, app.SLOT_SYSTEM)
+    testing.expect_value(t, app.ring_slot(&a), app.SLOT_SYSTEM)
     testing.expect(t, !a.job.live, "the job never came back to rest")
     testing.expect(t, app.lane_first(&a.ring, 0) != 0, ":close ran past a dead shell")
 
@@ -226,5 +226,5 @@ an_unknown_builtin_stops_the_chain :: proc(t: ^testing.T) {
     run_line(&a, ":nope && :close")
 
     testing.expect(t, strings.contains(a.message, "not a builtin"), a.message)
-    testing.expect(t, app.ring_focused(&a.ring) != nil, "the chain stopped before :close")
+    testing.expect(t, app.ring_focused(&a) != nil, "the chain stopped before :close")
 }

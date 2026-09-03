@@ -153,9 +153,9 @@ the_kernel_viewport_scrolls_a_session :: proc(t: ^testing.T) {
     for _ in 0 ..< 40 {
         term_show(&a, tm, "line\r\n")
     }
-    s := app.ring_focused(&a.ring)
+    s := app.ring_focused(&a)
     doc := store.store_doc(&a.docs, tm.doc)
-    bottom := max(txt.doc_line_count(doc) - a.body.h, 0)
+    bottom := max(txt.doc_line_count(doc) - app.panel_focused(&a).body.h, 0)
     testing.expect_value(t, s.view.top, bottom)
     testing.expect(t, tm.t.sb_total > 0, "nothing scrolled off into history")
 
@@ -171,7 +171,7 @@ the_kernel_viewport_scrolls_a_session :: proc(t: ^testing.T) {
     app.handle_chord(&a, chord("PGDN", {.Shift}))
     term_show(&a, tm, "more\r\n")
     doc = store.store_doc(&a.docs, tm.doc)
-    testing.expect_value(t, s.view.top, max(txt.doc_line_count(doc) - a.body.h, 0))
+    testing.expect_value(t, s.view.top, max(txt.doc_line_count(doc) - app.panel_focused(&a).body.h, 0))
 }
 
 // Every run in the session's document, read back out of the SPAN STORE — the one door every

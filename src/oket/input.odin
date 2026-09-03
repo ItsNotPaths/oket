@@ -65,7 +65,7 @@ button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mods: i3
         return
     }
     px, py := glfw.GetCursorPos(window)
-    cx, cy := cell_at(a, px, py)
+    _, cx, cy := cell_at(a, px, py)
     // A document that took the mouse over reads the button itself (§5, §8): a TUI with tracking
     // on wants the press AND the release, and neither is a chord.
     if tm := mouse_events_target(a); tm != nil {
@@ -91,7 +91,7 @@ cursor_callback :: proc "c" (window: glfw.WindowHandle, px, py: f64) {
     if a == nil {
         return
     }
-    cx, cy := cell_at(a, px, py)
+    pn, cx, cy := cell_at(a, px, py)
     if tm := mouse_events_target(a); tm != nil {
         term_mouse_at(a, tm, cx, cy, glfw_mods_now(window))
         return
@@ -100,7 +100,7 @@ cursor_callback :: proc "c" (window: glfw.WindowHandle, px, py: f64) {
         point_drag(a, cx, cy)
         return
     }
-    hover_update(a, cx, cy)
+    hover_update(a, pn, cx, cy)
 }
 
 scroll_callback :: proc "c" (window: glfw.WindowHandle, xoff, yoff: f64) {
@@ -122,7 +122,7 @@ scroll_callback :: proc "c" (window: glfw.WindowHandle, xoff, yoff: f64) {
     }
     if tm := mouse_events_target(a); tm != nil {
         px, py := glfw.GetCursorPos(window)
-        cx, cy := cell_at(a, px, py)
+        _, cx, cy := cell_at(a, px, py)
         term_mouse(a, tm, wheel, cx, cy, glfw_mods_now(window), true)
         return
     }
@@ -169,14 +169,17 @@ glfw_mods_now :: proc "c" (w: glfw.WindowHandle) -> (m: input.Mods) {
 
 // Pixel to cell is a division by the cell size (§8). The pointer arrives in window coordinates
 // and the grid is laid out in framebuffer pixels, so the scale between them goes in first.
-cell_at :: proc(a: ^App, px, py: f64) -> (x, y: int) {
+//
+// The cell comes back with its panel and counts from that panel's grid (panel_hit). While the
+// strip is one long the lattices coincide, which is why callers here may drop the panel.
+cell_at :: proc(a: ^App, px, py: f64) -> (panel, x, y: int) {
     fw, fh := glfw.GetFramebufferSize(a.window)
     ww, wh := glfw.GetWindowSize(a.window)
     cw, ch := gfx.painter_cell(&a.painter)
     ox, oy := gfx.painter_origin(&a.painter, fw, fh, a.chrome.cols, a.chrome.rows)
     sx := ww > 0 ? f64(fw) / f64(ww) : 1
     sy := wh > 0 ? f64(fh) / f64(wh) : 1
-    return floor_div(int(px * sx) - ox, cw), floor_div(int(py * sy) - oy, ch)
+    return panel_hit(a, floor_div(int(px * sx) - ox, cw), floor_div(int(py * sy) - oy, ch))
 }
 
 // Truncation toward zero would fold the column left of the grid onto column 0.

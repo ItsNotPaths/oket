@@ -554,7 +554,7 @@ plug_command :: proc(a: ^App, slot: input.Slot, args: string) -> bool {
     c := a.cmds[i]
     at: plug.At
     view: ^Plug_View
-    if s := ring_focused(&a.ring); s != nil {
+    if s := ring_focused(a); s != nil {
         at, view = plug_at(a, c.owner, s.doc)
     }
     defer view_free(view)

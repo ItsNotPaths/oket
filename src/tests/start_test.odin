@@ -237,8 +237,8 @@ a_session_restores_the_ring :: proc(t: ^testing.T) {
     app.config_load(&b)
     testing.expect(t, app.session_restore(&b), "the session restored nothing")
     // Both slots came back, and the one that was focused is the one you come back to.
-    testing.expect_value(t, app.doc_title(&b, app.ring_focused(&b.ring).doc), two)
-    testing.expect_value(t, app.doc_title(&b, app.ring_get(&b.ring, 1).doc), one)
+    testing.expect_value(t, app.doc_title(&b, app.ring_focused(&b).doc), two)
+    testing.expect_value(t, app.doc_title(&b, app.ring_get(&b, 1).doc), one)
 }
 
 // A key config.conf does not know is reported, and the rows around it still land. Same rule

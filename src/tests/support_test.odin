@@ -45,9 +45,16 @@ bare_app :: proc(cols := 50, rows := 4) -> (a: app.App, ok: bool) {
     if !gfx.grid_init(&a.chrome, cols, rows) {
         return {}, false
     }
-    app.surface_fit(&a, cols, rows) // the panel, sized by the one rule that owns the split
-    a.body = {0, 0, a.panel.cols, a.panel.rows}
+    app.surface_fit(&a, cols, rows) // the strip, sized by the one rule that owns the split
+    p := app.panel_focused(&a)
+    p.body = {0, 0, p.grid.cols, p.grid.rows} // the draw sets it too; a test that never draws needs it
     return a, true
+}
+
+// The strip is one panel long (PANELS.md §5), and its grid is where a document is drawn. Every
+// snapshot below diffs that grid rather than the chrome, which carries only the bar.
+panel_grid :: proc(a: ^app.App) -> ^gfx.Grid {
+    return &app.panel_focused(a).grid
 }
 
 // The same, with a listing of a fresh scratch directory focused and drawn once — the document
@@ -74,7 +81,7 @@ close_app :: proc(a: ^app.App) {
     input.binds_destroy(&a.binds)
     app.binds_requests_destroy(a)
     app.message_set(a, "")
-    gfx.grid_destroy(&a.panel)
+    app.panels_destroy(a)
     gfx.grid_destroy(&a.chrome)
 }
 
@@ -169,7 +176,7 @@ echo_line :: proc(a: ^app.App) -> string {
 }
 
 focused_text :: proc(a: ^app.App) -> string {
-    s := app.ring_focused(&a.ring)
+    s := app.ring_focused(a)
     return s == nil ? "" : doc_text(a, s.doc)
 }
 

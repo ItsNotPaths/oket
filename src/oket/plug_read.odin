@@ -196,7 +196,7 @@ reveal_span :: proc(a: ^App, id: store.Id, lo, hi: int, at: plug.Reveal) {
     defer txt.snapshot_release(snap)
     first := txt.text_line_at_off(&snap.text, max(lo, 0))
     last := txt.text_line_at_off(&snap.text, max(hi, lo))
-    h := max(a.body.h, 1)
+    h := max(doc_rect(a, id).h, 1)
 
     top := s.view.top
     switch at {

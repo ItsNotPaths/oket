@@ -27,23 +27,23 @@ alt_n_addresses_the_lane_you_are_in :: proc(t: ^testing.T) {
     two := scratch_doc(&a, "two.txt", "two")
     app.ring_add(&a, one)
     app.ring_add(&a, two)
-    testing.expect_value(t, a.ring.focused, 2)
+    testing.expect_value(t, app.ring_slot(&a), 2)
 
     // A document of another kind opens in its own lane, at slot 1 of it: the open IS the focus
     // change, so you always see where it went.
     app.ring_add(&a, listing_doc(&a, "."))
-    testing.expect_value(t, a.ring.focused, 1)
-    testing.expect_value(t, app.kind_name(&a, app.doc_kind(&a, app.ring_focused(&a.ring).doc)), "home")
+    testing.expect_value(t, app.ring_slot(&a), 1)
+    testing.expect_value(t, app.kind_name(&a, app.doc_kind(&a, app.ring_focused(&a).doc)), "home")
 
     // alt+1 in that lane is the listing, not the first text document.
     app.handle_chord(&a, alt("AE01"))
-    testing.expect_value(t, a.ring.focused, 1)
-    testing.expect_value(t, app.kind_name(&a, app.doc_kind(&a, app.ring_focused(&a.ring).doc)), "home")
+    testing.expect_value(t, app.ring_slot(&a), 1)
+    testing.expect_value(t, app.kind_name(&a, app.doc_kind(&a, app.ring_focused(&a).doc)), "home")
 
     // And alt+2 there opens a SECOND one rather than reaching the text lane's slot 2.
     app.handle_chord(&a, alt("AE02"))
-    testing.expect_value(t, a.ring.focused, 2)
-    testing.expect_value(t, app.kind_name(&a, app.doc_kind(&a, app.ring_focused(&a.ring).doc)), "home")
+    testing.expect_value(t, app.ring_slot(&a), 2)
+    testing.expect_value(t, app.kind_name(&a, app.doc_kind(&a, app.ring_focused(&a).doc)), "home")
 }
 
 // Numbered slots exist for muscle memory, and renumbering destroys the one thing they are for.
@@ -60,24 +60,24 @@ a_closed_slot_leaves_a_gap :: proc(t: ^testing.T) {
         app.ring_add(&a, scratch_doc(&a, name, name))
     }
     app.handle_chord(&a, alt("AE02"))
-    testing.expect_value(t, a.ring.focused, 2)
+    testing.expect_value(t, app.ring_slot(&a), 2)
 
     // Closing hands focus to this lane's alternate, which is the slot alt+2 came from.
     app.handle_chord(&a, alt("AD01")) // alt+q
-    testing.expect_value(t, a.ring.focused, 3)
-    testing.expect_value(t, app.doc_title(&a, app.ring_focused(&a.ring).doc), "c")
+    testing.expect_value(t, app.ring_slot(&a), 3)
+    testing.expect_value(t, app.doc_title(&a, app.ring_focused(&a).doc), "c")
 
     // 1 is still 1 and 3 is still 3: nothing shuffled up into the gap.
     app.handle_chord(&a, alt("AE01"))
-    testing.expect_value(t, app.doc_title(&a, app.ring_focused(&a.ring).doc), "a")
+    testing.expect_value(t, app.doc_title(&a, app.ring_focused(&a).doc), "a")
     app.handle_chord(&a, alt("AE03"))
-    testing.expect_value(t, app.doc_title(&a, app.ring_focused(&a.ring).doc), "c")
+    testing.expect_value(t, app.doc_title(&a, app.ring_focused(&a).doc), "c")
 
     // alt+2 on the gap opens a fresh document of this lane's KIND, and these documents belong
     // to none: nothing opens, and the slot stays the gap it was. A lane that does name a kind
     // is the test below, where alt+f opens a listing into an empty files lane.
     app.handle_chord(&a, alt("AE02"))
-    testing.expect_value(t, a.ring.focused, 3)
+    testing.expect_value(t, app.ring_slot(&a), 3)
 }
 
 // The alternate carries most switching on its own, so it crosses lanes: "the thing I was just
@@ -96,12 +96,12 @@ the_alternate_crosses_lanes_and_the_shift_one_does_not :: proc(t: ^testing.T) {
 
     // alt+` goes back to the text lane's slot 2, across the lane boundary.
     app.handle_chord(&a, alt("TLDE"))
-    testing.expect_value(t, app.doc_title(&a, app.ring_focused(&a.ring).doc), "b")
+    testing.expect_value(t, app.doc_title(&a, app.ring_focused(&a).doc), "b")
 
     // alt+shift+` stays here: slot 1 of this lane, not the listing.
     code, _ := input.key_code("TLDE")
     app.handle_chord(&a, {code, {.Alt, .Shift}})
-    testing.expect_value(t, app.doc_title(&a, app.ring_focused(&a.ring).doc), "a")
+    testing.expect_value(t, app.doc_title(&a, app.ring_focused(&a).doc), "a")
 }
 
 // N# is a reserved SLOT, not a lane and not an exemption a kind asks for: alt+N cannot reach it
@@ -120,16 +120,16 @@ the_system_slot_is_outside_the_rotation :: proc(t: ^testing.T) {
     // Nothing in 1..9 addresses it.
     for name in ([?]string{"AE01", "AE02", "AE09"}) {
         app.handle_chord(&a, alt(name))
-        testing.expect(t, a.ring.focused != app.SLOT_SYSTEM)
+        testing.expect(t, app.ring_slot(&a) != app.SLOT_SYSTEM)
     }
 
     app.handle_chord(&a, alt("AE10")) // alt+0
-    testing.expect_value(t, a.ring.focused, app.SLOT_SYSTEM)
+    testing.expect_value(t, app.ring_slot(&a), app.SLOT_SYSTEM)
     testing.expect_value(t, app.bar_text(&a), "N#  the system session")
 
     // And it survives a close: its shell is the kernel's, so its jobs get a real session.
     app.handle_chord(&a, alt("AD01"))
-    testing.expect_value(t, a.ring.focused, app.SLOT_SYSTEM)
+    testing.expect_value(t, app.ring_slot(&a), app.SLOT_SYSTEM)
 }
 
 // Switching lanes is its own key, and it is a default ROW naming the kind in a command line —
@@ -149,15 +149,15 @@ a_default_row_switches_lanes_by_kind_name :: proc(t: ^testing.T) {
     // kind, because `:ring edit` and `:ring files` name kinds a plugin registers and this test
     // loads none — the row is the same shape either way.
     app.handle_chord(&a, alt("AD05"))
-    session := app.ring_focused(&a.ring).doc
+    session := app.ring_focused(&a).doc
     testing.expect_value(t, app.kind_name(&a, app.doc_kind(&a, session)), "term")
 
     app.handle_chord(&a, alt("TLDE")) // alt+`, back to the document we came from
-    testing.expect_value(t, app.doc_title(&a, app.ring_focused(&a.ring).doc), "a")
+    testing.expect_value(t, app.doc_title(&a, app.ring_focused(&a).doc), "a")
 
     // And back again, to where that lane was LEFT rather than to a second fresh session.
     app.handle_chord(&a, alt("AD05"))
-    testing.expect_value(t, app.ring_focused(&a.ring).doc, session)
+    testing.expect_value(t, app.ring_focused(&a).doc, session)
 }
 
 // A kind is the narrow tier of the bind table: `[home]` beats `[surface]` where it applies,
@@ -198,10 +198,10 @@ closing_the_last_slot_leaves_the_lane :: proc(t: ^testing.T) {
     app.ring_add(&a, listing_doc(&a, "."))
 
     app.handle_chord(&a, alt("AD01")) // the files lane empties; focus crosses to the text lane
-    testing.expect_value(t, app.doc_title(&a, app.ring_focused(&a.ring).doc), "a")
+    testing.expect_value(t, app.doc_title(&a, app.ring_focused(&a).doc), "a")
 
     app.handle_chord(&a, alt("AD01")) // nothing is live anywhere
-    testing.expect(t, app.ring_focused(&a.ring) == nil, "focus points at a dead slot")
+    testing.expect(t, app.ring_focused(&a) == nil, "focus points at a dead slot")
     testing.expect_value(t, app.bar_text(&a),
                          "esc quits, f1 describes a chord, alt+c opens the command line")
 }
@@ -221,10 +221,10 @@ a_slot_keeps_its_viewport :: proc(t: ^testing.T) {
 
     app.handle_chord(&a, alt("AE01"))
     app.scroll_by(&a, 4)
-    testing.expect_value(t, app.ring_focused(&a.ring).view.top, 4)
+    testing.expect_value(t, app.ring_focused(&a).view.top, 4)
 
     app.handle_chord(&a, alt("AE02"))
-    testing.expect_value(t, app.ring_focused(&a.ring).view.top, 0)
+    testing.expect_value(t, app.ring_focused(&a).view.top, 0)
     app.handle_chord(&a, alt("AE01"))
-    testing.expect_value(t, app.ring_focused(&a.ring).view.top, 4)
+    testing.expect_value(t, app.ring_focused(&a).view.top, 4)
 }

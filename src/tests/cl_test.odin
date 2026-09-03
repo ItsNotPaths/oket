@@ -86,7 +86,7 @@ the_line_is_a_document_like_any_other :: proc(t: ^testing.T) {
     testing.expect_value(t, app.cl_line(&a), "x:ls")
 
     // And the keys aim at the LINE while it is open, never at the document behind it.
-    testing.expect(t, app.active(&a) != app.ring_focused(&a.ring))
+    testing.expect(t, app.active(&a) != app.ring_focused(&a))
 }
 
 // Enter submits, and what was submitted comes back with an arrow.
@@ -154,8 +154,8 @@ exec_runs_a_bind_line_and_stage_aims_it :: proc(t: ^testing.T) {
     type(&a, " 3")
     app.handle_chord(&a, chord("RTRN"))
     testing.expect(t, !app.cl_active(&a))
-    testing.expect_value(t, a.ring.focused, 3)
-    title := app.doc_title(&a, app.ring_focused(&a.ring).doc)
+    testing.expect_value(t, app.ring_slot(&a), 3)
+    title := app.doc_title(&a, app.ring_focused(&a).doc)
     testing.expect(t, strings.has_suffix(title, "sub"), title)
 }
 

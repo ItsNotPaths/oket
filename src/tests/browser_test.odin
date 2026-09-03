@@ -66,13 +66,13 @@ tree_app :: proc(t: ^testing.T, name: string) -> (a: app.App, root: string, ok: 
 
 @(private = "file")
 reading :: proc(a: ^app.App) -> (^txt.Snapshot, ^desc.Descriptor) {
-    id := app.ring_focused(&a.ring).doc
+    id := app.ring_focused(a).doc
     return store.store_snapshot(&a.docs, id), store.store_descriptor(&a.docs, id)
 }
 
 @(private = "file")
 doc_of :: proc(a: ^app.App) -> ^txt.Doc {
-    return store.store_doc(&a.docs, app.ring_focused(&a.ring).doc)
+    return store.store_doc(&a.docs, app.ring_focused(a).doc)
 }
 
 @(private = "file")
@@ -220,7 +220,7 @@ enter_over_a_file_falls_through_to_the_editor :: proc(t: ^testing.T) {
     go_row(&a, 2) // top.txt
     app.handle_chord(&a, chord("RTRN"))
 
-    id := app.ring_focused(&a.ring).doc
+    id := app.ring_focused(&a).doc
     edit, _ := app.kind_named(&a, "edit")
     testing.expect_value(t, app.doc_kind(&a, id), edit)
     testing.expect_value(t, doc_text(&a, id), "xyz")
@@ -306,7 +306,7 @@ the_listing_draws_ls_la_through_the_kernels_renderer :: proc(t: ^testing.T) {
     app.surface_draw(&a)
     // The panel diffs on its own (PANELS.md §7): the listing is four rows of text with no bar
     // row to trim off the end of it.
-    snap := gfx.grid_snapshot(&a.panel)
+    snap := gfx.grid_snapshot(panel_grid(&a))
     defer delete(snap)
     rows := strings.split_lines(snap, context.temp_allocator)
 
@@ -334,17 +334,17 @@ hover_underlines_the_link_it_would_follow :: proc(t: ^testing.T) {
     }
     defer close_plug_app(&a)
 
-    app.hover_update(&a, PREFIX + 2, 2) // inside the name
-    testing.expect(t, a.hover.on, "the name a bound click acts on is not underlined")
+    app.hover_update(&a, 0, PREFIX + 2, 2) // inside the name
+    testing.expect(t, app.panel_focused(&a).hover.on, "the name a bound click acts on is not underlined")
     snap, d := reading(&a)
     defer txt.snapshot_release(snap)
     defer desc.release(d)
     lo, hi, _ := desc.field_span(d, 2, "path")
-    testing.expect_value(t, a.hover.lo, lo)
-    testing.expect_value(t, a.hover.hi, hi)
+    testing.expect_value(t, app.panel_focused(&a).hover.lo, lo)
+    testing.expect_value(t, app.panel_focused(&a).hover.hi, hi)
 
-    app.hover_update(&a, 2, 2) // the mode bits, which no click acts on
-    testing.expect(t, !a.hover.on, "the mode column underlined as though a click acted on it")
+    app.hover_update(&a, 0, 2, 2) // the mode bits, which no click acts on
+    testing.expect(t, !app.panel_focused(&a).hover.on, "the mode column underlined as though a click acted on it")
 }
 
 // §8's rule as data: a directory row carries no `file` field, so a row asking for one REPORTS
@@ -602,7 +602,7 @@ the_way_out_is_not_a_name :: proc(t: ^testing.T) {
 
     // And it is still a link: enter over it goes up, which is the whole reason it is a row.
     app.handle_chord(&a, chord("RTRN"))
-    d := store.store_descriptor(&a.docs, app.ring_focused(&a.ring).doc)
+    d := store.store_descriptor(&a.docs, app.ring_focused(&a).doc)
     defer desc.release(d)
     testing.expect_value(t, d.file, filepath.dir(root))
 }

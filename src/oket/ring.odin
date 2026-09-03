@@ -11,6 +11,9 @@ import "../view"
 // something it depends on is the surface filling your screen, which is the least invisible
 // state there is.
 //
+// The ring holds the documents; WHERE you are in it is the panel's (PANELS.md §2), because the
+// answer differs per panel and everything an instance would duplicate stays here and single.
+//
 // A slot holds a document and the viewport over it. The viewport is view state (§11): it
 // survives a resize, a font change and a reload, so it lives with the slot and not with the
 // document.
@@ -45,11 +48,8 @@ Spot :: struct {
 }
 
 Ring :: struct {
-    lanes:   [dynamic]Lane,
-    lane:    int, // index into lanes; the one alt+N addresses
-    focused: int, // slot id inside that lane; 0 = none
-    prev:    Spot, // the most recent spot anywhere; alt+` toggles across lanes
-    system:  Slot, // N#; dead until the first thing runs there
+    lanes:  [dynamic]Lane,
+    system: Slot, // N#; dead until the first thing runs there
 }
 
 // The document a slot holds, and the session behind it if it had one. Every close goes through
@@ -105,8 +105,10 @@ lane_find :: proc(r: ^Ring, kind: input.Kind) -> int {
     return -1
 }
 
-lane_current :: proc(r: ^Ring) -> ^Lane {
-    return r.lane >= 0 && r.lane < len(r.lanes) ? &r.lanes[r.lane] : nil
+// The lane the focused panel is standing in.
+lane_current :: proc(a: ^App) -> ^Lane {
+    lane := ring_lane(a)
+    return lane >= 0 && lane < len(a.ring.lanes) ? &a.ring.lanes[lane] : nil
 }
 
 // The lowest live slot of a lane, 0 for a lane holding nothing.
@@ -124,15 +126,16 @@ lane_first :: proc(r: ^Ring, lane: int) -> int {
 
 // The lane switch itself (§5: switching kinds is its own key, not a walk through the numbers).
 // Lands on the slot you last had there, so a lane remembers where you were in it.
-ring_lane_goto :: proc(r: ^Ring, lane: int) -> bool {
-    if lane < 0 || lane >= len(r.lanes) || lane == r.lane {
+ring_lane_goto :: proc(a: ^App, lane: int) -> bool {
+    r := &a.ring
+    if lane < 0 || lane >= len(r.lanes) || lane == ring_lane(a) {
         return false
     }
     want := r.lanes[lane].last
     if lane_get(r, lane, want) == nil {
         want = lane_first(r, lane)
     }
-    return ring_move(r, {lane, want})
+    return ring_move(a, {lane, want})
 }
 
 // --- slots ---
@@ -151,13 +154,22 @@ lane_get :: proc(r: ^Ring, lane, id: int) -> ^Slot {
     return &l.slots[id - 1]
 }
 
-// Slot `id` of the lane you are in, which is what every alt+N caller means.
-ring_get :: proc(r: ^Ring, id: int) -> ^Slot {
-    return lane_get(r, r.lane, id)
+// Where the focused panel is standing, split into the two numbers most callers want one of.
+ring_lane :: proc(a: ^App) -> int {
+    return panel_focused(a).at.lane
 }
 
-ring_focused :: proc(r: ^Ring) -> ^Slot {
-    return ring_get(r, r.focused)
+ring_slot :: proc(a: ^App) -> int {
+    return panel_focused(a).at.slot
+}
+
+// Slot `id` of the lane you are in, which is what every alt+N caller means.
+ring_get :: proc(a: ^App, id: int) -> ^Slot {
+    return lane_get(&a.ring, ring_lane(a), id)
+}
+
+ring_focused :: proc(a: ^App) -> ^Slot {
+    return panel_slot(a, panel_focused(a))
 }
 
 // The lowest free gap OF THE DOCUMENT'S OWN LANE, and the open IS the focus change (§5): so
@@ -178,7 +190,7 @@ ring_add :: proc(a: ^App, id: store.Id) -> int {
         append(&l.slots, Slot{id, {}, true})
         slot = len(l.slots)
     }
-    ring_move(&a.ring, {lane, slot})
+    ring_move(a, {lane, slot})
     return slot
 }
 
@@ -198,40 +210,38 @@ ring_put :: proc(a: ^App, id: store.Id, slot: int) {
         doc_close(a, old.doc)
     }
     old^ = Slot{id, {}, true}
-    ring_move(&a.ring, {lane, slot})
+    ring_move(a, {lane, slot})
 }
 
 // --- moving ---
 
-// The one place focus changes, so the two alternates are recorded in one place too.
-ring_move :: proc(r: ^Ring, to: Spot) -> bool {
-    if lane_get(r, to.lane, to.slot) == nil {
+// The one place focus changes, so the two alternates are recorded in one place too. It moves
+// the FOCUSED panel: what `alt+N` addresses is the lane that panel is standing in (§3).
+ring_move :: proc(a: ^App, to: Spot) -> bool {
+    p := panel_focused(a)
+    if lane_get(&a.ring, to.lane, to.slot) == nil || to == p.at {
         return false
     }
-    if to.lane == r.lane && to.slot == r.focused {
-        return false
-    }
-    if l := lane_current(r); l != nil {
-        l.last = r.focused // the lane you are leaving remembers where you were in it
-        if to.lane == r.lane {
-            l.prev = r.focused // and a move INSIDE it is what the lane's own toggle undoes
+    if l := lane_current(a); l != nil {
+        l.last = p.at.slot // the lane you are leaving remembers where you were in it
+        if to.lane == p.at.lane {
+            l.prev = p.at.slot // and a move INSIDE it is what the lane's own toggle undoes
         }
     }
-    r.prev = {r.lane, r.focused}
-    r.lane, r.focused = to.lane, to.slot
+    p.prev, p.at = p.at, to
     return true
 }
 
 // alt+`: the most recent spot anywhere. This is vim's ctrl+^ and it carries most switching on
 // its own, so it crosses lanes rather than staying inside one.
-ring_alt :: proc(r: ^Ring) {
-    ring_move(r, r.prev)
+ring_alt :: proc(a: ^App) {
+    ring_move(a, panel_focused(a).prev)
 }
 
 // alt+shift+`: the same toggle, kept inside the lane you are in.
-ring_alt_lane :: proc(r: ^Ring) {
-    if l := lane_current(r); l != nil {
-        ring_move(r, {r.lane, l.prev})
+ring_alt_lane :: proc(a: ^App) {
+    if l := lane_current(a); l != nil {
+        ring_move(a, {ring_lane(a), l.prev})
     }
 }
 
@@ -239,49 +249,50 @@ ring_alt_lane :: proc(r: ^Ring) {
 // alternate when it is live, else its lowest live slot, else out of the lane entirely.
 ring_close :: proc(a: ^App, id: int) {
     r := &a.ring
-    s := ring_get(r, id)
+    s := ring_get(a, id)
     if s == nil || id == SLOT_SYSTEM { // N# never closes; its shell is the kernel's
         return
     }
     doc_close(a, s.doc)
     s^ = {}
-    l := lane_current(r) // never nil: ring_get proved r.lane is in range
+    p := panel_focused(a)
+    l := lane_current(a) // never nil: ring_get proved the panel's lane is in range
     if l.prev == id {
         l.prev = 0
     }
     if l.last == id {
         l.last = 0
     }
-    if r.prev.lane == r.lane && r.prev.slot == id {
-        r.prev = {}
+    if p.prev.lane == p.at.lane && p.prev.slot == id {
+        p.prev = {}
     }
-    if r.focused != id {
+    if p.at.slot != id {
         return
     }
-    r.focused = 0
-    if lane_get(r, r.lane, l.prev) != nil {
-        r.focused, l.prev = l.prev, 0
+    p.at.slot = 0
+    if lane_get(r, p.at.lane, l.prev) != nil {
+        p.at.slot, l.prev = l.prev, 0
         return
     }
-    if next := lane_first(r, r.lane); next != 0 {
-        r.focused = next
+    if next := lane_first(r, p.at.lane); next != 0 {
+        p.at.slot = next
         return
     }
-    ring_lane_leave(r) // the lane emptied out, and standing on nothing is not a place
+    ring_lane_leave(a) // the lane emptied out, and standing on nothing is not a place
 }
 
 // The lane you are in emptied out under you. Fall to the alternate spot, else the first live
 // slot anywhere.
-ring_lane_leave :: proc(r: ^Ring) {
-    r.focused = 0
-    if lane_get(r, r.prev.lane, r.prev.slot) != nil {
-        r.lane, r.focused = r.prev.lane, r.prev.slot
-        r.prev = {}
+ring_lane_leave :: proc(a: ^App) {
+    r, p := &a.ring, panel_focused(a)
+    p.at.slot = 0
+    if lane_get(r, p.prev.lane, p.prev.slot) != nil {
+        p.at, p.prev = p.prev, {}
         return
     }
     for lane in 0 ..< len(r.lanes) {
         if first := lane_first(r, lane); first != 0 {
-            r.lane, r.focused = lane, first
+            p.at = {lane, first}
             return
         }
     }
@@ -291,10 +302,10 @@ ring_lane_leave :: proc(r: ^Ring) {
 // you are standing in — a document in the text lane, a listing in the files lane. The kernel
 // picks nothing: the lane already names the kind (§5).
 ring_open :: proc(a: ^App, slot: int) {
-    if ring_goto(&a.ring, slot) || ring_get(&a.ring, slot) != nil {
+    if ring_goto(a, slot) || ring_get(a, slot) != nil {
         return
     }
-    l := lane_current(&a.ring)
+    l := lane_current(a)
     if l == nil || slot < 1 {
         return
     }
@@ -308,8 +319,8 @@ ring_open :: proc(a: ^App, slot: int) {
 }
 
 // alt+N inside the lane you are in, without opening anything.
-ring_goto :: proc(r: ^Ring, slot: int) -> bool {
-    return ring_move(r, {r.lane, slot})
+ring_goto :: proc(a: ^App, slot: int) -> bool {
+    return ring_move(a, {ring_lane(a), slot})
 }
 
 // Go to a lane, opening its slot 1 when it holds nothing yet: `:ring text` before the first
@@ -320,10 +331,10 @@ ring_lane_enter :: proc(a: ^App, lane: int) -> bool {
     }
     // "Already here" is only an answer while something is focused here: a fresh start's lane 0
     // and a lane just made by name are both an index over nothing.
-    if lane == a.ring.lane && ring_focused(&a.ring) != nil {
+    if lane == ring_lane(a) && ring_focused(a) != nil {
         return true
     }
-    if ring_lane_goto(&a.ring, lane) {
+    if ring_lane_goto(a, lane) {
         return true
     }
     id, made := kind_fresh(a, a.ring.lanes[lane].kind)
@@ -350,5 +361,5 @@ ring_show_system :: proc(a: ^App) -> bool {
     if !a.ring.system.live {
         return false
     }
-    return ring_move(&a.ring, {a.ring.lane, SLOT_SYSTEM})
+    return ring_move(a, {ring_lane(a), SLOT_SYSTEM})
 }

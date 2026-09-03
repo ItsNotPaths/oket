@@ -30,11 +30,11 @@ cl_builtin :: proc(a: ^App, step: CL_Step) -> bool {
     case "close":
         // ring.close as a command line. alt+q already does exactly this, and a plugin that
         // opened a document will have no other way to end it (stage 7).
-        if ring_focused(&a.ring) == nil {
+        if ring_focused(a) == nil {
             message_set(a, ":close: nothing is focused")
             return false
         }
-        ring_close(a, a.ring.focused)
+        ring_close(a, ring_slot(a))
     case "recover":
         return builtin_recover(a, args)
     case "home":
@@ -119,7 +119,7 @@ builtin_ring :: proc(a: ^App, args: string) -> bool {
     _, name := first_arg(args)
     if name == "" {
         for l, i in a.ring.lanes {
-            sys_println(a, fmt.tprintf("%s%s", i == a.ring.lane ? "> " : "  ", kind_name(a, l.kind)))
+            sys_println(a, fmt.tprintf("%s%s", i == ring_lane(a) ? "> " : "  ", kind_name(a, l.kind)))
         }
         ring_show_system(a)
         return true
@@ -147,7 +147,7 @@ builtin_ls :: proc(a: ^App) -> bool {
             if !s.live {
                 continue // a gap keeps its number; it just has nothing in it
             }
-            here := lane == a.ring.lane && i + 1 == a.ring.focused
+            here := lane == ring_lane(a) && i + 1 == ring_slot(a)
             sys_println(a, fmt.tprintf("%s%s %d %s", here ? "> " : "  ", kind_name(a, l.kind),
                                        i + 1, doc_title(a, s.doc)))
             n += 1
@@ -167,7 +167,7 @@ builtin_ls :: proc(a: ^App) -> bool {
 // same rule as `edit.copy`, which takes the selection or the line.
 @(private = "file")
 builtin_sel :: proc(a: ^App) -> bool {
-    s := ring_focused(&a.ring)
+    s := ring_focused(a)
     if s == nil {
         message_set(a, ":sel: nothing is focused")
         return false
@@ -196,7 +196,7 @@ builtin_put :: proc(a: ^App, step: CL_Step) -> bool {
         message_set(a, ":put: nothing was piped into it")
         return false
     }
-    s := ring_focused(&a.ring)
+    s := ring_focused(a)
     if s == nil {
         message_set(a, ":put: nothing is focused")
         return false
