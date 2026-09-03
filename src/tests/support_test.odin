@@ -1,7 +1,9 @@
 package tests
 
+import "core:fmt"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 import "core:testing"
 import "core:time"
@@ -53,7 +55,7 @@ bare_app :: proc(cols := 50, rows := 4) -> (a: app.App, ok: bool) {
 listing_app :: proc(t: ^testing.T, name: string) -> (a: app.App, dir: string, ok: bool) {
     dir = scratch(t, name) or_return
     a = bare_app() or_return
-    app.ring_add(&a, app.listing_open(&a, dir))
+    app.ring_add(&a, listing_doc(&a, dir))
     app.surface_draw(&a) // the body rectangle a click is placed against
     return a, dir, true
 }
@@ -182,4 +184,86 @@ point :: proc(a: ^app.App) -> txt.Cursor {
 chord :: proc(name: string, mods: input.Mods = {}) -> input.Chord {
     code, _ := input.key_code(name)
     return {code, mods}
+}
+
+// --- a listing, as a FIXTURE ---
+//
+// The kernel opens no listing of its own any more: a directory goes to whoever registers the
+// `files` kind, exactly as a file goes to `edit`, and that is the browser plugin. What these
+// tests need is not a browser — it is A DOCUMENT THAT DECLARES `fields` AND SELECTS BY ROW, to
+// point a click, a hole or a wheel at. So the shape the kernel used to build lives here, where
+// it is a stand-in and not a second implementation of anything.
+//
+// It carries `home`'s kind so it lands in a lane and answers `[home]` rows; nothing here is
+// about which kind it is.
+// What it SHOWS. `path` is not among them: a row acts on the whole path, which the `path`
+// field carries as its VALUE over the same span the name is drawn in.
+LISTING_COLUMNS :: [?]desc.Column{{"name", 28, .Left}, {"kind", 4, .Left}, {"size", 9, .Right}}
+
+// One row per entry, tab-separated, with each column's span recorded as a field. The separator
+// is arbitrary: the descriptor says where the fields are, so nothing downstream parses this
+// text again.
+listing_doc :: proc(a: ^app.App, dir: string) -> store.Id {
+    s := &a.docs
+    columns := LISTING_COLUMNS
+    text := strings.builder_make(context.temp_allocator)
+    fields := make([dynamic]desc.Field, context.temp_allocator)
+
+    // A directory that will not read is still a listing, and it still says which one: the
+    // descriptor goes on either way, or a failed read would hand back a document of no kind and
+    // the lane it was opened in would lose it.
+    infos, err := os.read_directory_by_path(dir, -1, context.temp_allocator)
+    if err != nil {
+        strings.write_string(&text, fmt.tprintf("cannot read %s: %v", dir, err))
+        infos = nil
+    }
+    slice.sort_by(infos, proc(a, b: os.File_Info) -> bool {return a.name < b.name})
+
+    for info, line in infos {
+        if line > 0 {
+            strings.write_rune(&text, '\n')
+        }
+        is_dir := info.type == .Directory
+        full, _ := filepath.join({dir, info.name}, context.temp_allocator)
+        size := is_dir ? "" : fmt.tprintf("%d", info.size)
+        cells := [?]string{info.name, is_dir ? "dir" : "file", size}
+        at := 0
+        for cell, i in cells {
+            if i > 0 {
+                strings.write_rune(&text, '\t')
+                at += 1
+            }
+            strings.write_string(&text, cell)
+            append(&fields, desc.Field{line, columns[i].name, at, at + len(cell), ""})
+            if i == 0 {
+                // The row is a LINK: the same span the name is drawn in, acting on the whole
+                // path it stands for (desc.Field). Two fields over one span, and the one that
+                // is not drawn carries its value rather than hiding its bytes in a cell.
+                append(&fields, desc.Field{line, "path", at, at + len(cell), full})
+            }
+            at += len(cell)
+        }
+    }
+
+    id := store.store_open(s, strings.to_string(text))
+    gen, _ := store.store_gen(s, id)
+    // `surface`, not `text`: a listing's keys are a surface's, so `enter` here and `enter` in an
+    // editor are two rows rather than one mode. Rows are what it selects, which is the drag
+    // granularity as well (§5, §8). Not editable: a listing is not a text field.
+    d := desc.new_from(
+        {
+            numbers = .Absolute,
+            ctx = .Surface,
+            kind = app.KIND_HOME,
+            file = dir,
+            selection = .Line,
+            tab_width = 4,
+            columns = columns[:],
+            fields = fields[:],
+        },
+    )
+    store.store_submit(s, id, gen, nil, d)
+    desc.release(d)
+    store.store_drain(s)
+    return id
 }

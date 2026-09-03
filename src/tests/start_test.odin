@@ -193,15 +193,20 @@ a_quiet_start_has_no_home_page :: proc(t: ^testing.T) {
 // format to version. Off unless config.conf says otherwise.
 @(test)
 a_session_restores_the_ring :: proc(t: ^testing.T) {
-    home, made := scratch(t, "oket-start-session")
-    if !made {
+    // The browser, because a session is a list of `:open` lines and a DIRECTORY is the `files`
+    // kind's — there is no listing of the kernel's own to restore into. Its home is the session
+    // home, so both Apps below find the same plugin beside the same config.
+    a, ok := plug_app(t, "oket-start-session", "plugins/browser")
+    if !testing.expect(t, ok, "no App") {
         return
     }
+    home := strings.clone(a.home, context.temp_allocator)
     one, _ := filepath.join({home, "one"}, context.temp_allocator)
     two, _ := filepath.join({home, "two"}, context.temp_allocator)
     for dir in ([?]string{one, two}) {
         if err := os.make_directory(dir); err != nil {
             testing.expectf(t, false, "cannot make %s: %v", dir, err)
+            close_plug_app(&a)
             return
         }
     }
@@ -211,11 +216,8 @@ a_session_restores_the_ring :: proc(t: ^testing.T) {
                                               transmute([]u8)string("[session]\nrestore = on\n")),
                          nil)
 
-    a, ok := bare_app()
-    if !testing.expect(t, ok, "no App") {
-        return
-    }
-    a.home = strings.clone(home)
+    app.plug_init(&a)
+    testing.expect(t, app.plug_load(&a, app.plug_path(&a, "browser")), a.message)
     app.config_load(&a)
     testing.expect(t, a.config.restore, "config.conf said on and the App read off")
 
@@ -230,6 +232,8 @@ a_session_restores_the_ring :: proc(t: ^testing.T) {
     }
     defer close_plug_app(&b)
     b.home = strings.clone(home)
+    app.plug_init(&b)
+    testing.expect(t, app.plug_load(&b, app.plug_path(&b, "browser")), b.message)
     app.config_load(&b)
     testing.expect(t, app.session_restore(&b), "the session restored nothing")
     // Both slots came back, and the one that was focused is the one you come back to.
@@ -278,7 +282,7 @@ a_session_is_not_written_unless_it_is_asked_for :: proc(t: ^testing.T) {
     app.config_load(&a)
     testing.expect(t, !a.config.restore, "the session was on with no config.conf at all")
 
-    app.ring_add(&a, app.listing_open(&a, home))
+    app.ring_add(&a, listing_doc(&a, home))
     app.session_save(&a)
     session, _ := filepath.join({home, app.SESSION_NAME}, context.temp_allocator)
     testing.expect(t, !os.exists(session), "a session file was written unasked")

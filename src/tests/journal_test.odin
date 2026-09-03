@@ -158,7 +158,7 @@ only_editable_files_are_journaled :: proc(t: ^testing.T) {
     a.home = strings.clone(home)
 
     file, _ := filepath.join({home, "alpha.txt"}, context.temp_allocator)
-    app.ring_add(&a, app.listing_open(&a, home)) // a file, and not editable
+    app.ring_add(&a, listing_doc(&a, home)) // a file, and not editable
     editable := scratch_doc(&a, file, "ab")
     nameless := scratch_doc(&a, "", "cd") // editable, and no file to recover into
     app.docs_settle(&a)

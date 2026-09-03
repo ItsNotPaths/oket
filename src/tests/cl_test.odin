@@ -5,6 +5,8 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import "core:testing"
+import "../store"
+import "../txt"
 import app "../oket"
 
 // The rest of the gate for build order stage 5: the command line, and `exec` / `stage` reaching
@@ -94,22 +96,34 @@ enter_submits_and_the_arrows_walk_history :: proc(t: ^testing.T) {
 // value, which is what replaces two code paths in a plugin (§8).
 @(test)
 exec_runs_a_bind_line_and_stage_aims_it :: proc(t: ^testing.T) {
-    a, dir, ok := listing_app(t, "oket-cl-bind")
+    // The browser, because a DIRECTORY is what `:open` hands to the `files` kind and there is no
+    // listing of the kernel's own behind it any more. What is under test is the aiming; the
+    // plugin is here so the line at the end of it opens something.
+    a, ok := plug_app(t, "oket-cl-bind", "plugins/browser")
     if !ok {
         return
     }
-    defer close_app(&a)
+    defer close_plug_app(&a)
+    app.plug_init(&a)
+    if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "browser")), a.message) {
+        return
+    }
+    dir := a.home
+    sub, _ := filepath.join({dir, "sub"}, context.temp_allocator)
+    os.make_directory(sub)
+    id, opened := app.files_open(&a, dir)
+    if !testing.expect(t, opened, a.message) {
+        return
+    }
+    app.ring_add(&a, id)
+    app.surface_draw(&a)
 
     // The chord is spelled PHYSICALLY: a layout glyph needs the scancode base input_init sets,
     // and a test has no window to set it from.
     app.binds_parse(&a, "[files]\nenter = stage :open <path>\n", "binds.conf")
-    // A directory, because `:open` hands a FILE to the editor plugin and this test loads none:
-    // what is under test is the aiming, not what opens at the end of it.
-    sub, _ := filepath.join({dir, "sub"}, context.temp_allocator)
-    os.make_directory(sub)
-    app.ring_add(&a, app.listing_open(&a, dir))
-    app.surface_draw(&a)
-    app.point_place(&a, 2, 2) // the sub row, under the two files
+    // Row 2: the root, then its directories in name order (`plugins`, `sub`), then its files.
+    txt.doc_set_head(store.store_doc(&a.docs, id), {2, 0}, false)
+    app.point_sync(&a)
 
     // stage: the expanded line is sitting in the command line, unrun and editable.
     app.handle_chord(&a, chord("RTRN"))
@@ -145,7 +159,7 @@ a_hole_value_cannot_break_out_of_its_line :: proc(t: ^testing.T) {
         return
     }
     defer close_app(&a)
-    app.ring_add(&a, app.listing_open(&a, dir))
+    app.ring_add(&a, listing_doc(&a, dir))
     app.surface_draw(&a)
     app.point_place(&a, 2, 0) // the row whose name holds the operator
 
@@ -173,7 +187,7 @@ a_hole_that_cannot_be_filled_says_so :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    app.binds_parse(&a, "[files]\n@AC03 = exec :open <nothing>\n", "binds.conf")
+    app.binds_parse(&a, "[home]\n@AC03 = exec :open <nothing>\n", "binds.conf")
     app.handle_chord(&a, chord("AC03")) // the d position
 
     testing.expect(t, !app.cl_active(&a), "the line never ran")

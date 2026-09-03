@@ -134,7 +134,7 @@ put_needs_something_piped_into_it :: proc(t: ^testing.T) {
     testing.expect_value(t, a.message, ":put: nothing was piped into it")
 
     // And a listing does not take typing, so it refuses whatever the pipe carried.
-    app.ring_add(&a, app.listing_open(&a, "."))
+    app.ring_add(&a, listing_doc(&a, "."))
     run_line(&a, "echo spam | :put")
     testing.expect_value(t, a.message, ":put: this document does not take typing")
 }

@@ -31,19 +31,19 @@ alt_n_addresses_the_lane_you_are_in :: proc(t: ^testing.T) {
 
     // A document of another kind opens in its own lane, at slot 1 of it: the open IS the focus
     // change, so you always see where it went.
-    app.ring_add(&a, app.listing_open(&a, "."))
+    app.ring_add(&a, listing_doc(&a, "."))
     testing.expect_value(t, a.ring.focused, 1)
-    testing.expect_value(t, app.kind_name(&a, app.doc_kind(&a, app.ring_focused(&a.ring).doc)), "files")
+    testing.expect_value(t, app.kind_name(&a, app.doc_kind(&a, app.ring_focused(&a.ring).doc)), "home")
 
-    // alt+1 in the files lane is the listing, not the first text document.
+    // alt+1 in that lane is the listing, not the first text document.
     app.handle_chord(&a, alt("AE01"))
     testing.expect_value(t, a.ring.focused, 1)
-    testing.expect_value(t, app.kind_name(&a, app.doc_kind(&a, app.ring_focused(&a.ring).doc)), "files")
+    testing.expect_value(t, app.kind_name(&a, app.doc_kind(&a, app.ring_focused(&a.ring).doc)), "home")
 
-    // And alt+2 there opens a SECOND listing rather than reaching the text lane's slot 2.
+    // And alt+2 there opens a SECOND one rather than reaching the text lane's slot 2.
     app.handle_chord(&a, alt("AE02"))
     testing.expect_value(t, a.ring.focused, 2)
-    testing.expect_value(t, app.kind_name(&a, app.doc_kind(&a, app.ring_focused(&a.ring).doc)), "files")
+    testing.expect_value(t, app.kind_name(&a, app.doc_kind(&a, app.ring_focused(&a.ring).doc)), "home")
 }
 
 // Numbered slots exist for muscle memory, and renumbering destroys the one thing they are for.
@@ -92,7 +92,7 @@ the_alternate_crosses_lanes_and_the_shift_one_does_not :: proc(t: ^testing.T) {
 
     app.ring_add(&a, scratch_doc(&a, "a", "a"))
     app.ring_add(&a, scratch_doc(&a, "b", "b"))
-    app.ring_add(&a, app.listing_open(&a, "."))
+    app.ring_add(&a, listing_doc(&a, "."))
 
     // alt+` goes back to the text lane's slot 2, across the lane boundary.
     app.handle_chord(&a, alt("TLDE"))
@@ -144,22 +144,24 @@ a_default_row_switches_lanes_by_kind_name :: proc(t: ^testing.T) {
 
     app.ring_add(&a, scratch_doc(&a, "a", "a"))
 
-    // alt+f opens the files lane even though nothing has been in it: a lane with nothing in it
-    // still opens, which is what makes the chord useful before the first listing.
-    app.handle_chord(&a, alt("AC04"))
-    listing := app.ring_focused(&a.ring).doc
-    testing.expect_value(t, app.kind_name(&a, app.doc_kind(&a, listing)), "files")
+    // alt+t opens the terminal lane even though nothing has been in it: a lane with nothing in
+    // it still opens, which is what makes the chord useful before the first session. A KERNEL
+    // kind, because `:ring edit` and `:ring files` name kinds a plugin registers and this test
+    // loads none — the row is the same shape either way.
+    app.handle_chord(&a, alt("AD05"))
+    session := app.ring_focused(&a.ring).doc
+    testing.expect_value(t, app.kind_name(&a, app.doc_kind(&a, session)), "term")
 
     app.handle_chord(&a, alt("TLDE")) // alt+`, back to the document we came from
     testing.expect_value(t, app.doc_title(&a, app.ring_focused(&a.ring).doc), "a")
 
-    // And back again, to where that lane was LEFT rather than to a second fresh listing.
-    app.handle_chord(&a, alt("AC04"))
-    testing.expect_value(t, app.ring_focused(&a.ring).doc, listing)
+    // And back again, to where that lane was LEFT rather than to a second fresh session.
+    app.handle_chord(&a, alt("AD05"))
+    testing.expect_value(t, app.ring_focused(&a.ring).doc, session)
 }
 
-// A kind is the narrow tier of the bind table: `[files]` beats `[surface]` where it applies,
-// which is how one chord means one thing in a listing and another in the editor.
+// A kind is the narrow tier of the bind table: `[home]` beats `[surface]` where it applies,
+// which is how one chord means one thing on the home page and another in a listing.
 @(test)
 a_kind_section_narrows_over_its_context :: proc(t: ^testing.T) {
     a, ok := bare_app()
@@ -168,13 +170,13 @@ a_kind_section_narrows_over_its_context :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    app.binds_parse(&a, "[surface]\n@AC03 = exec :ls\n[files]\n@AC03 = exec :open <path>\n",
+    app.binds_parse(&a, "[surface]\n@AC03 = exec :ls\n[home]\n@AC03 = exec :open <path>\n",
                     "binds.conf")
     answer := input.describe_chord(a.binds[:], chord("AC03"), .Surface, nil, app.names(&a),
-                                   app.KIND_FILES)
+                                   app.KIND_HOME)
     defer delete(answer)
     testing.expect(t, strings.contains(answer, ":open <path>"), answer)
-    testing.expect(t, strings.contains(answer, "[files,"), answer)
+    testing.expect(t, strings.contains(answer, "[home,"), answer)
 
     // The wider row still answers for a surface that is not this kind.
     wide := input.describe_chord(a.binds[:], chord("AC03"), .Surface, nil)
@@ -193,7 +195,7 @@ closing_the_last_slot_leaves_the_lane :: proc(t: ^testing.T) {
     defer close_app(&a)
 
     app.ring_add(&a, scratch_doc(&a, "a", "a"))
-    app.ring_add(&a, app.listing_open(&a, "."))
+    app.ring_add(&a, listing_doc(&a, "."))
 
     app.handle_chord(&a, alt("AD01")) // the files lane empties; focus crosses to the text lane
     testing.expect_value(t, app.doc_title(&a, app.ring_focused(&a.ring).doc), "a")
