@@ -136,6 +136,27 @@ The name is what an extension selects, and the extension IS the name unless the 
 better: `.rs` wants `rust`, `.json` wants `json`. A language nobody listed works as soon as its
 grammar is built under the name of its own extension.
 
+## Subprocesses and watched files
+
+Slow work is a kernel job, not a plugin thread. A plugin asks for a child process or a watched
+path, and the answer arrives as an ordinary event on the main thread:
+
+```c
+oket_io server = api->io_spawn(api, self, doc, argv, nargv, NULL, 0);
+api->io_write(api, self, server, request, len);   /* queued; a full pipe blocks nobody */
+oket_io w = api->io_watch(api, self, doc, path, path_len);
+```
+
+One kernel thread does the waiting for every plugin — one `poll` over every child's pipes and
+one inotify descriptor — and a frame's worth of output is handed over at the same point in the
+frame every other write lands at. A language server, a formatter, a linter and a file watch all
+ride that, and none of them is a thread a plugin can see. The child's stderr is inherited rather
+than captured: merging it into stdout would corrupt a framed protocol, and a shell redirect
+already captures it.
+
+A watch names a file and holds its DIRECTORY, so a save by rename is reported rather than
+missed — which is how most programs write a file.
+
 ## Editing
 
 The editor is a plugin, and the kernel has no text kind of its own. `:open` on a regular file
@@ -148,7 +169,10 @@ loads at startup like any other.
 
 It owns what is genuinely an editor's: reading the file, `:w`, what a typed rune means, and the
 verbs that are policy rather than storage, a newline that keeps the indent, a Tab that lands
-on the next stop. Motion, selection, the viewport, undo and the plain delete verbs are the
+on the next stop. It watches the file it opened, so a checkout or a formatter that rewrites it
+underneath is taken back into the buffer — only the changed part, so the carets stay where they
+were sitting, and only while you have no unsaved edits of your own. If you do, it says so and
+changes nothing. Motion, selection, the viewport, undo and the plain delete verbs are the
 kernel's, for every document. Swap in your own by registering the same kind.
 
 ## Build
