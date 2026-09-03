@@ -26,9 +26,13 @@
  *     type             filters, by name or by whole extension
  *     backspace, esc   one rune off it, or all of it
  */
+/* clock_gettime: stage.sh builds at -std=c11, which hides POSIX by default. */
+#define _POSIX_C_SOURCE 200809L
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "oket_helpers.h"
 
@@ -43,10 +47,14 @@
  * lets a finished build rewrite the ones that are open. */
 #define MAX_LISTS 8
 
-/* The bar, in cells, and how many frames one cell of it lasts. */
+/* The bar, in cells, the lit run that crosses it, and how long one cell of travel takes. The
+ * run LEAVES at the right before it arrives again at the left: a block wrapped around both
+ * edges at once reads as two of them, bouncing. `travel` counts only the positions where some
+ * of the run is on screen, so neither end of the cycle is a bar with nothing lit in it. */
 #define BAR_W 23
-#define BAR_LIT 7
-#define BAR_RATE 3
+#define BAR_LIT 6
+#define BAR_TRAVEL (BAR_W + BAR_LIT - 1)
+#define BAR_MS 45
 
 static oket_kind GRAMMARS;
 
@@ -136,18 +144,31 @@ enum { BUILD_OFF = 0, BUILD_RUNNING, BUILD_DONE, BUILD_FAILED };
 static struct {
     int state;
     int at; /* the row it is on, or -1: never a row while the state is BUILD_OFF */
-    unsigned frame;
-} build = {BUILD_OFF, -1, 0};
+    struct timespec start;
+} build = {BUILD_OFF, -1, {0, 0}};
+
+/* A WALL CLOCK and not a frame count. The kernel polls rather than waits while anything is
+ * latched, so how often this is reached is the machine's answer and not a rate: a bar stepped
+ * per frame runs at whatever the display and the GPU allow. */
+static unsigned build_ms(void) {
+    struct timespec now;
+    long long ms;
+
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    ms = (long long)(now.tv_sec - build.start.tv_sec) * 1000 +
+         (now.tv_nsec - build.start.tv_nsec) / 1000000;
+    return ms > 0 ? (unsigned)ms : 0;
+}
 
 /* An INDETERMINATE bar: nothing here knows how far a clone or a compile has got, so what moves
  * is a lit run and not a fill. A fill that jumped back to nothing at the end would be a claim
  * about progress that this side of the chain cannot make. */
-static void bar_text(char *out, size_t cap) {
-    int head = (int)((build.frame / BAR_RATE) % BAR_W), i;
+static void bar_text(char *out, size_t cap, unsigned ms) {
+    int head = 1 + (int)((ms / BAR_MS) % BAR_TRAVEL), i;
     size_t n = 0;
 
     for (i = 0; i < BAR_W && n + 4 <= cap; i++) {
-        const char *cell = (i - head + BAR_W) % BAR_W < BAR_LIT ? "█" : "░";
+        const char *cell = i < head && i >= head - BAR_LIT ? "█" : "░";
 
         memcpy(out + n, cell, 3);
         n += 3;
@@ -166,8 +187,12 @@ static void row_tail(int idx, char *out, size_t cap) {
         return;
     }
     if (build.state == BUILD_RUNNING) {
-        bar_text(bar, sizeof bar);
-        snprintf(out, cap, "%s  building", bar);
+        unsigned ms = build_ms();
+
+        /* The seconds are the only honest number here, and they are what says a clone that
+         * fetches nothing for a minute is slow rather than hung. */
+        bar_text(bar, sizeof bar, ms);
+        snprintf(out, cap, "%s  building %us", bar, ms / 1000);
         return;
     }
     snprintf(out, cap, "%s   %s", OKET_GRAMMARS[idx].exts,
@@ -180,6 +205,7 @@ typedef struct {
     oket_doc doc;
     char filter[FILTER_CAP];
     size_t nfilter;
+    unsigned drawn; /* the bar step this list last published */
 } list;
 
 static list *lists[MAX_LISTS];
@@ -337,7 +363,8 @@ void grammars_done(const oket_api *api, oket_self self, const char *lang, int in
  * latched, so without this the row would sit still for the whole of a build: a shell step
  * finishing is the only other thing that would wake it, and that is the end, not the middle. */
 int grammars_tick(const oket_api *api, oket_self self, const oket_at *at) {
-    list *l = at->inst, *clock = NULL;
+    list *l = at->inst;
+    unsigned step;
     int i, mine = 0;
 
     if (build.state != BUILD_RUNNING || l == NULL) {
@@ -345,18 +372,16 @@ int grammars_tick(const oket_api *api, oket_self self, const oket_at *at) {
     }
     for (i = 0; i < MAX_LISTS; i++) {
         mine |= lists[i] == l;
-        if (clock == NULL) {
-            clock = lists[i]; /* the first open list is the clock: one tick a frame, not one a list */
-        }
     }
     if (!mine) {
         return 0;
     }
-    if (l == clock) {
-        build.frame++;
-        if (build.frame % BAR_RATE == 0) {
-            repaint(api, self);
-        }
+    /* Redrawn when the bar moved and not when the frame did: the clock is the same for every
+     * list, so each one reaches the same step on its own and no two of them race it. */
+    step = build_ms() / BAR_MS;
+    if (step != l->drawn) {
+        l->drawn = step;
+        publish(api, self, l);
     }
     return 1;
 }
@@ -474,7 +499,7 @@ static int32_t build_cmd(const oket_api *api, oket_self self, const oket_at *at,
     }
     build.state = BUILD_RUNNING;
     build.at = idx;
-    build.frame = 0;
+    clock_gettime(CLOCK_MONOTONIC, &build.start);
     repaint(api, self);
     /* A write of your own is not reported back to you, so the publish above is the one thing
      * that cannot ask for the frame after it. The relatch can: the list arrives again next
