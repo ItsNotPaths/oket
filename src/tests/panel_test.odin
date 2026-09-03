@@ -1,17 +1,21 @@
 package tests
 
+import "core:fmt"
+import "core:path/filepath"
 import "core:strings"
 import "core:testing"
 import "../gfx"
 import app "../oket"
 
-// The gates for PANELS.md stages 1 and 2. Stage 1: the frame is two grids, not one — the chrome
-// is the screen lattice and carries the bar, the panel is the window onto a document and carries
-// nothing else. Stage 2: the panel is the UNIT — it holds the cursor into the ring, the rectangle
-// a click is placed against and the hover, and a cell is its cell before it is a number.
+// The gates for PANELS.md stages 1, 2 and 3. Stage 1: the frame is two grids, not one — the
+// chrome is the screen lattice and carries the bar, the panel is the window onto a document and
+// carries nothing else. Stage 2: the panel is the UNIT — it holds the cursor into the ring, the
+// rectangle a click is placed against and the hover, and a cell is its cell before it is a
+// number. Stage 3 is the first one you can see: a strip longer than one, gaps, widths and a
+// camera.
 //
-// Nothing on screen moves in either, so what these assert is which grid a row landed on and
-// which structure a number is read off.
+// A cell is one pixel in these, because bare_app leaves surface_fit its default: the strip is
+// pixels and the grids are cells, and at 1:1 the two read as the same number.
 
 @(test)
 the_panel_is_the_fit_without_the_bar :: proc(t: ^testing.T) {
@@ -175,4 +179,298 @@ hover_belongs_to_the_panel_under_the_pointer :: proc(t: ^testing.T) {
     app.hover_update(&a, 0, 2, 1)
     app.hover_update(&a, -1, 2, 3) // the bar's row
     testing.expect(t, !app.panel_focused(&a).hover.on, "the pointer left the strip and the underline stayed")
+}
+
+// --- stage 3: more than one panel ---
+
+// A new panel stands on NOTHING (§2: a live slot is in at most one panel), and it takes the
+// lane it was opened from, so `alt+N` there addresses the numbers you were just looking at.
+@(test)
+a_new_panel_stands_on_nothing_in_the_lane_it_came_from :: proc(t: ^testing.T) {
+    a, _, ok := listing_app(t, "oket-panel-open")
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    lane := app.ring_lane(&a)
+    app.panel_open(&a)
+
+    testing.expect_value(t, len(a.panels), 2)
+    testing.expect_value(t, a.focus, 1)
+    testing.expect_value(t, app.ring_lane(&a), lane)
+    testing.expect_value(t, app.ring_slot(&a), 0)
+    testing.expect(t, app.ring_focused(&a) == nil, "a fresh panel took a document off another one")
+}
+
+// The two axes do not interfere (§3): walking the strip changes which panel has focus and
+// nothing about which slot holds what. Clamped at both ends, because a strip is not a carousel.
+@(test)
+walking_the_strip_moves_no_document :: proc(t: ^testing.T) {
+    a, dir, ok := listing_app(t, "oket-panel-walk")
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    first := app.ring_focused(&a).doc
+    app.panel_open(&a)
+    app.ring_add(&a, listing_doc(&a, dir))
+    second := app.ring_focused(&a).doc
+
+    app.panel_step(&a, -1)
+    testing.expect_value(t, a.focus, 0)
+    testing.expect_value(t, app.ring_focused(&a).doc, first)
+    app.panel_step(&a, -1) // the left end
+    testing.expect_value(t, a.focus, 0)
+
+    app.panel_step(&a, +1)
+    testing.expect_value(t, app.ring_focused(&a).doc, second)
+    app.panel_step(&a, +1) // the right end
+    testing.expect_value(t, a.focus, 1)
+}
+
+// The viewport lives on the SLOT, so two panels showing one would fight over it (§2). Asking for
+// a slot another panel is standing on swaps the two rather than refusing: what `alt+N` promised
+// is that the focused panel's content changes, and it does.
+@(test)
+two_panels_never_stand_on_one_slot :: proc(t: ^testing.T) {
+    a, dir, ok := listing_app(t, "oket-panel-swap")
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    first := app.ring_focused(&a).doc
+    app.panel_open(&a)
+    app.ring_add(&a, listing_doc(&a, dir))
+    second := app.ring_focused(&a).doc
+
+    testing.expect(t, app.ring_goto(&a, 1), "slot 1 refused a panel that was not standing on it")
+    testing.expect_value(t, app.ring_focused(&a).doc, first)
+    testing.expect_value(t, app.panel_get(&a, 0).at.slot, 2)
+    testing.expect_value(t, app.panel_slot(&a, app.panel_get(&a, 0)).doc, second)
+}
+
+// The panel goes, the documents stay (§3's gate). The ring renumbers nothing, and the strip
+// never empties: the last panel is a strip of length one, which is where this started.
+@(test)
+closing_a_panel_renumbers_nothing :: proc(t: ^testing.T) {
+    a, dir, ok := listing_app(t, "oket-panel-close")
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    first := app.ring_focused(&a).doc
+    app.panel_open(&a)
+    app.ring_add(&a, listing_doc(&a, dir))
+    second := app.ring_focused(&a).doc
+    lane := app.ring_lane(&a)
+
+    testing.expect(t, app.panel_close(&a), a.message)
+    testing.expect_value(t, len(a.panels), 1)
+    testing.expect_value(t, a.focus, 0)
+    testing.expect_value(t, app.ring_focused(&a).doc, first)
+    // Both slots still hold what they held, at the numbers they held it at.
+    testing.expect_value(t, app.lane_get(&a.ring, lane, 1).doc, first)
+    testing.expect_value(t, app.lane_get(&a.ring, lane, 2).doc, second)
+
+    testing.expect(t, !app.panel_close(&a), "the strip emptied itself")
+    testing.expect_value(t, len(a.panels), 1)
+}
+
+// Two widths and no more (§5), and a gap is pixels between two panels. At one pixel per cell the
+// strip's arithmetic reads in columns: two halves of a 50-column view, less half a gap each.
+@(test)
+the_size_toggle_is_the_whole_sizing_model :: proc(t: ^testing.T) {
+    a, ok := bare_app(50, 5)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+    a.config.gap = 4
+
+    app.panel_open(&a)
+    app.panel_resize(&a)
+    app.panel_step(&a, -1)
+    app.panel_resize(&a)
+
+    testing.expect_value(t, app.panel_get(&a, 0).grid.cols, 23) // 25 less half a gap
+    testing.expect_value(t, app.panel_get(&a, 1).grid.cols, 23)
+    testing.expect_value(t, a.strip.camera, f32(0)) // both halves are on screen at once
+
+    // And back to full, which is the view less the one gap it now has a neighbour across.
+    app.panel_resize(&a)
+    testing.expect_value(t, app.panel_get(&a, 0).grid.cols, 48)
+}
+
+// A click lands in the panel it was over, and the column counts from THAT panel's grid (§7).
+// The gap between them belongs to neither.
+@(test)
+a_click_lands_in_the_panel_it_was_over :: proc(t: ^testing.T) {
+    a, ok := bare_app(50, 5)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+    a.config.gap = 4
+
+    app.panel_open(&a)
+    app.panel_resize(&a)
+    app.panel_step(&a, -1)
+    app.panel_resize(&a) // two halves, 23 columns each, four pixels of air between them
+
+    pn, x, y := app.panel_hit(&a, 3, 1)
+    testing.expect_value(t, pn, 0)
+    testing.expect_value(t, x, 3)
+    testing.expect_value(t, y, 1)
+
+    pn, _, _ = app.panel_hit(&a, 24, 1) // the gap
+    testing.expect_value(t, pn, -1)
+
+    pn, x, _ = app.panel_hit(&a, 30, 1)
+    testing.expect_value(t, pn, 1)
+    testing.expect_value(t, x, 3) // its own column 3, not the screen's column 30
+}
+
+// The camera follows focus (§5), snapping while stage 6 has not landed. A panel off screen
+// scrolls into view; one already on it does not move the strip.
+@(test)
+the_camera_follows_focus :: proc(t: ^testing.T) {
+    a, ok := bare_app(50, 5)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    app.panel_open(&a) // two full-width panels: the second is a whole view to the right
+    testing.expect_value(t, a.strip.camera, f32(50))
+    pn, _, _ := app.panel_hit(&a, 10, 1)
+    testing.expect_value(t, pn, 1) // the first is off the left edge, at a negative origin
+
+    app.panel_step(&a, -1)
+    testing.expect_value(t, a.strip.camera, f32(0))
+    pn, _, _ = app.panel_hit(&a, 10, 1)
+    testing.expect_value(t, pn, 0)
+}
+
+// §3's sentence, drawn: the caret is in the focused panel and nowhere else, so which lane
+// `alt+N` counts in is on screen rather than remembered.
+@(test)
+only_the_focused_panel_draws_the_caret :: proc(t: ^testing.T) {
+    a, dir, ok := listing_app(t, "oket-panel-caret")
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    app.panel_open(&a)
+    app.ring_add(&a, listing_doc(&a, dir))
+    app.surface_draw(&a)
+
+    testing.expect(t, marked(app.panel_get(&a, 1)), "the focused panel drew no caret")
+    testing.expect(t, !marked(app.panel_get(&a, 0)), "an unfocused panel drew one")
+
+    app.panel_step(&a, -1)
+    app.surface_draw(&a)
+    testing.expect(t, marked(app.panel_get(&a, 0)), "focus moved and the caret did not")
+    testing.expect(t, !marked(app.panel_get(&a, 1)), "the caret stayed behind in the old panel")
+}
+
+// Reverse video is the caret and the selection both (view.odin), so this is what "drawn as
+// focused" means on a grid.
+@(private = "file")
+marked :: proc(p: ^app.Panel) -> bool {
+    for c in p.grid.cells {
+        if .Reverse in c.attrs {
+            return true
+        }
+    }
+    return false
+}
+
+// The gate: a browser and two editors on screen at once, `alt+N` addressing the focused panel's
+// lane, and closing a panel renumbering nothing. Three kinds of document, three panels, one
+// store, one bind table and one io thread — which is the whole of what §1 said two instances
+// could not do.
+@(test)
+a_browser_and_two_editors_at_once :: proc(t: ^testing.T) {
+    a, ok := plug_app(t, "oket-panel-gate", "plugins/browser", "plugins/edit")
+    if !ok {
+        return
+    }
+    defer close_plug_app(&a)
+    app.plug_init(&a)
+    for plugin in ([?]string{"browser", "edit"}) {
+        if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, plugin)), a.message) {
+            return
+        }
+    }
+
+    id, opened := app.files_open(&a, a.home)
+    if !testing.expect(t, opened, a.message) {
+        return
+    }
+    app.ring_add(&a, id)
+    for file in ([?]string{"alpha.txt", "beta.txt"}) {
+        path, _ := filepath.join({a.home, file}, context.temp_allocator)
+        app.panel_open(&a)
+        app.cl_exec(&a, fmt.tprintf(":open %s", path))
+    }
+    app.surface_draw(&a)
+
+    testing.expect_value(t, len(a.panels), 3)
+    kinds := [3]string{}
+    for i in 0 ..< 3 {
+        app.panel_focus(&a, i)
+        kinds[i] = app.kind_name(&a, app.doc_kind(&a, app.ring_focused(&a).doc))
+    }
+    testing.expect_value(t, kinds, [3]string{"files", "edit", "edit"})
+
+    // The lane the numbers count in is the FOCUSED panel's, and it differs across the strip.
+    app.panel_focus(&a, 0)
+    files := app.ring_lane(&a)
+    app.panel_focus(&a, 2)
+    edit := app.ring_lane(&a)
+    testing.expect(t, files != edit, "a browser and an editor landed in one lane")
+    testing.expect_value(t, app.ring_slot(&a), 2)
+
+    // alt+2 from panel 1, which is edit slot 1: slot 2 is live in panel 2, so the two swap.
+    beta := app.ring_focused(&a).doc
+    app.panel_focus(&a, 1)
+    alpha := app.ring_focused(&a).doc
+    app.handle_chord(&a, chord("AE02", {.Alt}))
+    testing.expect_value(t, app.ring_focused(&a).doc, beta)
+    app.panel_focus(&a, 2)
+    testing.expect_value(t, app.ring_focused(&a).doc, alpha)
+
+    // And the panel closes without the ring noticing: two panels, three documents, same numbers.
+    testing.expect(t, app.panel_close(&a), a.message)
+    testing.expect_value(t, len(a.panels), 2)
+    testing.expect_value(t, app.lane_get(&a.ring, edit, 1).doc, alpha)
+    testing.expect_value(t, app.lane_get(&a.ring, edit, 2).doc, beta)
+    testing.expect_value(t, app.lane_get(&a.ring, files, 1).doc, id)
+}
+
+// A click is placed against the rectangle the active document was drawn in, so the funnel has to
+// know WHOSE cells it arrived in (§7). The line is on the chrome and a document is on its panel:
+// a gap click would otherwise move a panel's caret, and a click on the open line would move
+// nothing at all.
+@(test)
+a_click_counts_from_the_grid_the_keys_are_aimed_at :: proc(t: ^testing.T) {
+    a, _, ok := listing_app(t, "oket-panel-lattice")
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    app.panel_open(&a)
+    testing.expect_value(t, app.active_panel(&a), 1)
+    app.panel_step(&a, -1)
+    testing.expect_value(t, app.active_panel(&a), 0)
+
+    app.cl_show(&a, ":")
+    testing.expect_value(t, app.active_panel(&a), -1) // the bar's row, which is no panel's
+    testing.expect_value(t, app.active_rect(&a), a.bar)
 }

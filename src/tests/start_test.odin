@@ -265,6 +265,35 @@ a_key_no_setting_owns_is_reported :: proc(t: ^testing.T) {
     testing.expect(t, a.config.restore, "the row after the typo was dropped with it")
 }
 
+// A gap the parser cannot read keeps the setting's own default, not zero: silently reading it
+// as nothing would put two documents flush against each other (config.odin).
+@(test)
+a_gap_that_does_not_parse_keeps_the_default :: proc(t: ^testing.T) {
+    home, made := scratch(t, "oket-start-gap")
+    if !made {
+        return
+    }
+    a, ok := bare_app()
+    if !testing.expect(t, ok, "no App") {
+        return
+    }
+    defer close_plug_app(&a)
+    a.home = strings.clone(home)
+    config, _ := filepath.join({home, app.CONFIG_NAME}, context.temp_allocator)
+
+    testing.expect_value(t,
+                         os.write_entire_file(config, transmute([]u8)string("[strip]\ngap = 12\n")),
+                         nil)
+    app.config_load(&a)
+    testing.expect_value(t, a.config.gap, 12)
+
+    for bad in ([?]string{"[strip]\ngap = wide\n", "[strip]\ngap = -3\n"}) {
+        testing.expect_value(t, os.write_entire_file(config, transmute([]u8)bad), nil)
+        app.config_load(&a)
+        testing.expect_value(t, a.config.gap, app.GAP_DEFAULT)
+    }
+}
+
 // Off by default: a start that reopens what you closed the hard way is worse than a start that
 // does nothing.
 @(test)
