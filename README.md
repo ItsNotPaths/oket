@@ -56,6 +56,7 @@ panel to the next. The layout is a horizontal strip you scroll, no nesting.
 | | |
 |---|---|
 | `alt+left` `alt+right` | walk the strip |
+| `alt+shift+left` `alt+shift+right` | move this panel along it |
 | `alt+p` | a panel to the right of this one, standing on nothing |
 | `alt+shift+p` | close the panel; what was in it stays in the ring |
 | `alt+w` | full width or half width, which is the whole sizing model |
@@ -82,9 +83,13 @@ takes one of each, in any order, and names a panel the strip does not have yet b
 ```
 # config.conf, beside the binary
 [strip]
-gap = 8      # pixels between two panels
+gap = 4      # pixels between two panels
+behind = 12  # percent the surface behind the panels is darkened
 tau = 90     # milliseconds the strip's motion decays by 1/e; 0 turns it off
 ```
+
+`behind` shades `Bg` rather than naming a colour, so a gap reads as depth in every theme and no
+palette grows a token for it.
 
 The strip scrolls and a panel resizes by exponential decay on a monotonic clock, so the motion
 settles in the same wall time at 60 Hz and at 144. A document lays out once, at the width the
@@ -95,15 +100,20 @@ and a shell hears one `TIOCSWINSZ`.
 
 `ctrl+enter` on a link opens it one panel to the left. To choose the panel instead, hold `tab`,
 press `enter`, steer with the side arrows and let `tab` go: the caret shows where the thing will
-land, and `esc` drops the whole gesture.
+land, and `esc` drops the whole gesture. Press `enter` again, still holding `tab`, and the strip
+grows a panel to the right of the caret to throw it into.
 
-Both are ordinary rows, and `tab+enter` is a different chord from `tab`, so an editor keeps its
-indent.
+All of them are ordinary rows, and `tab+enter` is a different chord from `tab`, so an editor
+keeps its indent. The one that makes a panel runs `:np`, which is `panel.open` under another
+name — `alt+p` does the same thing mid-gesture.
 
 ```conf
 [surface]
 ctrl+enter = exec :open <path> @-1
 tab+enter  = pick :open <path> @
+
+[pick]
+tab+enter  = exec :np
 ```
 
 ## The command line
