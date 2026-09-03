@@ -85,6 +85,21 @@ takes one of each, in any order, and names a panel the strip does not have yet b
 gap = 8      # pixels between two panels
 ```
 
+### Opening into another panel
+
+`ctrl+enter` on a link opens it one panel to the left. To choose the panel instead, hold `tab`,
+press `enter`, steer with the side arrows and let `tab` go: the caret shows where the thing will
+land, and `esc` drops the whole gesture.
+
+Both are ordinary rows, and `tab+enter` is a different chord from `tab`, so an editor keeps its
+indent.
+
+```conf
+[surface]
+ctrl+enter = exec :open <path> @-1
+tab+enter  = pick :open <path> @
+```
+
 ## The command line
 
 `alt+c` opens it, `alt+;` opens it with the `:` already typed, `alt+.` with `:ring `. A bare line goes to the shell, a
@@ -117,10 +132,12 @@ right-click = stage :open <path>
 alt+g = exec git diff -- <path> | :put
 ```
 
-A value is a verb's name, or `exec`/`stage` and a command line. `<name>` holes fill from the
-fields of the line under point, so a bind acts on document data with no callback into the
-plugin that drew it. A click is a chord like any other, and hovering underlines the field a
-bound click would act on. `f1` then any chord says what it does and where it was bound.
+A value is a verb's name, or `exec`/`stage`/`pick` and a command line. `exec` runs the line,
+`stage` puts it in the command line for aiming, and `pick` expands it now and runs it when the
+chord's held key comes up. `<name>` holes fill from the fields of the line under point, so a
+bind acts on document data with no callback into the plugin that drew it. A click is a chord
+like any other, and hovering underlines the field a bound click would act on. `f1` then any
+chord says what it does and where it was bound.
 
 A field is a named span of a line, and it may carry a VALUE that is not the text it covers.
 That is what makes a row a link: the tree draws `browser.c` and `<path>` hands on
