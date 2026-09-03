@@ -3,7 +3,6 @@ package main
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
-import "core:strconv"
 import "core:strings"
 import "../desc"
 import "../store"
@@ -57,37 +56,40 @@ cl_builtin :: proc(a: ^App, step: CL_Step) -> bool {
     return true
 }
 
-// `:open <path> [slot]`. The slot is an ARGUMENT, which is what makes the routing target
+// `:open <path> [#slot] [@panel]`. The target is an ARGUMENT, which is what makes the routing
 // typed, visible and editable before it commits (§5): `stage :open <path>` puts the line in the
 // command line and you aim it there. No routing hook, no display-buffer-alist.
+//
+// The panel is reached BEFORE the document is placed, so the open is an ordinary one from
+// there: what `@N` does is aim the keys, and the ring then answers the way it does for any
+// other panel. Which is also why the open takes focus with it — you always see where it went.
 @(private = "file")
 builtin_open :: proc(a: ^App, args: string) -> bool {
     raw, path := first_arg(args)
     rest := strings.trim_space(args[len(raw):])
     if path == "" {
-        message_set(a, ":open <path> [slot]")
+        message_set(a, USAGE_OPEN)
         return false
     }
-    slot := 0
-    if rest != "" {
-        n, ok := strconv.parse_int(rest, 10)
-        if !ok || n < 1 {
-            message_set(a, ":open: the slot is a number from 1 up")
-            return false
-        }
-        slot = n
+    target, bad, aimed := target_parse(rest)
+    if !aimed {
+        message_set(a, fmt.tprintf(":open: %s is not a slot or a panel (%s)", bad, USAGE_OPEN))
+        return false
     }
     id, ok := open_path(a, path)
     if !ok {
         return false
     }
-    if slot == 0 {
+    panel_focus(a, target_reach(a, target))
+    if target.slot == 0 {
         ring_add(a, id)
     } else {
-        ring_put(a, id, slot)
+        ring_put(a, id, target.slot)
     }
     return true
 }
+
+USAGE_OPEN :: ":open <path> [#slot] [@panel]"
 
 // A directory goes to whoever registered the `files` kind and to the kernel's own listing when
 // nobody did; a file goes to whoever registered `edit`, which is the editor plugin (§7). The
