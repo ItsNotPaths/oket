@@ -11,9 +11,11 @@ HEIGHT :: 760
 TITLE :: "Oket"
 APP_ID :: "oket" // Wayland app-id / X11 instance name
 
-// The one flag, and it is an escape hatch rather than a setting (§13, §14): a plugin bad enough
-// to get past the fault net is one you have to be able to start without.
+// Both flags are escape hatches rather than settings (§13, §14). `--no-plugins` is for a plugin
+// bad enough to get past the fault net; `--safe` is that plus the session, for the start where
+// what breaks you is the file the last one reopened.
 NO_PLUGINS :: "--no-plugins"
+SAFE :: "--safe"
 
 flag :: proc(name: string) -> bool {
     for arg in os.args[1:] {
@@ -93,13 +95,24 @@ main :: proc() {
     // by itself.
     fault_install()
     fault_watchdog_start()
-    if !flag(NO_PLUGINS) {
+    // Before autoload, and it reads the file before it opens it for the handler: a plugin an
+    // earlier start died IN is held back, and the handler gets somewhere to name the next one
+    // (§13).
+    safe := flag(SAFE)
+    quarantine_open(&a)
+    if !safe && !flag(NO_PLUGINS) {
         plug_autoload(&a)
     }
 
-    // The ring opens on a listing of the working directory. The descriptor is what makes it
-    // renderable without a kind of its own in here.
-    ring_add(&a, listing_open(&a, "."))
+    // The ring, in the order the answers get worse: what the last session had, then the news
+    // this start has to deliver, then a listing of the working directory.
+    if safe || !session_restore(&a) {
+        if !safe && home_news(&a) {
+            ring_add(&a, home_open(&a))
+        } else {
+            ring_add(&a, listing_open(&a, "."))
+        }
+    }
 
     for !glfw.WindowShouldClose(a.window) && !a.quit {
         w, h := glfw.GetFramebufferSize(a.window)
@@ -131,4 +144,5 @@ main :: proc() {
             glfw.WaitEvents() // idle until a key, a click, a resize, or a session's reader
         }
     }
+    session_save(&a) // before app_destroy, which is where the ring it writes down goes
 }
