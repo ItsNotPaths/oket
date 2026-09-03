@@ -16,15 +16,15 @@ LISTING :: "src\tdir\t4\nmain.odin\tfile\t512\nREADME.md\tfile\t1024"
 // name / kind / size, as the byte spans they occupy in each line of LISTING.
 @(private = "file")
 LISTING_FIELDS :: [?]desc.Field {
-    {0, "name", 0, 3},
-    {0, "kind", 4, 7},
-    {0, "size", 8, 9},
-    {1, "name", 0, 9},
-    {1, "kind", 10, 14},
-    {1, "size", 15, 18},
-    {2, "name", 0, 9},
-    {2, "kind", 10, 14},
-    {2, "size", 15, 19},
+    {0, "name", 0, 3, ""},
+    {0, "kind", 4, 7, ""},
+    {0, "size", 8, 9, ""},
+    {1, "name", 0, 9, ""},
+    {1, "kind", 10, 14, ""},
+    {1, "size", 15, 18, ""},
+    {2, "name", 0, 9, ""},
+    {2, "kind", 10, 14, ""},
+    {2, "size", 15, 19, ""},
 }
 
 @(private = "file")
@@ -194,4 +194,53 @@ locate_maps_cells_through_tabs :: proc(t: ^testing.T) {
 
     _, _, hit := view.locate(&snap.text, dp, {}, 0, 0, 10, 2, 10, 0)
     testing.expect(t, !hit, "a cell right of the rectangle is not in the document")
+}
+
+// The selected row is reverse video ACROSS THE ROW, its own text included. `run` writes whole
+// cells, attributes and all, so a mark laid down before the columns are drawn survives only
+// where no column reached — a row lit everywhere except the letters, which is what this catches.
+@(test)
+a_selected_row_is_marked_over_its_own_text :: proc(t: ^testing.T) {
+    s: store.Store
+    defer store.store_destroy(&s)
+    columns := LISTING_COLUMNS
+    fields := LISTING_FIELDS
+    snap, dp := opened(&s, LISTING, {columns = columns[:], fields = fields[:], selection = .Line})
+    defer txt.snapshot_release(snap)
+    defer desc.release(dp)
+
+    g: gfx.Grid
+    testing.expect(t, gfx.grid_init(&g, 30, 3))
+    defer gfx.grid_destroy(&g)
+    view.draw(&g, gfx.DEFAULT_THEME, &snap.text, dp, {point = {anchor = {1, 0}, head = {1, 0}}}, 0, 0, 30, 3)
+
+    lit, dark := 0, 0
+    for x in 0 ..< 30 {
+        if .Reverse in gfx.grid_at(&g, x, 1).attrs {
+            lit += 1
+        }
+        if .Reverse in gfx.grid_at(&g, x, 0).attrs {
+            dark += 1
+        }
+    }
+    testing.expect_value(t, lit, 30) // the whole row, not the gaps between its columns
+    testing.expect_value(t, dark, 0) // and only the row point is on
+}
+
+// A field's span is what it DRAWS and its value is what it ACTS on (desc.Field). A row showing
+// a bare name while `<path>` hands on the whole of where it lives is the one thing a span alone
+// could not say, and it is what makes a line a link.
+@(test)
+a_field_with_a_value_answers_with_it :: proc(t: ^testing.T) {
+    s: store.Store
+    defer store.store_destroy(&s)
+    fields := [?]desc.Field{{0, "name", 0, 3, ""}, {0, "path", 0, 3, "/tmp/src"}}
+    snap, dp := opened(&s, "src", {fields = fields[:]})
+    defer txt.snapshot_release(snap)
+    defer desc.release(dp)
+
+    shown, _ := view.field_text(&snap.text, dp, 0, "name")
+    testing.expect_value(t, shown, "src")
+    acted, _ := view.field_text(&snap.text, dp, 0, "path")
+    testing.expect_value(t, acted, "/tmp/src")
 }

@@ -282,3 +282,166 @@ store_check_follows_a_generation_into_a_reused_slot :: proc(t: ^testing.T) {
     store.store_doc(&s, again).magic = 0
     testing.expect(t, !store.store_check(&s), "a smashed header passed")
 }
+
+// FIELDS RIDE THE TEXT (fields.odin). A span is where a link was drawn, so text moving under it
+// has to take it along — otherwise a document that is both a listing and a text field is only
+// true for the generation it was published at, and one typed character makes every link on the
+// line name bytes that have moved.
+@(test)
+a_field_follows_the_text_it_was_measured_over :: proc(t: ^testing.T) {
+    s: store.Store
+    defer store.store_destroy(&s)
+    id := store.store_open(&s, "top.txt\nsecond")
+    gen, _ := store.store_gen(&s, id)
+    fields := [?]desc.Field {
+        {0, "name", 0, 7, ""},
+        {0, "path", 0, 7, "/tmp/top.txt"},
+        {1, "name", 0, 6, ""},
+    }
+    d := desc.new_from({fields = fields[:]})
+    store.store_submit(&s, id, gen, nil, d)
+    desc.release(d)
+    store.store_drain(&s)
+
+    // Typed at the head of the first row: the span grows to hold what was typed — text at
+    // either edge of a link belongs to the link — and the value it points at does not move.
+    txt.doc_reset_cursor(store.store_doc(&s, id), {0, 0})
+    txt.doc_insert_text(store.store_doc(&s, id), "new_")
+    read := store.store_descriptor(&s, id)
+    defer desc.release(read)
+    lo, hi, ok := desc.field_span(read, 0, "name")
+    testing.expect(t, ok, "the field went away")
+    testing.expect_value(t, lo, 0)
+    testing.expect_value(t, hi, 11)
+    path, _ := desc.field_of(read, 0, "path")
+    testing.expect_value(t, path.value, "/tmp/top.txt")
+    // The row below it did not move sideways, and it is still on its own line.
+    below, _ := desc.field_of(read, 1, "name")
+    testing.expect_value(t, below.hi, 6)
+}
+
+// A link whose text is gone is GONE. Leaving it would be a span pointing at bytes it no longer
+// covers, and a `<path>` that resolves to the wrong row is worse than one that reports.
+@(test)
+a_field_whose_text_is_deleted_is_dropped :: proc(t: ^testing.T) {
+    s: store.Store
+    defer store.store_destroy(&s)
+    id := store.store_open(&s, "top.txt")
+    gen, _ := store.store_gen(&s, id)
+    fields := [?]desc.Field{{0, "path", 0, 7, "/tmp/top.txt"}}
+    d := desc.new_from({fields = fields[:]})
+    store.store_submit(&s, id, gen, nil, d)
+    desc.release(d)
+    store.store_drain(&s)
+
+    txt.doc_apply(store.store_doc(&s, id), {txt.Edit{lo = 0, hi = 7, text = ""}})
+    read := store.store_descriptor(&s, id)
+    defer desc.release(read)
+    _, _, ok := desc.field_span(read, 0, "path")
+    testing.expect(t, !ok, "a link survived the text it was drawn over")
+}
+
+// A submit that says REGEN is DERIVED text: the carets stay on their rows and the undo log
+// goes. Both rules are the one word — there is nothing of the user's in derived text — and
+// without the first a tree cannot be walked at all, because every expand would throw point to
+// the end of the document.
+@(test)
+a_regeneration_keeps_the_carets_and_forgets_the_undo :: proc(t: ^testing.T) {
+    s: store.Store
+    defer store.store_destroy(&s)
+    id := store.store_open(&s, "one\ntwo")
+    gen, _ := store.store_gen(&s, id)
+    d := desc.new_from({editable = true})
+    store.store_submit(&s, id, gen, nil, d)
+    desc.release(d)
+    store.store_drain(&s)
+    doc := store.store_doc(&s, id)
+    txt.doc_reset_cursor(doc, {1, 1})
+
+    gen, _ = store.store_gen(&s, id)
+    store.store_submit(&s, id, gen, {txt.Edit{lo = 0, hi = txt.doc_len(doc), text = "one\nsub\ntwo"}},
+                       nil, nil, regen = true)
+    store.store_drain(&s)
+    testing.expect_value(t, doc.cursors[0].head, txt.Pos{1, 1}) // where navigation left it
+    testing.expect(t, !txt.doc_undo(doc), "a regeneration left an undo that walks into old rows")
+
+    // The same submit without the word: a keystroke's splice, and its caret follows it.
+    gen, _ = store.store_gen(&s, id)
+    store.store_submit(&s, id, gen, {txt.Edit{lo = 0, hi = 0, text = "x"}})
+    store.store_drain(&s)
+    testing.expect_value(t, doc.cursors[0].head, txt.Pos{0, 1})
+}
+
+// A descriptor submitted WITH its edits is written against the text those edits make, so its
+// spans land already true. Shifting them again through the transaction's own splice is the
+// double-fold this catches.
+@(test)
+a_descriptor_published_with_its_splice_is_not_shifted_by_it :: proc(t: ^testing.T) {
+    s: store.Store
+    defer store.store_destroy(&s)
+    id := store.store_open(&s, "old")
+    gen, _ := store.store_gen(&s, id)
+    fields := [?]desc.Field{{0, "name", 0, 13, ""}}
+    d := desc.new_from({fields = fields[:]})
+    store.store_submit(&s, id, gen, {txt.Edit{lo = 0, hi = 3, text = "brand-new.txt"}}, d)
+    desc.release(d)
+    store.store_drain(&s)
+
+    read := store.store_descriptor(&s, id)
+    defer desc.release(read)
+    lo, hi, ok := desc.field_span(read, 0, "name")
+    testing.expect(t, ok, "the field went away")
+    testing.expect_value(t, lo, 0)
+    testing.expect_value(t, hi, 13)
+}
+
+// The change log is bounded, and a reader it no longer reaches back to cannot say where the
+// spans went. A link that MIGHT point at the wrong thing is worse than none: they all go, and
+// the owner republishes when it hears the generation moved.
+@(test)
+a_field_the_log_no_longer_reaches_is_dropped :: proc(t: ^testing.T) {
+    s: store.Store
+    defer store.store_destroy(&s)
+    id := store.store_open(&s, "top.txt")
+    gen, _ := store.store_gen(&s, id)
+    fields := [?]desc.Field{{0, "path", 0, 7, "/tmp/top.txt"}}
+    d := desc.new_from({fields = fields[:]})
+    store.store_submit(&s, id, gen, nil, d)
+    desc.release(d)
+    store.store_drain(&s)
+
+    for _ in 0 ..< txt.DOC_CHANGE_MAX + 1 {
+        txt.doc_apply(store.store_doc(&s, id), {txt.Edit{lo = 0, hi = 0, text = "x"}})
+    }
+    read := store.store_descriptor(&s, id)
+    defer desc.release(read)
+    _, _, ok := desc.field_span(read, 0, "path")
+    testing.expect(t, !ok, "a link outlived the log that could have placed it")
+}
+
+// A point rides the transaction it was measured against. The offset describes text a pending
+// write is about to make, so a write that loses the race takes its caret with it — otherwise the
+// caret lands in a document that write never reached, which is a jump nothing on screen explains.
+@(test)
+a_point_whose_transaction_was_dropped_does_not_land :: proc(t: ^testing.T) {
+    s: store.Store
+    defer store.store_destroy(&s)
+    id := store.store_open(&s, "one\ntwo")
+    doc := store.store_doc(&s, id)
+    gen, _ := store.store_gen(&s, id)
+    txt.doc_reset_cursor(doc, {0, 0})
+
+    // Written against `gen`, and then somebody else moves the document first.
+    store.store_submit(&s, id, gen, {txt.Edit{lo = 0, hi = 0, text = "sub\n"}})
+    store.store_point(&s, id, 6)
+    txt.doc_apply(doc, {txt.Edit{lo = 3, hi = 3, text = "!"}})
+    store.store_drain(&s)
+    // Where the foreign splice left it, and NOT the {1, 1} the dropped point asked for.
+    testing.expect_value(t, doc.cursors[0].head, txt.Pos{0, 4})
+
+    // And a bare move, with nothing pending behind it, still lands. "one!\n" is five bytes, so
+    // six is one into the line below it.
+    store.store_point(&s, id, 6)
+    store.store_drain(&s)
+    testing.expect_value(t, doc.cursors[0].head, txt.Pos{1, 1})
+}
