@@ -83,7 +83,13 @@ takes one of each, in any order, and names a panel the strip does not have yet b
 # config.conf, beside the binary
 [strip]
 gap = 8      # pixels between two panels
+tau = 90     # milliseconds the strip's motion decays by 1/e; 0 turns it off
 ```
+
+The strip scrolls and a panel resizes by exponential decay on a monotonic clock, so the motion
+settles in the same wall time at 60 Hz and at 144. A document lays out once, at the width the
+panel is arriving at, and the clip animates over it: a wrapped buffer reflows once per resize
+and a shell hears one `TIOCSWINSZ`.
 
 ### Opening into another panel
 
