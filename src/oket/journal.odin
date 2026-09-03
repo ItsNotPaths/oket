@@ -251,7 +251,7 @@ journal_startable :: proc(a: ^App, id: store.Id) -> bool {
 // filename either, so separators become underscores; the header carries the real path, and this
 // only has to be unique.
 journal_name :: proc(doc_path: string, alloc := context.temp_allocator) -> string {
-    whole := journal_abs(doc_path)
+    whole := path_abs(doc_path)
     b := strings.builder_make(alloc)
     for i in 0 ..< len(whole) {
         c := whole[i]
@@ -270,23 +270,6 @@ journal_path :: proc(a: ^App, doc_path: string) -> string {
     }
     path, _ := filepath.join({dir, journal_name(doc_path)}, context.temp_allocator)
     return path
-}
-
-// The path a journal is keyed and recovered by, against the process's own directory — which is
-// the one the document was opened from. Lexical rather than `filepath.abs`, which resolves and
-// so answers nothing for a file that does not exist yet: a buffer over a new file is exactly
-// the work most worth journaling.
-@(private = "file")
-journal_abs :: proc(path: string) -> string {
-    if filepath.is_abs(path) {
-        return path
-    }
-    cwd, err := os.get_working_directory(context.temp_allocator)
-    if err != nil {
-        return path
-    }
-    whole, _ := filepath.join({cwd, path}, context.temp_allocator)
-    return whole == "" ? path : whole
 }
 
 // The base is the document's content right now, and recovery is that plus every later splice,
@@ -312,7 +295,7 @@ journal_begin :: proc(a: ^App, id: store.Id, dir: string) {
         delete(path)
         return
     }
-    if !write_header(f, journal_abs(d.file), txt.doc_string(doc, context.temp_allocator)) {
+    if !write_header(f, path_abs(d.file), txt.doc_string(doc, context.temp_allocator)) {
         os.close(f)
         os.remove(path)
         delete(path)

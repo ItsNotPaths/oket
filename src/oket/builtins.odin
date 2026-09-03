@@ -87,8 +87,11 @@ builtin_open :: proc(a: ^App, args: string) -> bool {
     panel_focus(a, target_reach(a, target))
     if target.slot == 0 {
         ring_add(a, id)
-    } else {
-        ring_put(a, id, target.slot)
+    } else if !ring_put(a, id, target.slot) {
+        // The document was already open, so `#N` names a slot it is not in. Reported rather
+        // than obeyed: a slot is where a document went the first time, and moving it silently
+        // would leave the number you had memorised pointing at a gap.
+        message_set(a, fmt.tprintf(":open: %s is already #%d", path, ring_slot(a)))
     }
     return true
 }
@@ -104,6 +107,12 @@ open_path :: proc(a: ^App, path: string) -> (store.Id, bool) {
     if err != nil {
         message_set(a, fmt.tprintf(":open: cannot read %s: %v", path, err))
         return {}, false
+    }
+    // ONE PATH, ONE DOCUMENT. A second one over the same file is two undo stacks, two journals
+    // under one name and a save from either clobbering the other, and `./x` and `x` are the
+    // same file (path_abs) whatever the line said.
+    if id, open := ring_file(a, path_abs(path)); open {
+        return id, true
     }
     if info.type == .Directory {
         return files_open(a, path)

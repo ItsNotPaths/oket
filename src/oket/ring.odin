@@ -175,10 +175,51 @@ ring_focused :: proc(a: ^App) -> ^Slot {
     return panel_slot(a, panel_focused(a))
 }
 
+// The spot a document is standing in. A DOCUMENT IS IN AT MOST ONE SLOT — the same shape as
+// the rule that a live slot is in at most one panel (PANELS.md §2) — and this is what `ring_add`
+// and `ring_put` ask to keep that true. A second live slot on one document would give it two
+// closes, and the second would land on an id that no longer resolves.
+ring_find :: proc(a: ^App, id: store.Id) -> (Spot, bool) {
+    for l, lane in a.ring.lanes {
+        for s, i in l.slots {
+            if s.live && s.doc == id {
+                return {lane, i + 1}, true
+            }
+        }
+    }
+    if a.ring.system.live && a.ring.system.doc == id {
+        return {ring_lane(a), SLOT_SYSTEM}, true
+    }
+    return {}, false
+}
+
+// The document already open on `file`, which is what makes a second `:open` of one path a MOVE
+// rather than a second document. Two documents over one file is two undo stacks, two journals
+// under one name — journal.odin keys by the same `path_abs` — and a save from either clobbering
+// the other. Nothing is lost by refusing it: a live slot is in at most one panel anyway, so two
+// views of one file was never something the strip could show.
+ring_file :: proc(a: ^App, file: string) -> (store.Id, bool) {
+    if file == "" {
+        return {}, false // a terminal, a home page, a buffer with no path: never the same as anything
+    }
+    for l in a.ring.lanes {
+        for s in l.slots {
+            if s.live && doc_file(a, s.doc) == file {
+                return s.doc, true
+            }
+        }
+    }
+    return {}, false
+}
+
 // The lowest free gap OF THE DOCUMENT'S OWN LANE, and the open IS the focus change (§5): so
 // opening a file takes you to the text lane whatever you were looking at, and you always see
 // where it went.
 ring_add :: proc(a: ^App, id: store.Id) -> int {
+    if at, held := ring_find(a, id); held {
+        ring_move(a, at) // already in the ring: go to it, never a second slot on one document
+        return at.slot
+    }
     lane := lane_index(&a.ring, doc_kind(a, id))
     l := &a.ring.lanes[lane]
     slot := 0
@@ -199,9 +240,17 @@ ring_add :: proc(a: ^App, id: store.Id) -> int {
 
 // Aimed placement (§5: the routing target is an argument). The document lands at slot `id` of
 // its own lane exactly, growing gaps to reach it, and whatever was there is closed.
-ring_put :: proc(a: ^App, id: store.Id, slot: int) {
+//
+// A document ALREADY in the ring keeps the slot it has, and false says so for the caller to
+// report: a slot is where a document went the first time it opened, and placing it twice would
+// give one document two closes (ring_find).
+ring_put :: proc(a: ^App, id: store.Id, slot: int) -> bool {
     if slot < 1 {
-        return
+        return false
+    }
+    if at, held := ring_find(a, id); held {
+        ring_move(a, at)
+        return at.slot == slot
     }
     lane := lane_index(&a.ring, doc_kind(a, id))
     l := &a.ring.lanes[lane]
@@ -214,6 +263,7 @@ ring_put :: proc(a: ^App, id: store.Id, slot: int) {
     }
     old^ = Slot{id, {}, true}
     ring_move(a, {lane, slot})
+    return true
 }
 
 // --- moving ---
