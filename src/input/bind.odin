@@ -333,6 +333,10 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     bind_line(&b, "AD03", {.Alt}, ":ring edit") // alt+e
     bind_line(&b, "AC04", {.Alt}, ":ring files") // alt+f
     bind_line(&b, "AD05", {.Alt}, ":ring term") // alt+t
+    // alt+. — the lane switch for every OTHER kind, which is a plugin's and so has no letter of
+    // its own here. Staged rather than run: the line is `:ring ` with the name left to type, and
+    // a bare `:ring` lists the lanes for the times you have forgotten what one is called.
+    bind_line(&b, "AB09", {.Alt}, ":ring ", stage = true)
     // A listing's rows are paths, and `enter` is what opens one. Written at the SURFACE tier
     // rather than for one kind: a surface whose lines carry no `path` reports that it cannot
     // fill the hole, which is data rather than a refusal decided per call (§8).
