@@ -68,6 +68,17 @@ also what makes a mixed strip legal: one browser and two editors, three panels, 
 A slot is in at most one panel, because the viewport lives on the slot. Asking for a slot another
 panel is standing on swaps the two.
 
+One grammar addresses both. `#N` is a ring slot, `@N` is a panel counted from the left, `@+N` and
+`@-N` are panels either side of the one you are in, and a bare `N` still means `#N`. A command
+takes one of each, in any order, and names a panel the strip does not have yet by making it.
+
+```
+# slot 3 of the editor's lane, in the second panel
+:open src/oket/app.odin #3 @2
+# in the panel to the left, made if there is none
+:open src/oket/ring.odin @-1
+```
+
 ```
 # config.conf, beside the binary
 [strip]
@@ -81,9 +92,11 @@ leading `:` is a builtin, `&&` chains them and "|" works via bash. Shell steps r
 answer.
 
 ```
-:open src/oket/app.odin 3     # into slot 3 of the editor's lane
+# into slot 3 of the editor's lane
+:open src/oket/app.odin #3
 make && :ls
-:sel | sort -u | :put         # the selection, out through a pipeline, back at point
+# the selection, out through a pipeline, back at point
+:sel | sort -u | :put
 ```
 
 `|` between two shell steps is bash's own, the chain hands it over whole. The two ends are
