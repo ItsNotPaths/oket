@@ -3,16 +3,24 @@
  * is text the kernel draws and point walks. No widget, no second drawing path, no selection of
  * its own — the row point is on IS the selection, which is what `selection: line` means.
  *
- * WHAT BUILDS A GRAMMAR IS A BIND ROW, and there is no code in this file for it:
+ * WHAT BUILDS A GRAMMAR IS A BIND ROW, and nothing in this file spawns it:
  *
  *     [grammars]
- *     enter = exec oket-grammar <lang> <repo> <rev> <sub> && :grammar ready <lang>
+ *     enter = exec :gr.build <lang>
+ *          && oket-grammar <lang> <repo> <rev> <sub> || true
+ *          && :grammar ready <lang>
  *
  * The four holes are fields on the row under point, so the registry reaches the shell without
- * this plugin spawning anything, the build is a step you can read in N#, and a failure stops the
- * chain before the load. `oket-grammar` ships beside `oket`. A rev or a subpath the registry
- * does not carry is an EMPTY span, which fills its hole with an empty argument rather than with
- * whatever the row's other bytes say.
+ * this plugin spawning anything, the build is a step you can read in N#, and the grammar is
+ * loaded only if one landed. `oket-grammar` ships beside `oket`. A rev or a subpath the
+ * registry does not carry is an EMPTY span, which fills its hole with an empty argument rather
+ * than with whatever the row's other bytes say.
+ *
+ * THE TWO BUILTINS EITHER SIDE OF THE SHELL STEP ARE THE FEEDBACK, and they are why the step is
+ * `|| true`: a chain that stopped on a failure would leave a bar running with nothing behind
+ * it. So the step always exits 0, the last builtin always runs, and it stats `<lang>.so` to
+ * find out which of `done` and `failed` the row gets. THE PLATTER IS THE ANSWER, not the exit
+ * code and not the tool's own word.
  *
  *     :ring grammars   the list (alt+g)
  *     type             filters, by name or by whole extension
@@ -34,6 +42,11 @@
 /* Lists open at once. A lane holds nine slots and nobody wants nine of these; the array is what
  * lets a finished build rewrite the ones that are open. */
 #define MAX_LISTS 8
+
+/* The bar, in cells, and how many frames one cell of it lasts. */
+#define BAR_W 23
+#define BAR_LIT 7
+#define BAR_RATE 3
 
 static oket_kind GRAMMARS;
 
@@ -114,6 +127,53 @@ static int matches(const oket_grammar *g, const char *filter, size_t n) {
     return n == 0 || contains(g->name, filter, n) || ext_listed(g->exts, filter, n);
 }
 
+/* --- the build under way, and the bar that says so --- */
+
+/* One at a time, because the kernel runs one shell step at a time: a second `enter` would be
+ * refused at the step anyway, and this is where it is refused first and said out loud. */
+enum { BUILD_OFF = 0, BUILD_RUNNING, BUILD_DONE, BUILD_FAILED };
+
+static struct {
+    int state;
+    int at; /* the row it is on, or -1: never a row while the state is BUILD_OFF */
+    unsigned frame;
+} build = {BUILD_OFF, -1, 0};
+
+/* An INDETERMINATE bar: nothing here knows how far a clone or a compile has got, so what moves
+ * is a lit run and not a fill. A fill that jumped back to nothing at the end would be a claim
+ * about progress that this side of the chain cannot make. */
+static void bar_text(char *out, size_t cap) {
+    int head = (int)((build.frame / BAR_RATE) % BAR_W), i;
+    size_t n = 0;
+
+    for (i = 0; i < BAR_W && n + 4 <= cap; i++) {
+        const char *cell = (i - head + BAR_W) % BAR_W < BAR_LIT ? "█" : "░";
+
+        memcpy(out + n, cell, 3);
+        n += 3;
+    }
+    out[n] = 0;
+}
+
+/* What follows the name. A RUNNING build takes the column the extensions were in, because a bar
+ * you can watch move is the whole of what this row has to say while it is out; a finished one
+ * only adds a word, so what is left behind is the row you already know. */
+static void row_tail(int idx, char *out, size_t cap) {
+    char bar[BAR_W * 3 + 1];
+
+    if (idx != build.at) {
+        snprintf(out, cap, "%s", OKET_GRAMMARS[idx].exts);
+        return;
+    }
+    if (build.state == BUILD_RUNNING) {
+        bar_text(bar, sizeof bar);
+        snprintf(out, cap, "%s  building", bar);
+        return;
+    }
+    snprintf(out, cap, "%s   %s", OKET_GRAMMARS[idx].exts,
+             build.state == BUILD_DONE ? "done" : "failed");
+}
+
 /* --- one list --- */
 
 typedef struct {
@@ -150,12 +210,14 @@ static void forget(list *l) {
  * `lang` is the name's own bytes, so hover underlines exactly what enter would build. The other
  * three carry a VALUE the row never draws — the whole registry entry travels with the row, and
  * the bind line reads like the command a person would type. */
-static void put_row(oket_build *out, const oket_grammar *g, int installed) {
-    char text[LINE_CAP];
+static void put_row(oket_build *out, int idx) {
+    const oket_grammar *g = &OKET_GRAMMARS[idx];
+    char text[LINE_CAP], tail[LINE_CAP];
     size_t n, name_lo = 2, name_hi;
 
-    n = (size_t)snprintf(text, sizeof text, "%s %-*s  %s", installed ? "*" : " ", NAME_W,
-                         g->name, g->exts);
+    row_tail(idx, tail, sizeof tail);
+    n = (size_t)snprintf(text, sizeof text, "%s %-*s  %s", here[idx] ? "*" : " ", NAME_W,
+                         g->name, tail);
     if (n >= sizeof text) {
         n = sizeof text - 1; /* an extension list longer than the buffer: what fits is the row */
     }
@@ -216,7 +278,7 @@ static size_t publish(const oket_api *api, oket_self self, list *l) {
         if (first == 0) {
             first = out.len;
         }
-        put_row(&out, &OKET_GRAMMARS[i], here[i]);
+        put_row(&out, i);
     }
 
     memset(&d, 0, sizeof d);
@@ -236,20 +298,67 @@ static size_t publish(const oket_api *api, oket_self self, list *l) {
     return first;
 }
 
-/* The list, and point on its first row: what every change to the filter ends with. */
+/* Every list that is open, redrawn where it stands: the markers moved, or a bar did, and
+ * neither is a reason for point to go anywhere. */
+static void repaint(const oket_api *api, oket_self self) {
+    int i;
+
+    for (i = 0; i < MAX_LISTS; i++) {
+        if (lists[i] != NULL) {
+            publish(api, self, lists[i]);
+        }
+    }
+}
+
+/* The list, and point on its first row: what every change to the filter ends with. Going back
+ * to browsing is also what takes `done` off the row it was left on — the word answered the
+ * keystroke that asked for the build, and this is the next one. */
 static void refilter(const oket_api *api, oket_self self, list *l) {
+    if (build.state == BUILD_DONE || build.state == BUILD_FAILED) {
+        build.state = BUILD_OFF;
+        build.at = -1;
+    }
     api->point(api, self, l->doc, publish(api, self, l));
 }
 
 void grammars_refresh(const oket_api *api, oket_self self) {
-    int i;
-
     count_installed();
+    repaint(api, self);
+}
+
+void grammars_done(const oket_api *api, oket_self self, const char *lang, int installed) {
+    if (build.state == BUILD_RUNNING && strcmp(OKET_GRAMMARS[build.at].name, lang) == 0) {
+        build.state = installed ? BUILD_DONE : BUILD_FAILED;
+    }
+    grammars_refresh(api, self);
+}
+
+/* A frame of the bar, and the ask for the next one. The kernel waits on events when nothing is
+ * latched, so without this the row would sit still for the whole of a build: a shell step
+ * finishing is the only other thing that would wake it, and that is the end, not the middle. */
+int grammars_tick(const oket_api *api, oket_self self, const oket_at *at) {
+    list *l = at->inst, *clock = NULL;
+    int i, mine = 0;
+
+    if (build.state != BUILD_RUNNING || l == NULL) {
+        return 0;
+    }
     for (i = 0; i < MAX_LISTS; i++) {
-        if (lists[i] != NULL) {
-            publish(api, self, lists[i]); /* the markers moved, not the rows; point stays */
+        mine |= lists[i] == l;
+        if (clock == NULL) {
+            clock = lists[i]; /* the first open list is the clock: one tick a frame, not one a list */
         }
     }
+    if (!mine) {
+        return 0;
+    }
+    if (l == clock) {
+        build.frame++;
+        if (build.frame % BAR_RATE == 0) {
+            repaint(api, self);
+        }
+    }
+    return 1;
 }
 
 /* --- the six messages --- */
@@ -330,6 +439,50 @@ static int32_t clear_cmd(const oket_api *api, oket_self self, const oket_at *at,
     return 0;
 }
 
+/* The chain's FIRST step, and the only one that can refuse: a name the registry does not carry
+ * is one no shell step should be spawned for, and a build already out is one the kernel would
+ * refuse at the step with nothing on screen to say why. Either way a non-zero return stops the
+ * chain here. */
+static int32_t build_cmd(const oket_api *api, oket_self self, const oket_at *at,
+                         const char *args, size_t args_len) {
+    char msg[128];
+    int i, idx = -1;
+
+    (void)at;
+    if (args_len == 0) { /* the kernel hands args trimmed */
+        oket_say(api, self, "usage: :gr.build <lang>");
+        return 1;
+    }
+    if (build.state == BUILD_RUNNING) {
+        snprintf(msg, sizeof msg, "gr.build: %s is still building",
+                 OKET_GRAMMARS[build.at].name);
+        oket_say(api, self, msg);
+        return 1;
+    }
+    for (i = 0; i < OKET_GRAMMAR_COUNT; i++) {
+        if (strlen(OKET_GRAMMARS[i].name) == args_len &&
+            memcmp(OKET_GRAMMARS[i].name, args, args_len) == 0) {
+            idx = i;
+            break;
+        }
+    }
+    if (idx < 0) {
+        snprintf(msg, sizeof msg, "gr.build: the registry lists no grammar called %.*s",
+                 (int)args_len, args);
+        oket_say(api, self, msg);
+        return 1;
+    }
+    build.state = BUILD_RUNNING;
+    build.at = idx;
+    build.frame = 0;
+    repaint(api, self);
+    /* A write of your own is not reported back to you, so the publish above is the one thing
+     * that cannot ask for the frame after it. The relatch can: the list arrives again next
+     * frame, grammars_tick answers non-zero, and from there the latch feeds itself. */
+    grammar_relatch(api, self);
+    return 0;
+}
+
 oket_kind grammars_register(const oket_api *api, oket_self self) {
     static const oket_kind_spec SPEC = {
         LIT("grammars"),
@@ -344,12 +497,16 @@ oket_kind grammars_register(const oket_api *api, oket_self self) {
     api->register_command(api, self, LIT("gr.erase"), LIT("one rune off the list's filter"),
                           erase_cmd);
     api->register_command(api, self, LIT("gr.clear"), LIT("clear the list's filter"), clear_cmd);
+    api->register_command(api, self, LIT("gr.build"), LIT("mark a row as building"), build_cmd);
     /* ASKED FOR, never claimed (§8). `esc` is the loud one: it quits oket everywhere else, and
      * a picker where esc drops what you typed is worth the shadow — the writeback says so in
      * binds.conf, where it can be taken back. */
     api->request_bind(api, self, LIT("global"), LIT("alt+@AC05"), LIT("exec :ring grammars"));
+    /* `|| true` is not a shrug: it is what makes the last step run either way, and the last
+     * step is the one that stats the platter and stops the bar on `done` or on `failed`. */
     api->request_bind(api, self, LIT("grammars"), LIT("enter"),
-                      LIT("exec oket-grammar <lang> <repo> <rev> <sub> && :grammar ready <lang>"));
+                      LIT("exec :gr.build <lang> && oket-grammar <lang> <repo> <rev> <sub>"
+                          " || true && :grammar ready <lang>"));
     api->request_bind(api, self, LIT("grammars"), LIT("backspace"), LIT("gr.erase"));
     api->request_bind(api, self, LIT("grammars"), LIT("esc"), LIT("gr.clear"));
     return GRAMMARS;

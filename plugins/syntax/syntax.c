@@ -610,6 +610,11 @@ static int32_t on_moved(const oket_api *api, oket_self self, const oket_at *at, 
     if (ev != OKET_EVENT_MOVED || !at->snap) {
         return 0;
     }
+    /* A grammar list with a build out. The latch is the only thing that keeps frames coming
+     * while a shell step waits, and a bar nobody redraws is a bar that says nothing. */
+    if (grammars_tick(api, self, at)) {
+        return 1;
+    }
     desc = at->snap->desc;
     if (!desc || !desc->file || desc->file_len == 0) {
         return 0; /* a terminal, a listing, the command line: nothing with a language */
@@ -628,6 +633,13 @@ static int32_t on_moved(const oket_api *api, oket_self self, const oket_at *at, 
         }
     }
     return reparse(api, self, d, at->snap);
+}
+
+/* Re-registering REPLACES the handler and forgets its record, so every document is unseen again
+ * next frame. Cheap where it lands: a document already painted has no cursor left, so its extra
+ * `moved` is one call that answers zero. */
+void grammar_relatch(const oket_api *api, oket_self self) {
+    api->register_watch(api, self, on_moved);
 }
 
 /* --- `:grammar` --- */
@@ -682,19 +694,36 @@ static int cmd_status(const oket_api *api, oket_self self) {
     return 0;
 }
 
-/* The chain reaches here after a build that exited 0, and a build is not something the kernel
- * can see: no generation moved, so nothing would tell this plugin to look again. Registering
- * the watcher a second time is the ask — it replaces the handler and FORGETS what it has been
- * told, so every open document arrives again on the next frame. */
+/* The chain reaches here whichever way the build went, because the step before it cannot fail
+ * (grammars.c). THE PLATTER SAYS WHICH: a `<name>.so` that is there was built, and one that is
+ * not means the tool said why in N# and there is nothing to load.
+ *
+ * A build is not something the kernel can see: no generation moved, so nothing would tell this
+ * plugin to look again. grammar_relatch is that ask. */
 static int cmd_ready(const oket_api *api, oket_self self, const char *name, size_t nlen) {
-    char msg[128];
+    char lang[64], msg[128];
+    int installed;
 
-    grammar_forget();
-    api->register_watch(api, self, on_moved);
-    grammars_refresh(api, self); /* the row for it is a `*` now, wherever the list is open */
-    snprintf(msg, sizeof msg, "grammar %.*s ready", (int)nlen, name);
+    if (nlen == 0 || nlen >= sizeof lang) {
+        oket_say(api, self, "usage: :grammar ready <lang>");
+        return 1;
+    }
+    memcpy(lang, name, nlen);
+    lang[nlen] = 0;
+    installed = grammar_installed(lang);
+    if (installed) {
+        grammar_forget();
+        grammar_relatch(api, self);
+    }
+    /* The row for it is a `*` now, wherever the list is open, and its bar stops. */
+    grammars_done(api, self, lang, installed);
+    if (installed) {
+        snprintf(msg, sizeof msg, "grammar %s ready", lang);
+    } else {
+        snprintf(msg, sizeof msg, "grammar %s did not build; alt+0 says why", lang);
+    }
     oket_say(api, self, msg);
-    return 0;
+    return installed ? 0 : 1;
 }
 
 static int32_t grammar_cmd(const oket_api *api, oket_self self, const oket_at *at,
