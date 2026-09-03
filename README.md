@@ -14,16 +14,36 @@ are looking at, so three files and three listings are both on `alt+1..3`.
 
 | | |
 |---|---|
-| `alt+f` `alt+t` `alt+e` `alt+b` | files, terminal, editor, tree |
+| `alt+f` `alt+t` `alt+e` | files, terminal, editor |
 | `alt+0` | N0, where a command's output lands |
 | ``alt+` `` | back to where you just were, across lanes |
 | `alt+q` | close this slot; its number is never reused while others live |
 
-A listing draws its rows through the same renderer a file does, and `enter` opens the one you
-are standing on. `alt+b` is the file tree, a plugin that produces indented rows and no more:
-the indent is one number per line and the kernel draws it. `alt+t` is a real PTY: scrollback and
-the live grid are the document's lines, so the kernel's own scroll, drag-select and
-`ctrl+shift+c` work on it with no terminal-specific code behind them.
+`alt+f` is the file browser. It is a plugin, the same way the editor is — the kernel opens no
+listing of its own, and `:open` on a directory reports if nothing registers the `files` kind.
+And it is a document like any other: `ls -la` output you can type into.
+
+```
+drwxr-xr-x      4096  Sep  2 21:35  ../
+drwxr-xr-x       160  Sep  3 03:54  plugins/
+-rw-r--r--     28914  Sep  3 03:54  README.md
+```
+
+`../` is row one of every listing, and it is a link like any other row — `enter` over it goes up.
+Which directory you are in is the bar's answer; what a listing carries is the way out of it.
+
+The caret is pinned to the end of a name, so every row you arrive on is ready to rename. `up`
+and `down` move a row and land there; `enter` visits the row (a directory replaces the buffer, a
+file goes to the editor); `right` goes into the directory under point and `left` comes back out
+to the row it came from. Nothing moves the caret sideways, which is what frees the side arrows
+to be the hierarchy. Typing and backspace are clamped into the name, so the mode bits, the size
+and the date cannot be edited whatever the caret is doing. `ctrl+s` does the renames on disk and
+says how many, `f5` reads the directory again and drops what you typed, `ctrl+b` shows dotfiles.
+Undo is the kernel's, so `ctrl+z` works on a half-typed name like anywhere else.
+
+`alt+t` is a real PTY: scrollback and the live grid are the document's lines, so the kernel's
+own scroll, drag-select and `ctrl+shift+c` work on it with no terminal-specific code behind
+them.
 
 ## The command line
 
@@ -60,16 +80,20 @@ fields of the line under point, so a bind acts on document data with no callback
 plugin that drew it. A click is a chord like any other, and hovering underlines the field a
 bound click would act on. `f1` then any chord says what it does and where it was bound.
 
-Chains do the branching a callback would. The file tree's `enter` is one row:
+A field is a named span of a line, and it may carry a VALUE that is not the text it covers.
+That is what makes a row a link: the tree draws `browser.c` and `<path>` hands on
+`plugins/browser/browser.c`, so a row can be renamed by typing without what it points at moving.
+
+Chains do the branching a callback would. The file browser's `enter` is one row:
 
 ```conf
-[browser]
-enter = exec :br.toggle <path> && :open <path>
+[files]
+enter = exec :br.enter <path> && :open <path>
 ```
 
-`br.toggle` expands a directory and stops the chain; over a file it does nothing, and `&&`
-carries on to the kernel's `:open`, which hands the path to the editor. The plugin's whole
-contribution is an exit code.
+`br.enter` visits a directory and stops the chain; over a file it does nothing, and `&&` carries
+on to the kernel's `:open`, which hands the path to the editor. The plugin's whole contribution
+is an exit code.
 
 ## Plugins
 
