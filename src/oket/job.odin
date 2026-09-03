@@ -33,8 +33,20 @@ STEP :: "%s ;printf '\\033]%d;%d;%%d\\007' \"$?\"%s\n"
 
 // Said once per session, so no step has to carry it. A pager blocking on a keypress is a chain
 // stalled behind a question, which is the invisible state N# exists to make visible.
+//
+// What ships BESIDE the binary goes on the path with it, so a chain reaches `oket-grammar` or
+// `stage.sh` by name whether or not oket itself was installed onto anybody's PATH — which is
+// what lets a bind row name a tool instead of a location.
 @(private = "file")
 SETUP :: "export GIT_PAGER=cat PAGER=cat\n"
+
+@(private = "file")
+setup_line :: proc(a: ^App) -> string {
+    if a.home == "" {
+        return SETUP
+    }
+    return fmt.tprintf("export GIT_PAGER=cat PAGER=cat PATH=\"$PATH\":%s\n", sh_arg(a.home))
+}
 
 Job :: struct {
     live:     bool,
@@ -182,7 +194,7 @@ sys_slot :: proc(a: ^App) -> ^Slot {
     }
     a.ring.system = Slot{id, {}, true}
     if tm := term_of(a, id); tm != nil {
-        pty.terminal_write(&tm.t, transmute([]u8)string(SETUP))
+        pty.terminal_write(&tm.t, transmute([]u8)setup_line(a))
     }
     return &a.ring.system
 }
