@@ -175,6 +175,45 @@ were sitting, and only while you have no unsaved edits of your own. If you do, i
 changes nothing. Motion, selection, the viewport, undo and the plain delete verbs are the
 kernel's, for every document. Swap in your own by registering the same kind.
 
+## Crashes, and the start after one
+
+Every document that is a file and takes typing is journaled: each splice is appended to a file
+of its own as it lands, so what recovery reads is bytes that were already on the platter and
+never in-memory state a crash is entitled to have corrupted. `kill -9` mid-edit, start again,
+and the work is offered back.
+
+```
+oket dev
+
+unsaved work a crash left behind — enter takes it back:
+  /home/you/notes.md   6 edit(s)
+  (:recover drop <path> throws one away)
+```
+
+That page is a document like any other, so `enter` over a row is one bind over one field, and
+a start with nothing to report never shows it — `:home` asks for it whenever you want it. A journal whose replay matches the file is
+dropped without asking: the work was saved before the crash. A clean exit removes its journals,
+because quitting is a decision and a crash is not.
+
+A plugin that dies where the fault net cannot unwind takes the process with it. The handler
+writes down its name — one `write`, to a descriptor opened while the process was still healthy —
+and the next start reads that, holds the plugin back and says so. `:plug load <name>` takes it
+again, which is you saying it is fixed. `--no-plugins` starts with none of them; `--safe` is
+that plus ignoring the session, for the start where what breaks you is the file the last one
+reopened.
+
+The ring can persist across restarts, off unless you ask:
+
+```
+# config.conf, beside the binary
+[session]
+restore = on
+```
+
+A session is a list of command lines, so restoring one is running them and there is nothing to
+version. A document with no file is not written down: a terminal's session ended with the
+process.
+
 ## Build
 
 ```sh
