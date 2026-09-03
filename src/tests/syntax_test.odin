@@ -264,6 +264,18 @@ lines_of :: proc(a: ^app.App, id: store.Id) -> []string {
     return strings.split_lines(doc_text(a, id), context.temp_allocator)
 }
 
+// The row for one grammar, by the name in its own column.
+@(private = "file")
+row_named :: proc(a: ^app.App, id: store.Id, name: string) -> string {
+    want := fmt.tprintf(" %s ", name) // the marker, then the name's own column
+    for row in lines_of(a, id) {
+        if len(row) > 1 && strings.has_prefix(row[1:], want) {
+            return row
+        }
+    }
+    return ""
+}
+
 @(private = "file")
 type_text :: proc(a: ^app.App, text: string) {
     for r in text {
@@ -384,6 +396,94 @@ a_row_carries_its_whole_registry_entry :: proc(t: ^testing.T) {
                    "oket-grammar rust https://github.com/tree-sitter/tree-sitter-rust "), line)
     testing.expect(t, strings.has_suffix(line, " ''"), line)
     testing.expect_value(t, len(strings.fields(line, context.temp_allocator)), 5)
+
+    // The row the plugin actually asked for, read back off the request list rather than typed
+    // in again here: three steps, and the shell one is `|| true` so the LAST always runs. A
+    // chain that stopped on a failure would leave the bar running with nothing behind it.
+    asked := ""
+    for r in a.reqs {
+        if r.ctx == "grammars" && r.chord == "enter" {
+            asked = r.line
+        }
+    }
+    if !testing.expect(t, asked != "", "nothing asked for enter over the grammar list") {
+        return
+    }
+    line, filled = app.bind_expand(&a, strings.trim_prefix(asked, "exec "))
+    if !testing.expect(t, filled, a.message) {
+        return
+    }
+    steps := app.cl_split_chain(line)
+    if !testing.expect_value(t, len(steps), 3) {
+        return
+    }
+    testing.expect(t, strings.contains(steps[0].text, ":gr.build rust"), steps[0].text)
+    testing.expect(t, strings.has_suffix(strings.trim_space(steps[1].text), "|| true"),
+                   steps[1].text)
+    testing.expect(t, strings.contains(steps[2].text, ":grammar ready rust"), steps[2].text)
+}
+
+// A BUILD IS A CHAIN, and the row is what says one is out. The first step marks it and the bar
+// starts moving; the last step stats the platter, so the word the row ends on is what is there
+// and not what the chain managed to reach.
+@(test)
+a_building_row_says_so_and_ends_on_the_platter :: proc(t: ^testing.T) {
+    a, ok := syntax_app(t, "oket-grammars-build")
+    if !ok {
+        return
+    }
+    defer close_plug_app(&a)
+
+    id, opened := list_open(t, &a)
+    if !opened {
+        return
+    }
+
+    // A name the registry does not carry is one no shell step should be spawned for, so the
+    // first step of the chain refuses and nothing after it runs.
+    app.cl_exec(&a, ":gr.build nosuchlanguage")
+    testing.expect(t, strings.contains(a.message, "nosuchlanguage"), a.message)
+
+    app.cl_exec(&a, ":gr.build rust")
+    row := row_named(&a, id, "rust")
+    testing.expect(t, strings.contains(row, "building"), row)
+    testing.expect(t, strings.contains(row, "\u2588"), row)
+
+    // The frames the bar moves on come from the watcher's latch. Nothing else would wake the
+    // loop while a shell step is out, and a bar nobody redraws says nothing.
+    latched, _ := frame(&a)
+    testing.expect(t, latched, "a build left the list with nothing to move its bar")
+    moved := row_named(&a, id, "rust")
+    for i := 0; i < 8 && moved == row; i += 1 {
+        frame(&a)
+        moved = row_named(&a, id, "rust")
+    }
+    testing.expectf(t, moved != row, "the bar never moved: %s", moved)
+
+    // A second build while one is out is refused HERE, not four steps later inside the kernel
+    // with nothing on screen to say why.
+    app.cl_exec(&a, ":gr.build json")
+    testing.expect(t, strings.contains(a.message, "still building"), a.message)
+
+    // rust never landed, so the row says so — and the step reports the same to the chain.
+    app.cl_exec(&a, ":grammar ready rust")
+    row = row_named(&a, id, "rust")
+    testing.expect(t, strings.contains(row, "failed"), row)
+    testing.expect(t, !strings.contains(row, "\u2588"), row)
+    latched, _ = frame(&a)
+    testing.expect(t, !latched, "the bar is still asking for frames after it stopped")
+
+    // json IS on the platter, so the same last step reads it as a build that worked.
+    app.cl_exec(&a, ":gr.build json")
+    app.cl_exec(&a, ":grammar ready json")
+    row = row_named(&a, id, "json")
+    testing.expect(t, strings.has_prefix(row, "*") && strings.contains(row, "done"), row)
+
+    // Going back to browsing takes the word off: it answered the keystroke that asked for the
+    // build, and this is the next one.
+    type_text(&a, "j")
+    row = row_named(&a, id, "json")
+    testing.expect(t, !strings.contains(row, "done"), row)
 }
 
 // --- fixtures ---
