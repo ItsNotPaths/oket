@@ -89,7 +89,8 @@ tau = 90     # milliseconds the strip's motion decays by 1/e; 0 turns it off
 ```
 
 `behind` shades `Bg` rather than naming a colour, so a gap reads as depth in every theme and no
-palette grows a token for it.
+palette grows a token for it. The bar's row is shaded deeper still, and the three layers read in
+order: a panel, the gap beside it, the line under both.
 
 The strip scrolls and a panel resizes by exponential decay on a monotonic clock, so the motion
 settles in the same wall time at 60 Hz and at 144. A document lays out once, at the width the
