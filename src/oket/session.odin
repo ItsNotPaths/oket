@@ -21,26 +21,46 @@ SESSION_NAME :: "session"
 
 // Written at a clean exit, which is the only kind that has anything to say: a crash leaves
 // journals instead, and those are the work rather than the layout (journal.odin).
+//
+// The strip is in the file too, as the `@N` on a line (PANELS.md §11's question): a layout is
+// panels standing on slots, and both halves are addresses the user could have typed. Slots no
+// panel is standing on go FIRST, because a line with no `@` aims the focused panel and one of
+// those running after the strip was built would drag it about.
 session_save :: proc(a: ^App) {
     if !a.config.restore || a.home == "" {
         return
     }
     b := strings.builder_make(context.temp_allocator)
-    focused := ring_focused(a)
-    for l in a.ring.lanes {
+    for l, lane in a.ring.lanes {
         for s, i in l.slots {
-            if !s.live || (focused != nil && s.doc == focused.doc) {
-                continue
+            if s.live && panel_showing(a, {lane, i + 1}) == nil {
+                session_line(a, &b, s.doc, i + 1, 0)
             }
-            session_line(a, &b, s.doc, i + 1)
         }
     }
-    // The focused slot last, because `:open` focuses what it opens: the layout restores in one
+    // The focused panel last, because `:open` focuses what it opens: the layout restores in one
     // pass and the surface you were looking at is the one you come back to.
-    if focused != nil {
-        session_line(a, &b, focused.doc, ring_slot(a))
+    for _, i in a.panels {
+        if i != a.focus {
+            session_panel(a, &b, i)
+        }
     }
+    session_panel(a, &b, a.focus)
     _ = os.write_entire_file(session_path(a), transmute([]u8)strings.to_string(b))
+}
+
+// A panel, as the line that puts a document back under it. A panel standing on nothing, or on a
+// document with no file, writes nothing: a terminal's session is a process that ended with the
+// last start, and so is the panel that held it.
+@(private = "file")
+session_panel :: proc(a: ^App, b: ^strings.Builder, i: int) {
+    p := panel_get(a, i)
+    if p == nil || p.at.slot < 1 {
+        return
+    }
+    if s := panel_slot(a, p); s != nil {
+        session_line(a, b, s.doc, p.at.slot, i + 1)
+    }
 }
 
 // Every line, as though it had been typed. Answers whether anything opened, so a start knows
@@ -62,8 +82,10 @@ session_restore :: proc(a: ^App) -> bool {
     return ring_focused(a) != nil
 }
 
+// One `:open`, with the sigils on: a bare number still means `#N`, and a written row says which
+// axis it is on (§4).
 @(private = "file")
-session_line :: proc(a: ^App, b: ^strings.Builder, id: store.Id, slot: int) {
+session_line :: proc(a: ^App, b: ^strings.Builder, id: store.Id, slot, panel: int) {
     d := store.store_descriptor(&a.docs, id)
     if d == nil {
         return
@@ -72,7 +94,8 @@ session_line :: proc(a: ^App, b: ^strings.Builder, id: store.Id, slot: int) {
     if d.file == "" {
         return
     }
-    fmt.sbprintfln(b, ":open %s %d", sh_quote(d.file, context.temp_allocator), slot)
+    at := panel > 0 ? fmt.tprintf(" @%d", panel) : ""
+    fmt.sbprintfln(b, ":open %s #%d%s", sh_quote(d.file, context.temp_allocator), slot, at)
 }
 
 @(private = "file")
