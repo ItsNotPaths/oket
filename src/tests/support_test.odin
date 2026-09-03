@@ -14,8 +14,8 @@ import "../store"
 import "../txt"
 import app "../oket"
 
-// The App harness the end-to-end tests share: a kernel with a grid and a bind table and no
-// window, which is what lets a click or a chain be driven from a test at all.
+// The App harness the end-to-end tests share: a kernel with the frame's two grids and a bind
+// table and no window, which is what lets a click or a chain be driven from a test at all.
 
 // A directory of its own per test: the runner is threaded, and two tests sharing one would each
 // be reading the other's setup.
@@ -42,10 +42,11 @@ scratch :: proc(t: ^testing.T, name: string) -> (dir: string, ok: bool) {
 bare_app :: proc(cols := 50, rows := 4) -> (a: app.App, ok: bool) {
     a.theme = gfx.DEFAULT_THEME
     a.binds = app.binds_base()
-    if !gfx.grid_init(&a.grid, cols, rows) {
+    if !gfx.grid_init(&a.chrome, cols, rows) {
         return {}, false
     }
-    a.body = {0, 0, cols, max(rows - 1, 0)}
+    app.surface_fit(&a, cols, rows) // the panel, sized by the one rule that owns the split
+    a.body = {0, 0, a.panel.cols, a.panel.rows}
     return a, true
 }
 
@@ -73,7 +74,8 @@ close_app :: proc(a: ^app.App) {
     input.binds_destroy(&a.binds)
     app.binds_requests_destroy(a)
     app.message_set(a, "")
-    gfx.grid_destroy(&a.grid)
+    gfx.grid_destroy(&a.panel)
+    gfx.grid_destroy(&a.chrome)
 }
 
 // A document with a file and text in it, and no owner behind it. The kernel has no `text` kind

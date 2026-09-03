@@ -131,7 +131,7 @@ a_grammar_colours_a_file_it_never_opened :: proc(t: ^testing.T) {
 
     // And through the one renderer: the cell under `1` of `12` carries the number's colour.
     app.surface_draw(&a)
-    cell := gfx.grid_at(&a.grid, 9 + gutter(&a, id), 0)
+    cell := gfx.grid_at(&a.panel, 9 + gutter(&a, id), 0)
     if testing.expect(t, cell != nil, "nothing was drawn") {
         testing.expect_value(t, cell.fg, num.fg)
     }

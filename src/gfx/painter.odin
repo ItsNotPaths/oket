@@ -4,9 +4,9 @@ import "core:fmt"
 import gl "vendor:OpenGL"
 
 // Puts a Grid and an Atlas on the GPU; the only code that talks to OpenGL beyond gl.odin.
-// One instanced draw for the whole screen: a unit quad per cell, background and glyph in the
-// same pass. The grid uploads whole every frame (~860 KB at 300x80); per-cell damage
-// tracking waits for evidence it is needed.
+// One instanced draw per grid: a unit quad per cell, background and glyph in the same pass.
+// A grid uploads whole every frame (~860 KB at 300x80); per-cell damage tracking waits for
+// evidence it is needed.
 
 @(private = "file")
 VERT :: `#version 330 core
@@ -214,7 +214,21 @@ painter_fit :: proc(p: ^Painter, win_w, win_h: i32) -> (cols, rows: int) {
     return max(1, int(win_w) / w), max(1, int(win_h) / h)
 }
 
-painter_draw :: proc(p: ^Painter, g: ^Grid, win_w, win_h: i32) {
+// A rectangle in window pixels, counted from the top-left, like every other rectangle above.
+Clip :: struct {
+    x, y, w, h: i32,
+}
+
+// GL's scissor box counts from the BOTTOM-left of the window. This is the only place the two
+// conventions meet, and a wrong flip is invisible on a grid that fills its window.
+painter_scissor :: proc(clip: Clip, win_h: i32) -> (x, y, w, h: i32) {
+    return clip.x, win_h - clip.y - clip.h, clip.w, clip.h
+}
+
+// One grid, at an origin the caller decides, clipped to a rectangle the caller decides. The
+// origin is fractional because a panel slides by sub-pixels; the clip is the panel's edge, which
+// is what lets a grid hold a column it is only showing part of.
+painter_draw :: proc(p: ^Painter, g: ^Grid, win_w, win_h: i32, origin: [2]f32, clip: Clip) {
     clear(&p.quads)
     for y in 0 ..< g.rows {
         for x in 0 ..< g.cols {
@@ -250,11 +264,13 @@ painter_draw :: proc(p: ^Painter, g: ^Grid, win_w, win_h: i32) {
     gl.BufferData(gl.ARRAY_BUFFER, len(p.quads) * size_of(Quad), raw_data(p.quads), gl.STREAM_DRAW)
 
     cw, ch := painter_cell(p)
-    ox, oy := painter_origin(p, win_w, win_h, g.cols, g.rows)
     gl.Uniform2f(p.u_cell, f32(cw), f32(ch))
     gl.Uniform2f(p.u_screen, f32(win_w), f32(win_h))
-    gl.Uniform2f(p.u_origin, f32(ox), f32(oy))
+    gl.Uniform2f(p.u_origin, origin.x, origin.y)
     gl.Uniform2f(p.u_slots, f32(p.atlas.cols), f32(p.atlas.rows))
 
+    gl.Enable(gl.SCISSOR_TEST)
+    defer gl.Disable(gl.SCISSOR_TEST) // or the next gl.Clear would be cut to this grid
+    gl.Scissor(painter_scissor(clip, win_h))
     gl.DrawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, i32(len(p.quads)))
 }

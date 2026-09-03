@@ -30,7 +30,7 @@ a_click_places_point_on_the_row_under_it :: proc(t: ^testing.T) {
     testing.expect_value(t, point(&a).head.line, 1)
 
     // The bar is not the document: a click there leaves point where it was.
-    app.point_place(&a, 6, a.grid.rows - 1)
+    app.point_place(&a, 6, a.chrome.rows - 1)
     testing.expect_value(t, point(&a).head.line, 1)
 
     // A drag sweeps from where the press landed.

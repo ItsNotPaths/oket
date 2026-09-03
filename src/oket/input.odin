@@ -173,7 +173,7 @@ cell_at :: proc(a: ^App, px, py: f64) -> (x, y: int) {
     fw, fh := glfw.GetFramebufferSize(a.window)
     ww, wh := glfw.GetWindowSize(a.window)
     cw, ch := gfx.painter_cell(&a.painter)
-    ox, oy := gfx.painter_origin(&a.painter, fw, fh, a.grid.cols, a.grid.rows)
+    ox, oy := gfx.painter_origin(&a.painter, fw, fh, a.chrome.cols, a.chrome.rows)
     sx := ww > 0 ? f64(fw) / f64(ww) : 1
     sy := wh > 0 ? f64(fh) / f64(wh) : 1
     return floor_div(int(px * sx) - ox, cw), floor_div(int(py * sy) - oy, ch)

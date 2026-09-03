@@ -62,7 +62,7 @@ a_plugin_registers_opens_renders_and_unloads :: proc(t: ^testing.T) {
     // Drawn by the kernel's one renderer, with no arm of its own: a plugin produces a document
     // and a descriptor, and that is the whole of what it produces (§12).
     app.surface_draw(&a)
-    drawn := gfx.grid_snapshot(&a.grid, context.temp_allocator)
+    drawn := gfx.grid_snapshot(&a.panel, context.temp_allocator)
     testing.expect(t, strings.contains(drawn, "kind"), drawn)
 
     // --- unload, and the ledger ---

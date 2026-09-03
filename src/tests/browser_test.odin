@@ -302,21 +302,24 @@ the_listing_draws_ls_la_through_the_kernels_renderer :: proc(t: ^testing.T) {
     defer close_plug_app(&a)
 
     app.cl_exec(&a, fmt.tprintf(":br.toggle %s/sub", root)) // the subtree, opened in place
-    gfx.grid_destroy(&a.grid)
-    testing.expect(t, gfx.grid_init(&a.grid, 70, 5))
+    app.surface_fit(&a, 70, 5)
     app.surface_draw(&a)
-    snap := gfx.grid_snapshot(&a.grid)
+    // The panel diffs on its own (PANELS.md §7): the listing is four rows of text with no bar
+    // row to trim off the end of it.
+    snap := gfx.grid_snapshot(&a.panel)
     defer delete(snap)
     rows := strings.split_lines(snap, context.temp_allocator)
 
-    testing.expect_value(t, len(rows), 5)
+    testing.expect_value(t, len(rows), 4)
     for want, i in ([?]string{"../", "sub/", "  deep.txt", "top.txt"}) {
         testing.expect(t, strings.has_prefix(rows[i], "drwx") || strings.has_prefix(rows[i], "-rw-"),
                        rows[i])
         testing.expect(t, strings.has_suffix(rows[i], want), rows[i])
         testing.expect_value(t, len(rows[i]), PREFIX + len(want))
     }
-    testing.expect(t, strings.has_prefix(rows[4], "files 1"), rows[4]) // the bar, not a row
+    bar := gfx.grid_snapshot(&a.chrome, context.temp_allocator)
+    testing.expect(t, strings.has_prefix(strings.split_lines(bar, context.temp_allocator)[4],
+                                         "files 1"), bar)
 }
 
 // §14 answered the other way round. Hover underlines the name because the link's SPAN is the

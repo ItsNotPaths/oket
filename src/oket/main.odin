@@ -119,7 +119,7 @@ main :: proc() {
     for !glfw.WindowShouldClose(a.window) && !a.quit {
         w, h := glfw.GetFramebufferSize(a.window)
         cols, rows := gfx.painter_fit(&a.painter, w, h)
-        gfx.grid_resize(&a.grid, cols, rows)
+        surface_fit(&a, cols, rows)
 
         // Writes land at one point in the frame (§6): every session's output into its
         // document first, then the exit code that advances a chain waiting on one.
@@ -136,7 +136,7 @@ main :: proc() {
         surface_draw(&a)
 
         gfx.gl_clear(w, h, a.theme[.Bg])
-        gfx.painter_draw(&a.painter, &a.grid, w, h)
+        surface_paint(&a, w, h)
         glfw.SwapBuffers(a.window)
         free_all(context.temp_allocator) // the frame's cell tables and bar text
 

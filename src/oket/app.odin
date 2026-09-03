@@ -15,7 +15,11 @@ import "../work"
 App :: struct {
     window:       glfw.WindowHandle,
     painter:      gfx.Painter,
-    grid:         gfx.Grid,
+    // Two lattices, not one (PANELS.md §7). The chrome is the screen's, at whole cells: the
+    // bar, and the ground a panel is drawn onto. The panel is a window onto a document and
+    // takes an origin of its own, so it can slide without dragging the bar with it.
+    chrome:       gfx.Grid,
+    panel:        gfx.Grid,
     theme:        gfx.Theme,
     docs:         store.Store,
     ring:         Ring,
@@ -61,7 +65,8 @@ App :: struct {
     hover:        Hover,
     hand:         glfw.CursorHandle, // the pointer over a field a click would act on
     // Where each was drawn last frame. A click is placed against them, so the hit test reads
-    // the layout the eye saw rather than recomputing one.
+    // the layout the eye saw rather than recomputing one. Both in screen cells: the panel sits
+    // at the screen's origin while there is one of it.
     body:         Rect, // the focused document
     bar:          Rect, // the command line's row, past the prompt
     message:      string, // owned; lives until the next keystroke
@@ -107,7 +112,8 @@ app_destroy :: proc(a: ^App) {
     message_set(a, "")
     delete(a.home)
     glfw.DestroyCursor(a.hand)
-    gfx.grid_destroy(&a.grid)
+    gfx.grid_destroy(&a.panel)
+    gfx.grid_destroy(&a.chrome)
     gfx.painter_destroy(&a.painter) // the atlas and its faces go with it
 }
 
