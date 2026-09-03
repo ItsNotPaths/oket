@@ -35,6 +35,10 @@ cl_builtin :: proc(a: ^App, step: CL_Step) -> bool {
             return false
         }
         ring_close(a, a.ring.focused)
+    case "recover":
+        return builtin_recover(a, args)
+    case "home":
+        ring_add(a, home_open(a))
     case "plug":
         return builtin_plug(a, args)
     case "pluginify":
@@ -88,7 +92,6 @@ builtin_open :: proc(a: ^App, args: string) -> bool {
 // A directory is the kernel's own listing; a file goes to whoever registered the `edit` kind,
 // which is the editor plugin (§7). The kernel reads no file into a document of its own — that
 // would be a privileged path — and the path is all it hands over.
-@(private = "file")
 open_path :: proc(a: ^App, path: string) -> (store.Id, bool) {
     info, err := os.stat(path, context.temp_allocator)
     if err != nil {
@@ -207,6 +210,32 @@ builtin_put :: proc(a: ^App, step: CL_Step) -> bool {
     txt.doc_insert_text(doc, a.chain.feed) // one edit per cursor, replacing its range
     s.view.point = doc.cursors[doc.primary]
     return true
+}
+
+// `:recover <path>` takes the work a crash left on that file back, and `:recover drop <path>`
+// throws it away. The argument is the DOCUMENT, not the journal file: a journal is named after
+// the document it shadows (journal.odin), so the visible half of a home-page row is the whole
+// of what the row acts on and hover underlines what `enter` would take (§14).
+@(private = "file")
+builtin_recover :: proc(a: ^App, args: string) -> bool {
+    raw, first := first_arg(args)
+    drop := first == "drop"
+    path := first
+    if drop {
+        _, path = first_arg(strings.trim_space(args[len(raw):]))
+    }
+    if path == "" {
+        message_set(a, ":recover [drop] <path>")
+        return false
+    }
+    journal := journal_path(a, path)
+    if journal == "" || !os.exists(journal) {
+        message_set(a, fmt.tprintf(":recover: nothing was journaled for %s", path))
+        return false
+    }
+    ok := drop ? recover_drop(a, journal) : recover_apply(a, journal)
+    home_refresh(a) // the row that offered it is stale either way
+    return ok
 }
 
 // --- the plugin seam (§7) ---

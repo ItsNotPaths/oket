@@ -91,11 +91,23 @@ binds_request :: proc(a: ^App, owner, ctx, chord, line: string) {
 
 // --- reading it in ---
 
+// input's defaults, plus the kernel's own kind-narrowed rows. They are here and not in
+// `input.binds_default` because a KIND is the kernel's (kinds.odin) and `input` holds one as
+// identity it never reads.
+binds_base :: proc() -> [dynamic]input.Bind {
+    b := input.binds_default()
+    // A home-page row is a file with unsaved work on it, and `enter` is what takes that work
+    // back. Narrower than the surface row it shadows, which would open the file and leave the
+    // journal sitting beside it (§13).
+    input.bind_line(&b, "RTRN", {}, ":recover <path>", ctx = {.Surface}, kind = KIND_HOME)
+    return b
+}
+
 // Defaults first, the file over them. Called again whenever the set of surface kinds changes,
 // because a section may name one.
 binds_load :: proc(a: ^App, path: string) {
     input.binds_destroy(&a.binds)
-    a.binds = input.binds_default()
+    a.binds = binds_base()
     raw, err := os.read_entire_file(path, context.temp_allocator)
     if err != nil {
         return
@@ -108,24 +120,24 @@ binds_load :: proc(a: ^App, path: string) {
 binds_parse :: proc(a: ^App, text, origin_name: string) {
     rows, errs := conf.parse(text)
     for e in errs {
-        binds_complain(a, origin_name, e.line, e.why)
+        conf_complain(a, origin_name, e.line, e.why)
     }
     for row in rows {
         section := row.section == "" ? "global" : row.section
         ctx, kind, known := binds_ctx(a, section)
         if !known {
-            binds_complain(a, origin_name, row.line,
+            conf_complain(a, origin_name, row.line,
                            fmt.tprintf("[%s] names no context or surface kind", section))
             continue
         }
         chord, parsed := input.chord_parse(row.key, key_layout_code)
         if !parsed {
-            binds_complain(a, origin_name, row.line, fmt.tprintf("%s is not a chord", row.key))
+            conf_complain(a, origin_name, row.line, fmt.tprintf("%s is not a chord", row.key))
             continue
         }
         target, made := binds_target(a, row.value)
         if !made {
-            binds_complain(a, origin_name, row.line, fmt.tprintf("%s is not a verb", row.value))
+            conf_complain(a, origin_name, row.line, fmt.tprintf("%s is not a verb", row.value))
             continue
         }
         origin := input.Origin{.Config, strings.clone(origin_name), row.line}
@@ -133,11 +145,6 @@ binds_parse :: proc(a: ^App, text, origin_name: string) {
         // file row has to be found before the default it is replacing.
         inject_at(&a.binds, 0, input.Bind{chord, target, {ctx}, kind, origin, 0})
     }
-}
-
-@(private = "file")
-binds_complain :: proc(a: ^App, origin_name: string, line: int, why: string) {
-    message_set(a, fmt.tprintf("%s:%d: %s", origin_name, line, why))
 }
 
 // The four kernel contexts, then the kinds. A kind's section binds in that kind's own context
@@ -311,7 +318,7 @@ binds_sync :: proc(a: ^App) {
     // which races the parallel runner and is not this App's file to write.
     if a.home == "" {
         input.binds_destroy(&a.binds)
-        a.binds = input.binds_default()
+        a.binds = binds_base()
         return
     }
     path := binds_path(a)

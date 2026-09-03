@@ -251,8 +251,9 @@ bind_command :: proc(b: Bind) -> (Command, bool) {
 }
 
 // How a plugin bind gets in: the caller resolved the name to a slot first (§6).
-bind_add :: proc(b: ^[dynamic]Bind, chord: Chord, target: Bind_Target, ctx: Bind_Ctxs, run: Code = 0) {
-    append(b, Bind{chord = chord, target = target, ctx = ctx, run = run})
+bind_add :: proc(b: ^[dynamic]Bind, chord: Chord, target: Bind_Target, ctx: Bind_Ctxs,
+                 run: Code = 0, kind := Kind(0)) {
+    append(b, Bind{chord = chord, target = target, ctx = ctx, run = run, kind = kind})
 }
 
 // The kernel defaults, resolved through the name table so a typo dies at startup, not in a
@@ -357,13 +358,14 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
 }
 
 // `text` is the line WITHOUT the `exec` or `stage` word: those two spell the choice in a config
-// row, and here it is the `stage` argument.
-@(private = "file")
+// row, and here it is the `stage` argument. Not file-private: the kernel writes the rows that
+// name a KIND, because a kind id is its own (kinds.odin) and this package holds one as identity
+// it never reads.
 bind_line :: proc(b: ^[dynamic]Bind, key: string, mods: Mods, text: string, stage := false,
-                  ctx := Bind_Ctxs{.Global}) {
+                  ctx := Bind_Ctxs{.Global}, kind := Kind(0)) {
     code, ok := key_code(key)
     assert(ok, "a kernel default names a key that is not in the table")
-    bind_add(b, {code, mods}, Bind_Line{strings.clone(text), stage}, ctx)
+    bind_add(b, {code, mods}, Bind_Line{strings.clone(text), stage}, ctx, kind = kind)
 }
 
 @(private = "file")

@@ -27,10 +27,11 @@ Kind_Info :: struct {
 }
 
 @(rodata)
-KINDS := [?]Kind_Info{{"files", .Surface}, {"term", .Terminal}}
+KINDS := [?]Kind_Info{{"files", .Surface}, {"term", .Terminal}, {"home", .Surface}}
 
 KIND_FILES :: input.Kind(1)
 KIND_TERM :: input.Kind(2)
+KIND_HOME :: input.Kind(3)
 
 // The kind `:open` hands a regular file to. A NAME, not a privilege: whoever registers it gets
 // the files, and with nobody registered the kernel says so rather than opening one itself.
@@ -82,6 +83,8 @@ kind_fresh :: proc(a: ^App, kind: input.Kind) -> (store.Id, bool) {
         return listing_open(a, "."), true
     case KIND_TERM:
         return term_open(a)
+    case KIND_HOME:
+        return home_open(a), true
     }
     return plug_open(a, kind)
 }
