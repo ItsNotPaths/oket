@@ -53,29 +53,15 @@ flat in uint v_attrs;
 
 uniform sampler2D u_atlas;
 uniform vec2 u_cell_px;
-uniform vec2 u_slots;
 
 out vec4 o_color;
 
-// gfx.Attr's bits. Reverse is swapped before upload and italic wants a face this atlas does
-// not hold, so bold and the underline are what the shader answers.
-const uint ATTR_BOLD = 1u;
+// gfx.Attr's bits. Reverse is swapped before upload, and bold and italic want a face this
+// atlas does not hold, so the underline is the only one the shader answers.
 const uint ATTR_UNDERLINE = 4u;
 
 void main() {
-    float ink = texture(u_atlas, v_uv).r;
-    // Bold WITHOUT a second face: the glyph smeared one ATLAS texel sideways and kept at its
-    // darkest, which is what a stroke of extra weight is. textureSize, so the step is one baked
-    // pixel at every font size rather than one drawn pixel at scale 1 and none at all at 2.
-    // Clamped to the cell this fragment is in, or a glyph touching its left edge would smear
-    // its neighbour in the atlas into itself; v_at is where in the cell we are, so v_uv minus
-    // it is that cell's corner.
-    if ((v_attrs & ATTR_BOLD) != 0u) {
-        float texel = 1.0 / float(textureSize(u_atlas, 0).x);
-        float u = max(v_uv.x - texel, (v_uv - v_at / u_slots).x);
-        ink = max(ink, texture(u_atlas, vec2(u, v_uv.y)).r);
-    }
-    vec3 c = mix(v_bg, v_fg, ink);
+    vec3 c = mix(v_bg, v_fg, texture(u_atlas, v_uv).r);
     // Two pixels along the cell's bottom edge, so it stays visible as the cell zooms.
     if ((v_attrs & ATTR_UNDERLINE) != 0u && v_at.y > 1.0 - 2.0 / u_cell_px.y) {
         c = v_fg;
