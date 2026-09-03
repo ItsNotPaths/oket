@@ -579,6 +579,18 @@ line_covers :: proc(d: ^desc.Descriptor, template: string, line, lo, hi: int) ->
 
 // --- hover (§8) ---
 
+// The command line a mouse chord would run here, if it runs one. A verb acts on point and needs
+// no field, so only a line has a hole for hover to underline.
+@(private = "file")
+click_line :: proc(a: ^App, d: ^desc.Descriptor, button: input.Mouse) -> (input.Bind_Line, bool) {
+    bind, _, bound := input.bind_lookup(a.binds[:], {input.mouse_code(button), {}}, d.ctx, d.kind)
+    if !bound {
+        return {}, false
+    }
+    line, is_line := bind.target.(input.Bind_Line)
+    return line, is_line
+}
+
 // Ask the bind table whether a click here would do anything, and underline the field it would
 // act on. Three consequences of "a click is a chord", and no surface writes a line of any of
 // them.
@@ -601,12 +613,13 @@ hover_update :: proc(a: ^App, cx, cy: int) {
     if !hit || field == "" {
         return
     }
-    bind, _, bound := input.bind_lookup(a.binds[:], {input.mouse_code(.Click), {}}, d.ctx, d.kind)
-    if !bound {
-        return
+    // Either button chord, because the question is "would clicking here do something" and a
+    // document whose single click only moves point may still answer the second one — which is
+    // what a listing you can also type into wants (the row navigates, the click lands a caret).
+    line, is_line := click_line(a, d, .Click)
+    if !is_line {
+        line, is_line = click_line(a, d, .Double_Click)
     }
-    // A verb acts on point and needs no field; only a line has a hole to fill.
-    line, is_line := bind.target.(input.Bind_Line)
     if !is_line {
         return
     }
