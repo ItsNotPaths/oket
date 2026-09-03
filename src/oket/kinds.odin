@@ -1,5 +1,6 @@
 package main
 
+import "core:fmt"
 import "core:strings"
 import "../desc"
 import "../input"
@@ -10,16 +11,14 @@ import "../store"
 // cannot drift. No kernel code compares a kind NAME: it compares identity, and the name is a
 // display and config read.
 //
-// A kind's DOCUMENT is opened by a file of its own — listing.odin, term.odin — and `kind_fresh`
-// below is the only thing that has to know there is more than one.
-//
 // input.Kind(0) is no kind — a document in no lane, and the wide tier of the bind table. The
-// kernel's own two are written here in a fixed order so they are constants: they are the boot
-// floor, and the kernel opens with them and no plugins at all (§7). A plugin's kind appends
-// past them into `a.kinds` (plug.odin) and nothing about this shape changes.
+// kernel's own two are written here in a fixed order so they are constants; a plugin's kind
+// appends past them into `a.kinds` (plug.odin) and nothing about this shape changes.
 //
-// There is no `text` here: a file in a buffer is an EDITOR, the editor is a plugin, and a
-// kernel kind that opened one would be the privileged path §7 forbids.
+// THE TWO LEFT HERE ARE THE ONES THE KERNEL IS. A terminal is a PTY the kernel owns and a home
+// page is what a start has to say for itself; both are the kernel's own state, and neither is a
+// path on disk. Everything a PATH becomes is a plugin — `edit` for a file, `files` for a
+// directory — because a kernel that opened one would be the privileged path §7 forbids.
 
 Kind_Info :: struct {
     name: string,
@@ -27,15 +26,20 @@ Kind_Info :: struct {
 }
 
 @(rodata)
-KINDS := [?]Kind_Info{{"files", .Surface}, {"term", .Terminal}, {"home", .Surface}}
+KINDS := [?]Kind_Info{{"term", .Terminal}, {"home", .Surface}}
 
-KIND_FILES :: input.Kind(1)
-KIND_TERM :: input.Kind(2)
-KIND_HOME :: input.Kind(3)
+KIND_TERM :: input.Kind(1)
+KIND_HOME :: input.Kind(2)
 
-// The kind `:open` hands a regular file to. A NAME, not a privilege: whoever registers it gets
-// the files, and with nobody registered the kernel says so rather than opening one itself.
+// The two kinds `:open` hands a path to. NAMES, not privileges: whoever registers one gets the
+// paths, and with nobody registered the kernel says so rather than opening one itself.
+//
+// There is no kernel listing behind `files` and no kernel editor behind `edit`. A directory and
+// a file are the same question, and answering half of it in the kernel is the privileged path
+// §7 forbids — and a `files` document no plugin owns takes every `[files]` row while being able
+// to answer none of them.
 KIND_EDIT :: "edit"
+KIND_BROWSE :: "files"
 
 kind_named :: proc(a: ^App, name: string) -> (input.Kind, bool) {
     for k, i in KINDS {
@@ -78,15 +82,28 @@ kind_info :: proc(a: ^App, kind: input.Kind) -> Kind_Info {
 // this with the `open` message, which is the whole of what a plugin has to implement to own a
 // lane.
 kind_fresh :: proc(a: ^App, kind: input.Kind) -> (store.Id, bool) {
+    if _, owned := plug_kind(a, kind); owned {
+        return plug_open(a, kind)
+    }
     switch kind {
-    case KIND_FILES:
-        return listing_open(a, "."), true
     case KIND_TERM:
         return term_open(a)
     case KIND_HOME:
         return home_open(a), true
     }
-    return plug_open(a, kind)
+    return {}, false
+}
+
+// What a DIRECTORY becomes, the same shape a file's `edit` has: a kind named in one string, and
+// a report rather than a listing of the kernel's own when nothing registers it.
+files_open :: proc(a: ^App, dir: string) -> (store.Id, bool) {
+    kind, registered := kind_named(a, KIND_BROWSE)
+    if !registered {
+        message_set(a, fmt.tprintf(":open: nothing registers the %s kind, so nothing opens a directory (:plug load %s)",
+                                   KIND_BROWSE, "browser"))
+        return {}, false
+    }
+    return plug_open(a, kind, dir)
 }
 
 // The App as a name table, lent to `input`, which holds a Kind and a Slot as identity and

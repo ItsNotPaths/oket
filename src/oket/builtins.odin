@@ -89,9 +89,10 @@ builtin_open :: proc(a: ^App, args: string) -> bool {
     return true
 }
 
-// A directory is the kernel's own listing; a file goes to whoever registered the `edit` kind,
-// which is the editor plugin (§7). The kernel reads no file into a document of its own — that
-// would be a privileged path — and the path is all it hands over.
+// A directory goes to whoever registered the `files` kind and to the kernel's own listing when
+// nobody did; a file goes to whoever registered `edit`, which is the editor plugin (§7). The
+// kernel reads no file into a document of its own — that would be a privileged path — and the
+// path is all it hands over.
 open_path :: proc(a: ^App, path: string) -> (store.Id, bool) {
     info, err := os.stat(path, context.temp_allocator)
     if err != nil {
@@ -99,7 +100,7 @@ open_path :: proc(a: ^App, path: string) -> (store.Id, bool) {
         return {}, false
     }
     if info.type == .Directory {
-        return listing_open(a, path), true
+        return files_open(a, path)
     }
     kind, registered := kind_named(a, KIND_EDIT)
     if !registered {

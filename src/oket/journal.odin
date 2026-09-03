@@ -60,7 +60,7 @@ journal_sync :: proc(a: ^App) {
         return
     }
     for id in store.store_ids(&a.docs) {
-        if id not_in a.journals && journal_wanted(a, id) {
+        if id not_in a.journals && journal_startable(a, id) {
             journal_begin(a, id, dir)
         }
     }
@@ -224,6 +224,25 @@ journal_wanted :: proc(a: ^App, id: store.Id) -> bool {
     }
     defer desc.release(d)
     return d.editable && d.file != ""
+}
+
+// The same, and the file is one this document's TEXT could be written back to. A browser takes
+// typing and names a directory, and a journal replaying a listing into one recovers nothing —
+// so the two questions part company here rather than growing a descriptor field for it (§14).
+//
+// Only asked of a document that is not journaled yet, which is what keeps a stat off the frame
+// loop for every buffer that already is.
+@(private = "file")
+journal_startable :: proc(a: ^App, id: store.Id) -> bool {
+    if !journal_wanted(a, id) {
+        return false
+    }
+    d := store.store_descriptor(&a.docs, id)
+    defer desc.release(d)
+    // A path with nothing at it is a buffer whose file is not written yet, and that is exactly
+    // the work worth keeping.
+    info, err := os.stat(d.file, context.temp_allocator)
+    return err != nil || info.type != .Directory
 }
 
 // Names the journal after the document it shadows. ABSOLUTE, because a descriptor's `file` is

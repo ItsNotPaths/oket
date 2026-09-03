@@ -105,12 +105,14 @@ main :: proc() {
     }
 
     // The ring, in the order the answers get worse: what the last session had, then the news
-    // this start has to deliver, then a listing of the working directory.
+    // this start has to deliver, then the working directory. That last one is a PLUGIN's
+    // document (kinds.odin), so a start with none opens nothing and draws the screen floor —
+    // the same answer `:open` gives for a file with no editor loaded.
     if safe || !session_restore(&a) {
         if !safe && home_news(&a) {
             ring_add(&a, home_open(&a))
-        } else {
-            ring_add(&a, listing_open(&a, "."))
+        } else if id, opened := files_open(&a, "."); opened {
+            ring_add(&a, id)
         }
     }
 
