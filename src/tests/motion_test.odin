@@ -222,3 +222,32 @@ a_pty_gets_one_winsize_per_resize :: proc(t: ^testing.T) {
     testing.expect_value(t, sizes, 1)
     testing.expect_value(t, tm.t.cols, 20)
 }
+
+// The camera follows the MARK, not the focus (§3, §5). A panel made mid-gesture is one you have
+// to be able to SEE — the caret is on it and it is where the next thing lands — and steering
+// past the edge of the view has to scroll rather than steer blind.
+@(test)
+the_camera_follows_the_armed_target :: proc(t: ^testing.T) {
+    a, _, ok := listing_app(t, "oket-camera-mark")
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+    app.surface_fit(&a, 40, 5) // one full-width panel: only one is ever on screen
+
+    app.panel_open(&a)
+    app.panel_step(&a, -1)
+    testing.expect_value(t, a.strip.camera, f32(0))
+
+    app.handle_chord(&a, chord("RTRN", {}, "TAB"))
+    app.handle_chord(&a, chord("RGHT")) // steer to a panel the view does not hold
+    testing.expect_value(t, app.panel_marked(&a), 1)
+    testing.expect_value(t, a.focus, 0) // the keys stayed put; the camera did not
+    testing.expect_value(t, a.strip.camera, f32(40))
+
+    // And the panel the gesture MAKES is on screen the moment it exists.
+    app.handle_chord(&a, chord("RTRN", {}, "TAB"))
+    testing.expect_value(t, len(a.panels), 3)
+    testing.expect_value(t, app.panel_marked(&a), 2)
+    testing.expect_value(t, a.strip.camera, f32(80))
+}

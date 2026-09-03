@@ -599,3 +599,34 @@ a_mistyped_target_opens_nothing :: proc(t: ^testing.T) {
     testing.expect(t, app.ring_get(&a, 2) == nil, "the open ran anyway")
     testing.expect(t, strings.contains(a.message, "@two"), a.message)
 }
+
+// `alt+shift+left` and `alt+shift+right`: the panel changes place, the documents do not, and the
+// thing you were looking at is still the thing you are looking at. Clamped, like the walk.
+@(test)
+a_panel_moves_along_the_strip :: proc(t: ^testing.T) {
+    a, ok := bare_app(60, 5)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    app.panel_open(&a)
+    app.panel_open(&a) // three panels, focus on the last
+    app.panel_get(&a, 0).at = {0, 1}
+    app.panel_get(&a, 2).at = {0, 3}
+    testing.expect_value(t, a.focus, 2)
+
+    app.panel_shift(&a, -1)
+    testing.expect_value(t, a.focus, 1)
+    testing.expect_value(t, app.panel_get(&a, 1).at.slot, 3) // it went with the focus
+    testing.expect_value(t, app.panel_get(&a, 2).at.slot, 0) // and the neighbour came back
+
+    app.panel_shift(&a, -1)
+    testing.expect_value(t, a.focus, 0)
+    testing.expect_value(t, app.panel_get(&a, 1).at.slot, 1)
+
+    app.panel_shift(&a, -1) // off the end: a strip has two ends and this is one of them
+    testing.expect_value(t, a.focus, 0)
+    testing.expect_value(t, app.panel_get(&a, 0).at.slot, 3)
+    testing.expect_value(t, len(a.panels), 3)
+}
