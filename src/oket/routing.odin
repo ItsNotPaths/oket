@@ -440,6 +440,9 @@ point_sync :: proc(a: ^App) {
 // somebody else moved is on screen, and under a live caret, the moment it lands.
 docs_settle :: proc(a: ^App) {
     applied, _ := store.store_drain(&a.docs)
+    // Before the early return: a splice written straight through `store_doc` moves a document
+    // with no transaction behind it, and its journal still has to be flushed (§10).
+    journal_sync(a)
     if applied == 0 {
         return
     }

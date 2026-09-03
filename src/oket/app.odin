@@ -36,9 +36,19 @@ App :: struct {
     // move (work.odin), and an App is a value a test harness returns by copy.
     io:           ^work.Pool,
     io_jobs:      map[work.Id]Io_Job,
+    // §10's recovery journal, per document: what is journaled is a descriptor read, not a
+    // field, and journal.odin's header says why. By pointer, because the sink holds the
+    // address across the document's whole life.
+    journals:     map[store.Id]^Journal,
+    // §13's quarantine: the plugins an earlier start died in, and the fd the fault handler
+    // writes the next name to. Read before autoload, appended to by a handler that cannot open
+    // a file of its own (quarantine.odin).
+    quarantined:  [dynamic]string,
+    report:       ^os.File,
     // Style-token names, interned (tokens.odin). A span carries an id; the palette says what
     // the id looks like, so a plugin never names a colour.
     tokens:       [dynamic]Token_Def,
+    config:       Config, // config.conf, which holds one setting today (session.odin)
     cl:           Cmdline,
     chain:        Chain,
     job:          Job,
@@ -74,12 +84,15 @@ app_init :: proc(a: ^App) {
     a.theme = gfx.DEFAULT_THEME
     a.hand = glfw.CreateStandardCursor(glfw.HAND_CURSOR)
     a.home = filepath.dir(os.args[0]) // beside the binary
+    config_load(a)
     plug_init(a) // before binds_sync: a row may name a kind or a command a plugin registers
     cl_init(a)
     binds_sync(a)
 }
 
 app_destroy :: proc(a: ^App) {
+    journals_destroy(a) // a clean exit leaves nothing to recover (§10)
+    quarantine_destroy(a)
     job_destroy(a)
     io_destroy(a) // before the plugins: their close runs with no completion still arriving
     plug_destroy(a)

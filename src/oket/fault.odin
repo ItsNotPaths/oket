@@ -66,9 +66,20 @@ Guard :: struct {
     who:   int, // the plugin on the stack
     base:  uintptr, // where its `.so` is mapped, for guard 1
     why:   string, // what the handler saw; always a literal, never built
+    // The name of the plugin on the stack, and its length: what the handler writes to the
+    // quarantine file when it cannot recover (§13). Copied at arm time because building it in
+    // the handler would allocate.
+    name:  [NAME_MAX]u8,
+    n:     int,
     armed: bool, // atomics only, and the note above says why
     busy:  bool, // inside an api call, so the kernel's own structures are open
 }
+
+// Longer than any plugin file's stem, and a name past it is truncated rather than refused: the
+// sweep matches what it reads against the names on disk, so a truncated one quarantines nobody
+// and the report is still written.
+@(private = "file")
+NAME_MAX :: 64
 
 @(private = "file", thread_local)
 g_guard: Guard
@@ -144,9 +155,13 @@ fault_env :: proc() -> ^Jmp_Buf {
 }
 
 // Armed AFTER the sigsetjmp that fills the buffer, and nothing between the two can fault.
-fault_arm :: proc(a: ^App, i: int, base: uintptr) {
+fault_arm :: proc(a: ^App, i: int, base: uintptr, name := "") {
     g := &g_guard
     g.ctx, g.app, g.who, g.base, g.why = context, a, i, base, ""
+    g.n = min(len(name), NAME_MAX - 1)
+    copy(g.name[:g.n], name[:g.n])
+    g.name[g.n] = '\n'
+    g.n += 1
     intrinsics.atomic_store(&g.busy, false)
     intrinsics.atomic_store(&g.armed, true)
     watch_arm()
@@ -178,8 +193,13 @@ fault_reap :: proc "contextless" () {
 
 @(private = "file")
 fault_handler :: proc "c" (sig: posix.Signal, info: ^posix.siginfo_t, uc: rawptr) {
-    if !recoverable(fault_ip(uc)) {
-        die(sig)
+    pc := fault_ip(uc)
+    if !in_plugin(pc) {
+        die(sig, blame = false) // the kernel's own bug; nobody is quarantined for it
+        return
+    }
+    if intrinsics.atomic_load(&g_guard.busy) {
+        die(sig, blame = true) // guard 2: its fault, and not a window to unwind out of
         return
     }
     unwind(signal_name(sig))
@@ -200,7 +220,7 @@ hang_handler :: proc "c" (sig: posix.Signal, info: ^posix.siginfo_t, uc: rawptr)
     if intrinsics.atomic_load(&g_guard.busy) {
         // Stuck holding the kernel's own structures. Returning resumes the loop that never
         // ends, and a frozen window with no report is worse than a named death.
-        die(.SIGABRT)
+        die(.SIGABRT, blame = true)
         return
     }
     unwind("stopped returning")
@@ -214,10 +234,13 @@ unwind :: proc "contextless" (why: string) {
     siglongjmp(&g_guard.env, 1)
 }
 
+// Guard 1, on its own: is this address inside the `.so` of the plugin on the stack. It answers
+// who is to BLAME, which is not the same question as whether the fault can be unwound — guard
+// 2 decides that, and a plugin that faults inside an api call is still the one that faulted.
 @(private = "file")
-recoverable :: proc "contextless" (pc: uintptr) -> bool {
+in_plugin :: proc "contextless" (pc: uintptr) -> bool {
     g := &g_guard
-    if !intrinsics.atomic_load(&g.armed) || intrinsics.atomic_load(&g.busy) {
+    if !intrinsics.atomic_load(&g.armed) {
         return false
     }
     info: Dl_Info
@@ -229,10 +252,62 @@ recoverable :: proc "contextless" (pc: uintptr) -> bool {
 
 // The kernel's own bug, or a plugin's in a window that cannot be unwound. RESETHAND is not set,
 // so the default action goes back by hand and the re-raise is what writes the core.
+//
+// What the process leaves behind goes first, because after the re-raise there is no process:
+// the open journals, forced to the platter, and the name of the plugin that took the kernel
+// with it. Nothing here allocates or formats (§10, §13).
 @(private = "file")
-die :: proc "contextless" (sig: posix.Signal) {
+die :: proc "contextless" (sig: posix.Signal, blame: bool) {
+    for &fd in g_journals {
+        if v := intrinsics.atomic_load(&fd); v != 0 {
+            posix.fsync(posix.FD(v))
+        }
+    }
+    if report := intrinsics.atomic_load(&g_report); blame && report != 0 {
+        posix.write(posix.FD(report), &g_guard.name[0], uint(g_guard.n))
+    }
     posix.signal(sig, auto_cast posix.SIG_DFL)
     posix.kill(posix.getpid(), sig)
+}
+
+// --- what the handler leaves behind ---
+//
+// Both of these are fds registered while the process is healthy, so a handler that must not
+// open a file, allocate or format still has somewhere to write (§10).
+
+@(private = "file")
+JOURNAL_FDS :: 32
+
+@(private = "file")
+g_journals: [JOURNAL_FDS]i32 // 0 is an empty slot; no journal is ever fd 0
+
+@(private = "file")
+g_report: i32 // the quarantine file, opened for append; 0 when there is no home to write in
+
+// A journal the handler should force to the platter. Past the table it is simply not synced:
+// the bytes are already written (journal.odin), so what is lost is a power cut's tail and not
+// the work.
+fault_journal_add :: proc(fd: uintptr) {
+    for &slot in g_journals {
+        if intrinsics.atomic_load(&slot) == 0 {
+            intrinsics.atomic_store(&slot, i32(fd))
+            return
+        }
+    }
+}
+
+fault_journal_drop :: proc(fd: uintptr) {
+    for &slot in g_journals {
+        if intrinsics.atomic_load(&slot) == i32(fd) {
+            intrinsics.atomic_store(&slot, 0)
+            return
+        }
+    }
+}
+
+// Where the handler names the plugin it died in (§13's quarantine). Set once, at startup.
+fault_report_fd :: proc(fd: uintptr) {
+    intrinsics.atomic_store(&g_report, i32(fd))
 }
 
 @(private = "file")
