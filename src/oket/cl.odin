@@ -132,12 +132,9 @@ cl_set :: proc(a: ^App, text: string) {
 // The bar row while the line is open: the prompt, then the document, drawn by the one renderer.
 cl_draw :: proc(a: ^App, g: ^gfx.Grid, th: gfx.Theme) {
     b := a.bar
-    // Upside down on purpose: `cl_field` flips the whole row at the end, so everything written
-    // here uses the theme the way every other document does.
-    for x in 0 ..< g.cols {
-        gfx.grid_put(g, x, b.y, gfx.Cell{' ', th[.Fg], th[.Bg], {}})
-    }
-    gfx.grid_write(g, b.x - len(CL_PROMPT), b.y, CL_PROMPT, th[.Fg], th[.Bg])
+    line := bar_theme(th)
+    bar_fill(g, line, b.y)
+    gfx.grid_write(g, b.x - len(CL_PROMPT), b.y, CL_PROMPT, line[.Fg], line[.Bg])
     snap := store.store_snapshot(&a.docs, a.cl.doc)
     if snap == nil {
         return
@@ -146,22 +143,25 @@ cl_draw :: proc(a: ^App, g: ^gfx.Grid, th: gfx.Theme) {
     d := store.store_descriptor(&a.docs, a.cl.doc)
     defer desc.release(d)
     view.follow_col(&a.cl.view, view.point_col(&snap.text, d, a.cl.view), b.w)
-    view.draw(g, th, &snap.text, d, a.cl.view, b.x, b.y, b.w, 1)
-    cl_field(g, b.y)
+    view.draw(g, line, &snap.text, d, a.cl.view, b.x, b.y, b.w, 1)
 }
 
-// The bar's row is a FIELD, and a field is the theme's two colours the other way round: `Fg`
-// behind, `Bg` in front, bold, because a light line wants the weight a dark one gets from
-// glowing. Reverse rather than a second colour pair through `view.draw`: the one renderer draws
-// every document the same way and a command line is a document (§5).
-//
-// FLIPPED, not set: the caret is already reverse video, so flipping the row leaves it reading
-// the right way round against a light line.
-cl_field :: proc(g: ^gfx.Grid, row: int) {
+// How much darker than a document the bar's row is. Deeper than the chrome between two panels,
+// so the three layers read in order: a panel, the gap beside it, the line under both.
+BAR_BEHIND :: 45
+
+// The theme the bar's row is drawn in: the same one with a darker `Bg`. Gruvbox has no token
+// under `Bg` and a colour written here would break every other theme, so the shade is derived
+// (§8) — and passing a THEME rather than a colour pair is what lets the one renderer draw the
+// command line without learning that it is one (§5).
+bar_theme :: proc(th: gfx.Theme) -> gfx.Theme {
+    out := th
+    out[.Bg] = gfx.theme_behind(th, BAR_BEHIND)
+    return out
+}
+
+bar_fill :: proc(g: ^gfx.Grid, th: gfx.Theme, row: int) {
     for x in 0 ..< g.cols {
-        if c := gfx.grid_at(g, x, row); c != nil {
-            c.attrs ~= {.Reverse}
-            c.attrs += {.Bold}
-        }
+        gfx.grid_put(g, x, row, gfx.Cell{' ', th[.Fg], th[.Bg], {}})
     }
 }

@@ -43,18 +43,15 @@ surface_draw :: proc(a: ^App) {
     // The bar is the frame's row (§11), over whatever is below it — the kernel screen included.
     // While the command line is open it IS the bar: a state the user cannot see is the thing
     // §1 exists to kill, and the line is its own label.
-    // The bar's row is the same light field either way (`cl_field`), so where the kernel talks
-    // is one place that does not change colour when you open it. Written the theme's usual way
-    // round and flipped whole: a cell written any other way would flip to its own background
-    // and leave the line patchy.
+    // The bar's row is the same dark line either way, so where the kernel talks is one place
+    // that does not change colour when you open it. Only what is written on it changes: the
+    // resting line is `Dim` and the command line is a document.
     defer if cl_active(a) {
         cl_draw(a, ch, th)
     } else {
-        for x in 0 ..< ch.cols {
-            gfx.grid_put(ch, x, row, gfx.Cell{' ', th[.Fg], th[.Bg], {}})
-        }
-        gfx.grid_write(ch, 0, row, bar_text(a), th[.Fg], th[.Bg])
-        cl_field(ch, row)
+        bar := bar_theme(th)
+        bar_fill(ch, bar, row)
+        gfx.grid_write(ch, 0, row, bar_text(a), bar[.Dim], bar[.Bg])
     }
 
     for &p, i in a.panels {
