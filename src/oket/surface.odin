@@ -16,6 +16,12 @@ import "../view"
 // screen, or standing at a fractional origin, costs an origin and a clip here and nothing
 // anywhere below.
 
+// The surface the panels sit on, and the window's own margins with it: one answer, so a gap and
+// the edge past the strip cannot end up two colours.
+chrome_bg :: proc(a: ^App) -> [3]f32 {
+    return gfx.theme_behind(a.theme, a.config.behind)
+}
+
 // The chrome is the whole fit; the strip gets everything above the bar. The cell size comes in
 // because the strip is pixels and the grids are cells (§7); a caller with no painter leaves a
 // cell one pixel, and its strip arithmetic then reads in columns.
@@ -30,14 +36,25 @@ surface_draw :: proc(a: ^App) {
     row := max(ch.rows - 1, 0)
     a.bar = {len(CL_PROMPT), row, max(ch.cols - len(CL_PROMPT), 0), 1}
 
-    gfx.grid_clear(ch, th[.Fg], th[.Bg])
+    // The chrome is what a gap shows through, so it is darker than a panel: the strip then
+    // reads as documents sitting ON something rather than as holes cut in one surface.
+    behind := chrome_bg(a)
+    gfx.grid_clear(ch, th[.Fg], behind)
     // The bar is the frame's row (§11), over whatever is below it — the kernel screen included.
     // While the command line is open it IS the bar: a state the user cannot see is the thing
     // §1 exists to kill, and the line is its own label.
+    // The bar's row is the same light field either way (`cl_field`), so where the kernel talks
+    // is one place that does not change colour when you open it. Written the theme's usual way
+    // round and flipped whole: a cell written any other way would flip to its own background
+    // and leave the line patchy.
     defer if cl_active(a) {
         cl_draw(a, ch, th)
     } else {
-        gfx.grid_write(ch, 0, row, bar_text(a), th[.Dim], th[.Bg])
+        for x in 0 ..< ch.cols {
+            gfx.grid_put(ch, x, row, gfx.Cell{' ', th[.Fg], th[.Bg], {}})
+        }
+        gfx.grid_write(ch, 0, row, bar_text(a), th[.Fg], th[.Bg])
+        cl_field(ch, row)
     }
 
     for &p, i in a.panels {

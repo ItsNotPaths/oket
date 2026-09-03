@@ -143,7 +143,7 @@ main :: proc() {
 
         surface_draw(&a)
 
-        gfx.gl_clear(w, h, a.theme[.Bg])
+        gfx.gl_clear(w, h, chrome_bg(&a))
         surface_paint(&a, w, h)
         glfw.SwapBuffers(a.window)
         free_all(context.temp_allocator) // the frame's cell tables and bar text

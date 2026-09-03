@@ -15,28 +15,32 @@ import "../conf"
 // silently does nothing is the failure the input design exists to prevent (§8), and it is the
 // rule binds.conf follows for a bad row.
 //
-// Three settings today, which is §4's tripwire: if this grows nesting, flat keys start encoding
+// Four settings today, which is §4's tripwire: if this grows nesting, flat keys start encoding
 // structure in their names — `lang.odin.tab_width` — and that is a worse TOML. Revisit there.
 
 CONFIG_NAME :: "config.conf" // beside the binary, next to binds.conf
 
 Config :: struct {
     restore: bool, // [session] restore = on — the ring, across restarts (session.odin)
-    gap:     int, // [strip] gap = 8 — pixels between two panels (PANELS.md §5, §7)
+    gap:     int, // [strip] gap = 4 — pixels between two panels (PANELS.md §5, §7)
+    behind:  int, // [strip] behind = 12 — percent the surface behind the panels is darkened
     tau:     int, // [strip] tau = 90 — milliseconds the strip's motion decays by 1/e (§7)
 }
 
 // The zero value is not the default: a gap of nothing puts two documents against each other.
 // A strip of one has no gap in it either way, so this changes nothing until a panel is opened.
-GAP_DEFAULT :: 8
+GAP_DEFAULT :: 4
 
 // ONE number for the camera and for a panel's width, because they are the same motion in the
 // same axis (§11): two panels resizing while the camera follows them would otherwise read as
 // two speeds in one gesture. Zero turns the motion off, and everything lands at once.
 TAU_DEFAULT :: 90
 
+// A gap should read as depth and not as a hole, so it is `Bg` darkened rather than black.
+BEHIND_DEFAULT :: 12
+
 config_default :: proc() -> Config {
-    return {gap = GAP_DEFAULT, tau = TAU_DEFAULT}
+    return {gap = GAP_DEFAULT, tau = TAU_DEFAULT, behind = BEHIND_DEFAULT}
 }
 
 // A setting is where it is written and what reading it does, so adding one is a field above and
@@ -53,6 +57,8 @@ SETTINGS := [?]Setting {
     {"session", "restore", proc(c: ^Config, value: string) {c.restore = conf_on(value)}},
     {"strip", "gap", proc(c: ^Config, value: string) {c.gap = conf_int(value, GAP_DEFAULT)}},
     {"strip", "tau", proc(c: ^Config, value: string) {c.tau = conf_int(value, TAU_DEFAULT)}},
+    {"strip", "behind",
+     proc(c: ^Config, value: string) {c.behind = conf_int(value, BEHIND_DEFAULT)}},
 }
 
 config_load :: proc(a: ^App) {

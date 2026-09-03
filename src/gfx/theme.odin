@@ -15,6 +15,13 @@ Token :: enum u8 {
 
 Theme :: [Token][3]f32
 
+// A shade of `Bg`, for the surface the panels sit ON. Derived rather than a sixth token: a
+// chrome colour every theme author has to define is the cost the set stays small to avoid
+// (PANELS.md §12). Percent toward black; 0 is `Bg` itself.
+theme_behind :: proc(th: Theme, percent: int) -> [3]f32 {
+    return th[.Bg] * (1 - clamp(f32(percent), 0, 100) / 100)
+}
+
 // Gruvbox, baked in: the same five keys `themes/gruvbox.toml` resolves to, so a start with no
 // theme file looks like a start with one. Values are that file's palette, read through the
 // same UI keys theme.odin uses — ui.text, ui.background, ui.cursor.primary, ui.linenr, error.
