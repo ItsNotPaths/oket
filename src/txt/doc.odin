@@ -49,10 +49,11 @@ Doc_Sink :: struct {
     write: proc(user: rawptr, at, old_len: int, text: string),
 }
 
-// Fixed rather than a registration list: two of them, both living as long as the Doc.
+// Fixed rather than a registration list: three of them, all living as long as the Doc.
 Doc_Reader :: enum {
     Highlight, // folds each change into the cached parse tree (highlight.odin)
     Folds,     // shifts collapsed ranges so an edit elsewhere does not drop them (src/edit)
+    Fields,    // carries the descriptor's spans along with the text (src/store/fields.odin)
 }
 
 // Both byte offsets and points, because tree-sitter's Input_Edit wants both. Offsets are in the

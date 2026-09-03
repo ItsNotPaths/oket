@@ -56,13 +56,12 @@ say :: proc(p: ^Page, s: string) {
 }
 
 // A row: two spaces, the value a bind acts on, then whatever else the line says. The value is a
-// span of the line's own bytes, which is all `fields` ever is (§5), so hover underlines exactly
-// what `enter` would take.
+// span of the line's own bytes, so hover underlines exactly what `enter` would take.
 @(private = "file")
 row :: proc(p: ^Page, name, value, tail: string) {
     at := 2
     say(p, fmt.tprintf("  %s%s", value, tail))
-    append(&p.fields, desc.Field{p.line - 1, name, at, at + len(value)})
+    append(&p.fields, desc.Field{p.line - 1, name, at, at + len(value), ""})
 }
 
 @(private = "file")

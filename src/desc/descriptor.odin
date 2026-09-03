@@ -95,10 +95,18 @@ Column :: struct {
 
 // A named byte span inside one line, offsets from that line's start. Sorted by line, so a
 // lookup is a binary search and a short scan.
+//
+// THE SPAN IS WHAT IS DRAWN AND `value` IS WHAT IS ACTED ON. Empty, which is the common case,
+// means the two are the same and the span's own bytes answer `<name>`. Set, and the line may
+// show a bare `browser.c` while `<path>` hands on the whole of where it lives — which is what
+// makes a row a LINK and is the one thing a span alone could never say (§5, §14). It is also
+// the only way a link in RUNNING TEXT — a path in a compiler error, a file in a diff — can
+// carry its target: only a `columns` document has a cell to hide one in.
 Field :: struct {
     line:   int,
     name:   string,
     lo, hi: int,
+    value:  string,
 }
 
 Descriptor :: struct {
@@ -157,6 +165,7 @@ new_from :: proc(d: Descriptor) -> ^Descriptor {
     out.fields = slice.clone(d.fields)
     for &f in out.fields {
         f.name = strings.clone(f.name)
+        f.value = strings.clone(f.value)
     }
     out.depth = slice.clone(d.depth)
     slice.stable_sort_by(out.fields, proc(a, b: Field) -> bool {return a.line < b.line})
@@ -176,6 +185,7 @@ release :: proc(d: ^Descriptor) {
     }
     for f in d.fields {
         delete(f.name)
+        delete(f.value)
     }
     delete(d.file)
     delete(d.columns)
@@ -203,12 +213,18 @@ line_fields :: proc(d: ^Descriptor, line: int) -> []Field {
 // The span `<name>` names on this line (§5). Byte offsets from the line's start; the caller
 // slices the text, because a descriptor holds no text.
 field_span :: proc(d: ^Descriptor, line: int, name: string) -> (lo, hi: int, ok: bool) {
+    f := field_of(d, line, name) or_return
+    return f.lo, f.hi, true
+}
+
+// The whole of it, for the caller that wants what the field IS as well as where it was drawn.
+field_of :: proc(d: ^Descriptor, line: int, name: string) -> (Field, bool) {
     for f in line_fields(d, line) {
         if f.name == name {
-            return f.lo, f.hi, true
+            return f, true
         }
     }
-    return 0, 0, false
+    return {}, false
 }
 
 @(private)
