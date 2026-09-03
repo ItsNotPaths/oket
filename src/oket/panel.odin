@@ -20,6 +20,7 @@ Panel :: struct {
     at:    Spot, // the lane, and the slot inside it, this panel shows
     prev:  Spot, // alt+`: the most recent spot IN THIS PANEL
     size:  strip.Width, // full or half; `panel.size` toggles it
+    w:     f32, // the pixels it is drawn at NOW; `size` says where it is going (§7)
     grid:  gfx.Grid,
     // Where the document was drawn, in the panel's OWN cells. A click is placed against it, so
     // the hit test reads the layout the eye saw rather than recomputing one.
@@ -127,13 +128,26 @@ panel_resize :: proc(a: ^App) {
 
 // --- the layout ---
 
-// The strip's input: one width per panel, in strip order. Temp-allocated, because the widths
-// live on the panels and the strip holds no copy to go stale.
-panel_widths :: proc(a: ^App) -> []strip.Width {
+// The strip's input: one width per panel, in strip order, in PIXELS. Two of them, because a
+// panel that is resizing is not yet the width its mode says — this is what is DRAWN, and
+// `panel_dests` is what it is moving to (§7). Temp-allocated, because the widths live on the
+// panels and the strip holds no copy to go stale.
+panel_widths :: proc(a: ^App) -> []f32 {
     panels_ready(a)
-    w := make([]strip.Width, len(a.panels), context.temp_allocator)
+    w := make([]f32, len(a.panels), context.temp_allocator)
     for p, i in a.panels {
-        w[i] = p.size
+        w[i] = p.w
+    }
+    return w
+}
+
+// Where every panel is going: its mode, in pixels. The camera aims at this layout and not at
+// the one in flight, so a resize and the scroll that follows it settle in the same place.
+panel_dests :: proc(a: ^App) -> []f32 {
+    panels_ready(a)
+    w := make([]f32, len(a.panels), context.temp_allocator)
+    for p, i in a.panels {
+        w[i] = strip.width_px(a.strip, p.size)
     }
     return w
 }
@@ -141,14 +155,55 @@ panel_widths :: proc(a: ^App) -> []strip.Width {
 // A grid of no rows is legal and draws nothing, which is what keeps the small end from being a
 // special case.
 panels_fit :: proc(a: ^App, cols, rows: int) {
-    a.strip.view = f32(cols * a.cell.x)
+    view := f32(cols * a.cell.x)
     a.strip.gap = f32(a.config.gap)
-    ws := panel_widths(a)
-    a.strip.camera = strip.look_at(a.strip, ws, a.focus) // the camera follows focus (§5)
-    for &p, i in a.panels {
-        gfx.grid_resize(&p.grid, panel_cols(strip.span(a.strip, ws, i).w, a.cell.x),
-                        max(rows - 1, 0))
+    a.strip.tau = f32(a.config.tau) / 1000 // the file is milliseconds; the clock is seconds
+    // A WINDOW resize is not a panel resize: the view moved under every panel at once, and
+    // animating that would be the window's own resize drawn twice. So they land, and so does
+    // everything while tau is zero, which is what motion off means (§7).
+    land := view != a.strip.view || a.strip.tau <= 0
+    a.strip.view = view
+    dest := panel_dests(a)
+    a.strip.aim = strip.look_at(a.strip, dest, a.focus) // the camera follows focus (§5)
+    if land {
+        a.strip.camera = a.strip.aim
     }
+    high := max(rows - 1, 0) // the bar's row is the chrome's, and no panel reaches it
+    for &p, i in a.panels {
+        if land || p.w <= 0 {
+            p.w = dest[i] // a panel with no width yet lands; nothing slides in from nothing
+        }
+        // THE DOCUMENT LAYS OUT AT THE WIDTH THE PANEL IS ARRIVING AT, ONCE (§7). So the body
+        // is the destination and not what is on screen this frame, and the clip animates over
+        // text that is already in its final layout — one reflow per resize, and one winsize.
+        w := panel_cols(strip.span(a.strip, dest, i).w, a.cell.x)
+        p.body = {0, 0, w, high}
+        // While it moves the grid holds both ends of the motion, so it is allocated once per
+        // resize rather than once per frame.
+        gfx.grid_resize(&p.grid, p.w == dest[i] ? w : max(w, p.grid.cols), high)
+    }
+}
+
+// One step of the strip's motion, on the clock (§7). True while anything is still moving, which
+// is what keeps the frame loop polling instead of waiting for a key that is not coming.
+panels_step :: proc(a: ^App, dt: f32) -> bool {
+    panels_ready(a)
+    dest := panel_dests(a)
+    moving := false
+    for &p, i in a.panels {
+        if p.w != dest[i] {
+            p.w = strip.approach(p.w, dest[i], dt, a.strip.tau)
+            moving = true
+        }
+    }
+    if a.strip.camera != a.strip.aim {
+        a.strip.camera = strip.approach(a.strip.camera, a.strip.aim, dt, a.strip.tau)
+        moving = true
+    }
+    if moving {
+        panels_relayout(a)
+    }
+    return moving
 }
 
 // The strip, laid out again from what the last fit measured. Every verb that changes the strip

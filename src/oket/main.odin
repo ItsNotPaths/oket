@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import "core:os"
+import "core:time"
 import "vendor:glfw"
 import "../gfx"
 import "../wake"
@@ -116,11 +117,17 @@ main :: proc() {
         }
     }
 
+    // The strip's motion is stepped on the CLOCK and not on the frame (PANELS.md §7), so this
+    // is what a faked one stands in for: the loop measures, `panels_step` decays.
+    last := time.tick_now()
     for !glfw.WindowShouldClose(a.window) && !a.quit {
         w, h := glfw.GetFramebufferSize(a.window)
         cols, rows := gfx.painter_fit(&a.painter, w, h)
         cw, ch := gfx.painter_cell(&a.painter)
         surface_fit(&a, cols, rows, {cw, ch})
+        now := time.tick_now()
+        moving := panels_step(&a, f32(time.duration_seconds(time.tick_diff(last, now))))
+        last = now
 
         // Writes land at one point in the frame (§6): every session's output into its
         // document first, then the exit code that advances a chain waiting on one.
@@ -141,10 +148,13 @@ main :: proc() {
         glfw.SwapBuffers(a.window)
         free_all(context.temp_allocator) // the frame's cell tables and bar text
 
-        if latched {
-            glfw.PollEvents() // a parse is mid-slice; the next frame is its next slice
+        if latched || moving {
+            // A parse is mid-slice, or the strip is between two places. Neither is a keystroke
+            // and neither will wake a wait, so the next frame is asked for rather than waited on.
+            glfw.PollEvents()
         } else {
             glfw.WaitEvents() // idle until a key, a click, a resize, or a session's reader
+            last = time.tick_now() // the wait was idle; a motion the event starts is not behind
         }
     }
     session_save(&a) // before app_destroy, which is where the ring it writes down goes

@@ -46,8 +46,6 @@ bare_app :: proc(cols := 50, rows := 4) -> (a: app.App, ok: bool) {
         return {}, false
     }
     app.surface_fit(&a, cols, rows) // the strip, sized by the one rule that owns the split
-    p := app.panel_focused(&a)
-    p.body = {0, 0, p.grid.cols, p.grid.rows} // the draw sets it too; a test that never draws needs it
     return a, true
 }
 

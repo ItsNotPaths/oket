@@ -334,8 +334,9 @@ a_click_lands_in_the_panel_it_was_over :: proc(t: ^testing.T) {
     testing.expect_value(t, x, 3) // its own column 3, not the screen's column 30
 }
 
-// The camera follows focus (§5), snapping while stage 6 has not landed. A panel off screen
-// scrolls into view; one already on it does not move the strip.
+// The camera follows focus (§5). A panel off screen scrolls into view; one already on it does
+// not move the strip. It snaps here because the fixture leaves `tau` zero, which is motion off:
+// the layout is what this file is about, and the motion onto it is motion_test.odin's.
 @(test)
 the_camera_follows_focus :: proc(t: ^testing.T) {
     a, ok := bare_app(50, 5)

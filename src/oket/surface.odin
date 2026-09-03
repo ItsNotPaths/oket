@@ -45,8 +45,9 @@ surface_draw :: proc(a: ^App) {
     }
 }
 
-// One panel, into its own grid and its own cells. The rectangle is recorded before the document
-// is: a click is placed against it, and a panel with nothing in it still has a height.
+// One panel, into its own grid and its own cells. The rectangle it draws into is the FIT's, and
+// it is the width the panel is arriving at rather than the one on screen this frame (§7): the
+// document lays out once per resize and the clip animates over it.
 //
 // THE CARET IS WHAT SAYS WHICH PANEL THE NEXT THING LANDS IN (§3). Reverse video in a panel the
 // keys are not aimed at would be the surface lying about where the next keystroke goes, and the
@@ -56,8 +57,6 @@ surface_draw :: proc(a: ^App) {
 @(private = "file")
 panel_draw :: proc(a: ^App, p: ^Panel, marked: bool) {
     th := a.theme
-    p.body = {0, 0, p.grid.cols, p.grid.rows}
-
     s := panel_slot(a, p)
     snap := s != nil ? store.store_snapshot(&a.docs, s.doc) : nil
     if snap == nil {
