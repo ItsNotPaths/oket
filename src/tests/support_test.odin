@@ -4,6 +4,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import "core:testing"
+import "core:time"
 import "../desc"
 import "../gfx"
 import "../input"
@@ -59,6 +60,7 @@ listing_app :: proc(t: ^testing.T, name: string) -> (a: app.App, dir: string, ok
 
 close_app :: proc(a: ^app.App) {
     app.job_destroy(a)
+    app.io_destroy(a) // the worker thread, joined, the same way app_destroy ends one
     app.chain_clear(a)
     app.cl_destroy(a)
     app.ring_destroy(a)
@@ -141,6 +143,28 @@ doc_text :: proc(a: ^app.App, id: store.Id) -> string {
     last := txt.text_line_count(&doc.pt) - 1
     return txt.doc_text(doc, {0, 0}, {last, txt.text_line_len(&doc.pt, last)},
                         context.temp_allocator)
+}
+
+// The frame loop, as a test has one: pump §9's completions until `of` answers `want`. main.odin
+// is woken by the worker and idles otherwise; a test polls because it has no window.
+io_settle :: proc(a: ^app.App, of: proc(a: ^app.App) -> string, want: string, secs := 5) -> bool {
+    for _ in 0 ..< secs * 200 {
+        app.io_pump(a)
+        if of(a) == want {
+            return true
+        }
+        time.sleep(5 * time.Millisecond)
+    }
+    return false
+}
+
+echo_line :: proc(a: ^app.App) -> string {
+    return a.message
+}
+
+focused_text :: proc(a: ^app.App) -> string {
+    s := app.ring_focused(&a.ring)
+    return s == nil ? "" : doc_text(a, s.doc)
 }
 
 read_binds :: proc(a: ^app.App) -> string {

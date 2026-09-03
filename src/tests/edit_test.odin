@@ -5,6 +5,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import "core:testing"
+import "core:time"
 import "../desc"
 import "../input"
 import "../store"
@@ -222,4 +223,80 @@ the_plugin_writes_the_file_and_the_kernel_only_dumps :: proc(t: ^testing.T) {
     raw, err := os.read_entire_file(dumped, context.temp_allocator)
     testing.expectf(t, err == nil, "%s: %v (%s)", dumped, err, a.message)
     testing.expect_value(t, string(raw), "rescue me")
+}
+
+// --- the file, changing underneath (stage 12) ---
+
+// The other half of stage 12's gate (§13): a `watch` reload, with nothing on a plugin thread.
+// The kernel watches the path because the plugin asked through the seam, and the plugin is told
+// on the main thread and re-reads.
+@(test)
+a_file_changed_on_disk_is_taken_back :: proc(t: ^testing.T) {
+    a, path, ok := edit_app(t, "oket-edit-watch", "alpha\nbeta\n")
+    if !ok {
+        return
+    }
+    defer close_plug_app(&a)
+
+    _ = os.write_entire_file(path, transmute([]u8)string("alpha\ngamma\n"))
+    testing.expect(t, io_settle(&a, focused_text, "alpha\ngamma\n"), a.message)
+}
+
+// Written somewhere else and moved on top, which is how most programs write a file — and what a
+// watch on the file itself would miss, because the inode it holds is not the one that lands.
+@(test)
+a_save_by_rename_is_taken_back :: proc(t: ^testing.T) {
+    a, path, ok := edit_app(t, "oket-edit-rename", "alpha\n")
+    if !ok {
+        return
+    }
+    defer close_plug_app(&a)
+
+    tmp, _ := filepath.join({a.home, "note.new"}, context.temp_allocator)
+    _ = os.write_entire_file(tmp, transmute([]u8)string("renamed\n"))
+    _ = os.rename(tmp, path)
+    testing.expect(t, io_settle(&a, focused_text, "renamed\n"), a.message)
+}
+
+// A buffer with edits of its own is NOT overwritten. Two edits of one file is the case where
+// the honest answer is to say so and change nothing.
+@(test)
+an_edited_buffer_is_not_overwritten :: proc(t: ^testing.T) {
+    a, path, ok := edit_app(t, "oket-edit-clash", "alpha\n")
+    if !ok {
+        return
+    }
+    defer close_plug_app(&a)
+
+    app.plug_type(&a, focused(&a), 'x')
+    mine := doc_text(&a, focused(&a))
+    _ = os.write_entire_file(path, transmute([]u8)string("theirs\n"))
+    for _ in 0 ..< 200 {
+        app.io_pump(&a)
+        time.sleep(5 * time.Millisecond)
+    }
+    testing.expect_value(t, doc_text(&a, focused(&a)), mine)
+    testing.expect(t, strings.contains(a.message, "changed on disk"), a.message)
+}
+
+// Our own `:w` comes back through the same watch, and it must not land as a reload: the
+// baseline moved when we wrote, so there is nothing to take back and the caret does not move.
+@(test)
+a_save_of_our_own_is_not_a_reload :: proc(t: ^testing.T) {
+    a, _, ok := edit_app(t, "oket-edit-selfsave", "alpha\n")
+    if !ok {
+        return
+    }
+    defer close_plug_app(&a)
+
+    app.plug_type(&a, focused(&a), 'x')
+    app.cl_exec(&a, ":w")
+    testing.expect(t, strings.contains(a.message, "wrote"), a.message)
+    before := doc_text(&a, focused(&a))
+    for _ in 0 ..< 200 {
+        app.io_pump(&a)
+        time.sleep(5 * time.Millisecond)
+    }
+    testing.expect_value(t, doc_text(&a, focused(&a)), before)
+    testing.expect(t, !strings.contains(a.message, "changed on disk"), a.message)
 }
