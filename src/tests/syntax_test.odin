@@ -264,6 +264,25 @@ lines_of :: proc(a: ^app.App, id: store.Id) -> []string {
     return strings.split_lines(doc_text(a, id), context.temp_allocator)
 }
 
+// How many separate lit runs the bar holds. One is a block crossing; two is the same block
+// wrapped around both ends at once.
+@(private = "file")
+lit_runs :: proc(row: string) -> int {
+    runs, inside := 0, false
+    for r in row {
+        switch r {
+        case '\u2588':
+            if !inside {
+                runs += 1
+            }
+            inside = true
+        case '\u2591':
+            inside = false
+        }
+    }
+    return runs
+}
+
 // The row for one grammar, by the name in its own column.
 @(private = "file")
 row_named :: proc(a: ^app.App, id: store.Id, name: string) -> string {
@@ -453,12 +472,21 @@ a_building_row_says_so_and_ends_on_the_platter :: proc(t: ^testing.T) {
     // loop while a shell step is out, and a bar nobody redraws says nothing.
     latched, _ := frame(&a)
     testing.expect(t, latched, "a build left the list with nothing to move its bar")
-    moved := row_named(&a, id, "rust")
-    for i := 0; i < 8 && moved == row; i += 1 {
+
+    // A whole lap, sampled: the lit part is ONE run at every step of it. Wrapping the run over
+    // the bar's own width puts a piece at each end at once, which reads as two blocks bouncing.
+    // It moves on a WALL CLOCK, so the lap takes the same time whatever the frame rate is.
+    moved, laps := false, 0
+    for i := 0; i < 100; i += 1 {
+        time.sleep(15 * time.Millisecond)
         frame(&a)
-        moved = row_named(&a, id, "rust")
+        bar := row_named(&a, id, "rust")
+        testing.expectf(t, lit_runs(bar) <= 1, "the lit part broke in two: %s", bar)
+        laps += lit_runs(bar)
+        moved ||= bar != row
     }
-    testing.expectf(t, moved != row, "the bar never moved: %s", moved)
+    testing.expect(t, moved, "the bar never moved")
+    testing.expect(t, laps > 0, "the bar was never lit")
 
     // A second build while one is out is refused HERE, not four steps later inside the kernel
     // with nothing on screen to say why.
