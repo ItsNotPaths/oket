@@ -80,6 +80,11 @@ takes one of each, in any order, and names a panel the strip does not have yet b
 :open src/oket/ring.odin @-1
 ```
 
+One path is one document. A file the ring already holds goes back to where it is, so `#N` places
+a document the first time it opens and says where it went after that. Two documents over one file
+would be two undo stacks, two journals under one name and a save from either clobbering the other
+— and the strip could not show both anyway, because a live slot is in at most one panel.
+
 ```
 # config.conf, beside the binary
 [strip]
