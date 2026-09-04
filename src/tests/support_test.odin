@@ -67,6 +67,7 @@ listing_app :: proc(t: ^testing.T, name: string) -> (a: app.App, dir: string, ok
 }
 
 close_app :: proc(a: ^app.App) {
+    app.producers_destroy(a) // a publisher's name is interned by publishing, plugin or kernel
     app.journals_destroy(a) // a clean exit leaves nothing to recover, the same as app_destroy
     app.quarantine_destroy(a)
     app.job_destroy(a)

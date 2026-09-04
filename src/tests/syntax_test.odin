@@ -93,10 +93,10 @@ json_doc :: proc(a: ^app.App, text: string) -> store.Id {
     return id
 }
 
-// Every layer's runs over the whole document, out of the store.
+// Every publisher's runs over the whole document, in the order this document ranks them.
 @(private = "file")
 all_styles :: proc(a: ^app.App, id: store.Id) -> []store.Span {
-    return store.store_spans(&a.docs, id, 0, max(int))
+    return store.store_spans(&a.docs, id, 0, max(int), app.spans_order(a, id))
 }
 
 // The gate's first half: a plugin with no kind and no surface colours a file it never opened,
