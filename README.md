@@ -57,7 +57,7 @@ panel to the next. The layout is a horizontal strip you scroll, no nesting.
 |---|---|
 | `alt+left` `alt+right` | walk the strip |
 | `alt+shift+left` `alt+shift+right` | move this panel along it |
-| `alt+p` | a panel to the right of this one, standing on nothing |
+| `alt+p` | a panel to the right of this one, on the home page |
 | `alt+shift+p` | close the panel; what was in it stays in the ring |
 | `alt+w` | the next width in its row's list; `:width 30 50 100` by default |
 
@@ -422,23 +422,60 @@ Text a stage inserted is not enterable: point never lands in it, a click in a fo
 answers the real byte beside it, and a gutter number belongs to the line being edited. A stage
 that needs more than one frame says so and is called again on the next one.
 
+## The home page
+
+A start with no session to restore opens the home page, and so does a new panel. It is what the
+kernel has to say before you have said anything: what this build changed, what a crash left
+behind, which plugins it took with it, how this start came up, and the chords that are in each
+other's way.
+
+```
+oket v0.14
+safe mode: no plugin was loaded, and the last session was ignored
+
+unsaved work a crash left behind — enter takes it back:
+  /home/you/notes.md   6 edit(s)
+  (:recover drop <path> throws one away)
+
+plugins that took a start down, and are not loaded:
+  syntax
+  (:plug load <name> takes one again, once it is fixed)
+
+chords a plugin asked for that binds.conf answers itself:
+  alt+n   hello asked for it; it runs :ring files
+  (the plugin's own row is in the file, commented out, under its name)
+
+lines the config could not be read as anything:
+  binds.conf:12   ctrl+b f: a sequence is two chords and both carry a modifier
+
+new in this build — v0.14:
+  - The home page is the default document.
+  - Two-chord binds: `ctrl+b ctrl+f`, where both chords carry a modifier.
+  notes.md   the rest of them
+
+  /home/you/src   the directory you started in
+alt+f files   alt+t term   alt+c command line   f1 describes a chord
+```
+
+It is a document like any other, so `enter` over a row is one bind and the row's own field says
+which verb it wants: a path is `:recover`, a held-back plugin is `:plug load`, a file is
+`:open`. The working directory is a row on it rather than the thing a start opens, which is why
+there is no listing you did not ask for. `:home` asks for the page whenever you want it, and a
+start that restored a session says in the bar that there is something to read.
+
+It is the kernel's own document and not a plugin's, which is the one place the rule bends and
+it bends for a reason: the page reports quarantined plugins and `--no-plugins`, so a plugin
+drawing it would be missing at exactly the start that needs it.
+
+The notes are `notes.md` beside the binary, headed `## <version>`, newest first. The page shows
+the top section and offers the file for the rest.
+
 ## Crashes, and the start after one
 
 Every document that is a file and takes typing is journaled: each splice is appended to a file
 of its own as it lands, so what recovery reads is bytes that were already on the platter and
 never in-memory state a crash is entitled to have corrupted. `kill -9` mid-edit, start again,
-and the work is offered back.
-
-```
-oket dev
-
-unsaved work a crash left behind — enter takes it back:
-  /home/you/notes.md   6 edit(s)
-  (:recover drop <path> throws one away)
-```
-
-That page is a document like any other, so `enter` over a row is one bind over one field, and
-a start with nothing to report never shows it — `:home` asks for it whenever you want it. A journal whose replay matches the file is
+and the work is offered back on the home page. A journal whose replay matches the file is
 dropped without asking: the work was saved before the crash. A clean exit removes its journals,
 because quitting is a decision and a crash is not.
 
