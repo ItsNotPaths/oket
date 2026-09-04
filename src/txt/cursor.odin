@@ -430,25 +430,43 @@ Motion :: enum {
     Down,
 }
 
+// A run of the ORIGINAL that a view stage deleted, so no cell on screen stands for it
+// (VIEWS.md §7). Motion is the only thing in txt that is told about one — edits, undo, find and
+// the journal all stay in original coordinates and never ask.
+//
+// lo and hi draw at the SAME cell, so the two edges are one position to the eye and the
+// direction of travel is what picks between them: a rune typed at lo joins the text before the
+// run, one typed at hi joins the text after it.
+Range :: struct {
+    lo, hi: Pos,
+}
+
 // Every caret at once, because a motion is what the SET does (VIEWS.md §4). Single cursor is
 // N == 1, so an ordinary arrow is unchanged, and two carets moving into each other fuse.
 // `count` applies to Up/Down only.
-doc_move :: proc(d: ^Doc, motion: Motion, select := false, count := 1) {
+//
+// `hidden` is what the view pipeline exports to motion and the whole of it: the runs of this
+// document that are not on screen. Empty is a document nobody folded.
+doc_move :: proc(d: ^Doc, motion: Motion, select := false, count := 1, hidden: []Range = nil) {
     for &c in d.cursors {
-        move_cursor(d, &c, motion, select, count)
+        move_cursor(d, &c, motion, select, count, hidden)
     }
     doc_merge_cursors(d)
 }
 
 @(private = "file")
-move_cursor :: proc(d: ^Doc, c: ^Cursor, motion: Motion, select: bool, count := 1) {
+move_cursor :: proc(d: ^Doc, c: ^Cursor, motion: Motion, select: bool, count := 1,
+                    hidden: []Range = nil) {
+    defer clamp_visible(d, c, motion, select, hidden)
     switch motion {
     case .Left:
         if !select && cursor_has_selection(c^) {
             lo, _ := cursor_range(c^)
             cursor_place(c, lo, false)
         } else {
-            cursor_place(c, pos_left(d, c.head), select)
+            // Off the far edge FIRST: a step taken from the near edge would land back on the
+            // same cell, so the fold would cost two presses to cross.
+            cursor_place(c, pos_left(d, hidden_edge(hidden, c.head, true)), select)
         }
         c.goal = doc_cell_col(d, c.head)
     case .Right:
@@ -456,7 +474,7 @@ move_cursor :: proc(d: ^Doc, c: ^Cursor, motion: Motion, select: bool, count := 
             _, hi := cursor_range(c^)
             cursor_place(c, hi, false)
         } else {
-            cursor_place(c, pos_right(d, c.head), select)
+            cursor_place(c, pos_right(d, hidden_edge(hidden, c.head, false)), select)
         }
         c.goal = doc_cell_col(d, c.head)
     case .Word_Left:
@@ -476,22 +494,98 @@ move_cursor :: proc(d: ^Doc, c: ^Cursor, motion: Motion, select: bool, count := 
         c.goal = doc_cell_col(d, c.head)
     case .Doc_Start:
         cursor_place(c, Pos{0, 0}, select)
-        c.goal = 0
+        c.goal = doc_cell_col(d, c.head)
     case .Doc_End:
         last := doc_line_count(d) - 1
         cursor_place(c, Pos{last, doc_line_len(d, last)}, select)
         c.goal = doc_cell_col(d, c.head)
     case .Up:
-        if c.head.line > 0 {
-            line := max(0, c.head.line - count)
+        line := visible_line(d, hidden, c.head.line, -1, count)
+        if line != c.head.line {
             cursor_place(c, Pos{line, doc_byte_col(d, line, c.goal)}, select)
         }
     case .Down:
-        if c.head.line < doc_line_count(d) - 1 {
-            line := min(doc_line_count(d) - 1, c.head.line + count)
+        line := visible_line(d, hidden, c.head.line, +1, count)
+        if line != c.head.line {
             cursor_place(c, Pos{line, doc_byte_col(d, line, c.goal)}, select)
         }
     }
+}
+
+// --- hidden runs (VIEWS.md §7) --- Every arm skips an obstacle rather than converting a
+// coordinate: motion runs in ORIGINAL coordinates and this list is the only thing it knows
+// about the view.
+
+// Which edge an arm ends on. Doc_Start is rightward because the first visible position of a
+// document that opens inside a fold is to the RIGHT of it.
+@(private = "file")
+RIGHTWARD :: bit_set[Motion]{.Right, .Word_Right, .End, .Doc_Start}
+
+@(private = "file")
+VERTICAL :: bit_set[Motion]{.Up, .Down}
+
+// No arm may leave a caret inside hidden text, including the ones §7 calls unaffected: a
+// line-local motion is only unaffected while the fold is not inline. Vertical motion keeps its
+// goal column, since both edges are one cell and the caret has not moved horizontally.
+@(private = "file")
+clamp_visible :: proc(d: ^Doc, c: ^Cursor, motion: Motion, select: bool, hidden: []Range) {
+    p := hidden_edge(hidden, c.head, motion not_in RIGHTWARD)
+    if p == c.head {
+        return
+    }
+    cursor_place(c, p, select)
+    if motion not_in VERTICAL {
+        c.goal = doc_cell_col(d, p)
+    }
+}
+
+// The visible edge of the run p fell into, or p when it fell into none. Loops because two runs
+// can meet, and the edge of one is then inside the next.
+@(private = "file")
+hidden_edge :: proc(hidden: []Range, p: Pos, toward_lo: bool) -> Pos {
+    out := p
+    for _ in 0 ..< len(hidden) {
+        moved := false
+        for r in hidden {
+            if pos_less(out, r.lo) || pos_less(r.hi, out) {
+                continue
+            }
+            if e := toward_lo ? r.lo : r.hi; e != out {
+                out, moved = e, true
+            }
+        }
+        if !moved {
+            break
+        }
+    }
+    return out
+}
+
+// A line with no row of its own: its start was swallowed, so its text draws as part of an
+// earlier row and a caret can never be put on it.
+@(private = "file")
+line_hidden :: proc(hidden: []Range, line: int) -> bool {
+    return hidden_edge(hidden, Pos{line, 0}, true).line != line
+}
+
+// `count` visible lines up or down, stopping on the last one there is — which is what an arrow
+// at the edge of the document already did.
+@(private = "file")
+visible_line :: proc(d: ^Doc, hidden: []Range, from, by, count: int) -> int {
+    out, line := from, from
+    for _ in 0 ..< count {
+        for {
+            line += by
+            if line < 0 || line >= doc_line_count(d) {
+                return out
+            }
+            if !line_hidden(hidden, line) {
+                break
+            }
+        }
+        out = line
+    }
+    return out
 }
 
 // --- internals ---
