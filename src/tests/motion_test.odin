@@ -66,7 +66,7 @@ a_resize_reflows_the_document_once :: proc(t: ^testing.T) {
     p := app.panel_focused(&a)
     testing.expect_value(t, p.body.w, 40)
 
-    app.panel_resize(&a) // full -> half
+    panel_toggle(&a) // full -> half
     app.surface_draw(&a)
     testing.expect_value(t, app.panel_focused(&a).body.w, 20) // at the target, immediately
     landed := gfx.grid_snapshot(panel_grid(&a), context.temp_allocator)
@@ -105,7 +105,7 @@ the_panel_slides_to_the_width_its_mode_says :: proc(t: ^testing.T) {
     a.config.tau = TAU_MS
     app.surface_fit(&a, 40, 5)
 
-    app.panel_resize(&a)
+    panel_toggle(&a)
     testing.expect_value(t, app.panel_focused(&a).w, f32(40)) // still where it was drawn
 
     was := f32(40)
@@ -173,7 +173,7 @@ a_window_resize_lands_mid_motion :: proc(t: ^testing.T) {
     a.config.tau = TAU_MS
     app.surface_fit(&a, 40, 5)
 
-    app.panel_resize(&a) // full -> half
+    panel_toggle(&a) // full -> half
     app.panels_step(&a, HZ_60)
     w := app.panel_focused(&a).w
     testing.expect(t, w < 40 && w > 20, "the panel was not in flight")
@@ -205,7 +205,7 @@ a_pty_gets_one_winsize_per_resize :: proc(t: ^testing.T) {
     app.term_pump(&a) // the spawn's nominal size, resized to the body it landed in
     testing.expect_value(t, tm.t.cols, 40)
 
-    app.panel_resize(&a) // full -> half
+    panel_toggle(&a) // full -> half
     sizes, was := 0, tm.t.cols
     for i in 0 ..< 1000 {
         moving := app.panels_step(&a, HZ_60)

@@ -8,8 +8,8 @@ import "../strip"
 // literal and never reaches for an App. If it ever needs the fixture, the layout has grown a
 // dependency on documents and it is not a piece any more.
 
-// Pixels, not modes: a panel that is resizing is between its two modes, so the layout takes
-// widths in the unit it answers in. `width_px` is the only place a mode is a number.
+// Pixels, and never percents: a panel that is resizing is between the two widths it travels
+// between, so the layout takes widths in the unit it answers in.
 @(private = "file")
 FULL :: [?]f32{100, 100, 100}
 
@@ -21,7 +21,7 @@ a_strip_of_one_is_the_whole_view :: proc(t: ^testing.T) {
         view = 100,
         gap  = 10,
     }
-    one := [?]f32{strip.width_px(s, .Full)}
+    one := [?]f32{100}
     it := strip.span(s, one[:], 0)
     testing.expect_value(t, it.x, f32(0))
     testing.expect_value(t, it.w, f32(100))
@@ -35,7 +35,7 @@ two_halves_tile_the_view_with_one_gap_between :: proc(t: ^testing.T) {
         view = 100,
         gap  = 10,
     }
-    half := [?]f32{strip.width_px(s, .Half), strip.width_px(s, .Half)}
+    half := [?]f32{50, 50}
     a, b := strip.span(s, half[:], 0), strip.span(s, half[:], 1)
     testing.expect_value(t, a, strip.Span{0, 45})
     testing.expect_value(t, b, strip.Span{55, 45})

@@ -214,3 +214,21 @@ a_hole_that_cannot_be_filled_says_so :: proc(t: ^testing.T) {
     testing.expect_value(t, a.message, "nothing here has a nothing")
     _ = dir
 }
+
+// The other half of the rule: a line with no hole needs no point, so it runs on a panel
+// standing on nothing rather than swallowing the chord (§8). alt+w on a fresh strip is this.
+@(test)
+a_line_without_a_hole_needs_no_document :: proc(t: ^testing.T) {
+    a, ok := bare_app()
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    line, filled := app.bind_expand(&a, ":width 100 50")
+    testing.expect(t, filled, "the chord was swallowed")
+    testing.expect_value(t, line, ":width 100 50")
+
+    _, holed := app.bind_expand(&a, ":open <path>") // a hole still needs a document
+    testing.expect(t, !holed)
+}

@@ -27,6 +27,19 @@ describe_answers_every_chord :: proc(t: ^testing.T) {
     testing.expect_value(t, s, "alt+@999 is unbound")
 }
 
+// The sizing model is a ROW, so describe reads the widths out rather than naming a verb that
+// hides them (PANELS.md §5). Rebind the row and this answer changes with it.
+@(test)
+describe_reads_the_width_row_out :: proc(t: ^testing.T) {
+    binds := input.binds_default()
+    defer input.binds_destroy(&binds)
+    w, _ := input.key_code("AD02")
+
+    s := input.describe_chord(binds[:], {w, {.Alt}, 0}, .Global, nil)
+    defer delete(s)
+    testing.expect(t, strings.contains(s, "runs :width 100 50"), s)
+}
+
 @(test)
 describe_names_the_command :: proc(t: ^testing.T) {
     binds := input.binds_default()

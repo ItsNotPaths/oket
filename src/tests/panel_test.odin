@@ -282,10 +282,10 @@ closing_a_panel_renumbers_nothing :: proc(t: ^testing.T) {
     testing.expect_value(t, len(a.panels), 1)
 }
 
-// Two widths and no more (§5), and a gap is pixels between two panels. At one pixel per cell the
-// strip's arithmetic reads in columns: two halves of a 50-column view, less half a gap each.
+// A gap is pixels between two panels (§5). At one pixel per cell the strip's arithmetic reads in
+// columns: two halves of a 50-column view, less half a gap each.
 @(test)
-the_size_toggle_is_the_whole_sizing_model :: proc(t: ^testing.T) {
+two_halves_of_the_view_are_the_view_less_a_gap :: proc(t: ^testing.T) {
     a, ok := bare_app(50, 5)
     if !ok {
         return
@@ -294,17 +294,94 @@ the_size_toggle_is_the_whole_sizing_model :: proc(t: ^testing.T) {
     a.config.gap = 4
 
     app.panel_open(&a)
-    app.panel_resize(&a)
+    panel_toggle(&a)
     app.panel_step(&a, -1)
-    app.panel_resize(&a)
+    panel_toggle(&a)
 
     testing.expect_value(t, app.panel_get(&a, 0).grid.cols, 23) // 25 less half a gap
     testing.expect_value(t, app.panel_get(&a, 1).grid.cols, 23)
     testing.expect_value(t, a.strip.camera, f32(0)) // both halves are on screen at once
 
     // And back to full, which is the view less the one gap it now has a neighbour across.
-    app.panel_resize(&a)
+    panel_toggle(&a)
     testing.expect_value(t, app.panel_get(&a, 0).grid.cols, 48)
+}
+
+// The sizing model is the ROW (§5): a list of percents is a cycle, so the same verb is a toggle,
+// a three-way or a set depending on what the file says. The kernel names no widths of its own.
+@(test)
+a_width_list_is_a_cycle :: proc(t: ^testing.T) {
+    a, ok := bare_app(60, 5)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    testing.expect_value(t, app.panel_focused(&a).size, 100)
+    app.cl_exec(&a, ":width 100 50 33")
+    testing.expect_value(t, app.panel_focused(&a).size, 50)
+    app.cl_exec(&a, ":width 100 50 33")
+    testing.expect_value(t, app.panel_focused(&a).size, 33)
+    app.cl_exec(&a, ":width 100 50 33") // and round, which is what makes it a cycle
+    testing.expect_value(t, app.panel_focused(&a).size, 100)
+
+    // One percent is a set, and the words are the same numbers said another way.
+    app.cl_exec(&a, ":width 25")
+    testing.expect_value(t, app.panel_focused(&a).size, 25)
+    app.cl_exec(&a, ":width third")
+    testing.expect_value(t, app.panel_focused(&a).size, 33)
+
+    // A panel at a percent the list does not name takes the first entry rather than nowhere.
+    app.cl_exec(&a, ":width 80 40")
+    testing.expect_value(t, app.panel_focused(&a).size, 80)
+}
+
+// A percent the row cannot mean is REPORTED and sizes nothing. Clamping 200 to 100 would answer
+// a typo with a layout, which is the silence §8 exists to prevent.
+@(test)
+a_percent_out_of_range_sizes_nothing :: proc(t: ^testing.T) {
+    a, ok := bare_app(60, 5)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    app.cl_exec(&a, ":width 200")
+    testing.expect_value(t, app.panel_focused(&a).size, 100)
+    testing.expect(t, strings.contains(a.message, "200"), a.message)
+
+    app.cl_exec(&a, ":width 50 wide")
+    testing.expect_value(t, app.panel_focused(&a).size, 100) // not even the 50 it could read
+    testing.expect(t, strings.contains(a.message, "wide"), a.message)
+
+    // No percent at all is usage, not a no-op with no answer.
+    app.cl_exec(&a, ":width @1")
+    testing.expect_value(t, app.panel_focused(&a).size, 100)
+    testing.expect(t, strings.contains(a.message, "<percent>"), a.message)
+}
+
+// `@N` on a width names a panel to SIZE, so it reaches one and never makes one: `:open` grows
+// the strip because it has a document to put there, and this has nothing to put anywhere.
+@(test)
+a_width_reaches_a_panel_and_makes_none :: proc(t: ^testing.T) {
+    a, ok := bare_app(60, 5)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    app.cl_exec(&a, ":width 50 @2")
+    testing.expect_value(t, len(a.panels), 1)
+    testing.expect_value(t, app.panel_focused(&a).size, 100)
+    testing.expect(t, strings.contains(a.message, "panel"), a.message)
+
+    // With the panel there it is sized, and the focus stays where it was.
+    app.panel_open(&a)
+    app.panel_step(&a, -1)
+    app.cl_exec(&a, ":width 50 @2")
+    testing.expect_value(t, a.focus, 0)
+    testing.expect_value(t, app.panel_get(&a, 0).size, 100)
+    testing.expect_value(t, app.panel_get(&a, 1).size, 50)
 }
 
 // A click lands in the panel it was over, and the column counts from THAT panel's grid (§7).
@@ -319,9 +396,9 @@ a_click_lands_in_the_panel_it_was_over :: proc(t: ^testing.T) {
     a.config.gap = 4
 
     app.panel_open(&a)
-    app.panel_resize(&a)
+    panel_toggle(&a)
     app.panel_step(&a, -1)
-    app.panel_resize(&a) // two halves, 23 columns each, four pixels of air between them
+    panel_toggle(&a) // two halves, 23 columns each, four pixels of air between them
 
     pn, x, y := app.panel_hit(&a, 3, 1)
     testing.expect_value(t, pn, 0)
