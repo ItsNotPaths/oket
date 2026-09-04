@@ -86,8 +86,68 @@ pending_take :: proc(a: ^App, chord: input.Chord) -> bool {
         message_set(a, answer)
         input.pending_set(&a.pending)
         return true
+    case input.Pending_Prefix:
+        return prefix_take(a, chord)
     }
     return false
+}
+
+// Arms a primer, if this chord is one. Both bar labels are built here because the table cannot
+// change while a primer is up, and they are owned the way an armed pick owns its line.
+@(private = "file")
+prefix_arm :: proc(a: ^App, chord: input.Chord, ctx: input.Bind_Ctx, kind: input.Kind) -> bool {
+    if !input.bind_primes(a.binds[:], chord, ctx, kind) {
+        return false
+    }
+    kids := input.bind_children(a.binds[:], chord, ctx, key_layout_name, names(a), kind,
+                                context.temp_allocator)
+    spelling := input.chord_format(chord, key_layout_name, context.temp_allocator)
+    code, _ := input.key_code(input.PREFIX_HELP)
+    help := key_layout_name(code)
+    input.pending_set(&a.pending, input.Pending_Prefix {
+        chord = chord,
+        short = fmt.aprintf("%s: %s lists what follows it, esc cancels", spelling, help),
+        long  = fmt.aprintf("%s: %s", spelling, kids),
+    })
+    return true
+}
+
+// The three outcomes of a chord under a primer (§4.2), plus the two keys the primer reserves.
+//
+// An UNMODIFIED chord is never part of a sequence — structurally, not by timing — so it clears
+// the primer and answers false, and the key does exactly what it always did. That transparency
+// is the whole difference between this and Emacs. A modified chord that no child claims is
+// ABSORBED and reported: dispatching it as itself would fire an unrelated verb because a
+// sequence did not exist, which is what describe exists to prevent.
+@(private = "file")
+prefix_take :: proc(a: ^App, chord: input.Chord) -> bool {
+    p, _ := a.pending.(input.Pending_Prefix)
+    esc, _ := input.key_code("ESC")
+    help, _ := input.key_code(input.PREFIX_HELP)
+    // Escape is unmodified and would fall through to quit, so it cancels ahead of the rule
+    // below. The help key is the one other hole, and it keeps the primer up.
+    if chord == (input.Chord{esc, {}, 0}) {
+        input.pending_set(&a.pending)
+        return true
+    }
+    if chord == (input.Chord{help, {}, 0}) {
+        p.listing = true
+        a.pending = p // the same owned labels, so this is the one write that must not free them
+        return true
+    }
+    if chord.mods == {} {
+        input.pending_set(&a.pending)
+        return false
+    }
+    ctx, kind := bind_ctx(a)
+    input.pending_set(&a.pending)
+    if b, extend, ok := input.bind_lookup(a.binds[:], chord, ctx, kind, p.chord); ok {
+        bind_dispatch(a, chord, b, extend)
+        return true
+    }
+    message_set(a, fmt.tprintf("%s is unbound", input.chord_pair_format(
+        p.chord, chord, key_layout_name, context.temp_allocator)))
+    return true
 }
 
 // Escape with more than one caret up over the focused document. False with one, so Escape keeps
@@ -125,6 +185,13 @@ handle_chord :: proc(a: ^App, chord: input.Chord, repeat := false) {
     ctx, kind := bind_ctx(a)
     b, extend, ok := input.bind_lookup(a.binds[:], chord, ctx, kind)
     if !ok {
+        // A chord no row claims may still be a PRIMER, which is a row's prefix and never a row
+        // of its own (§4.1). Asked after the lookup, so a chord that already runs something
+        // keeps running it and the clash is what the home page reports. Never over a pending:
+        // arming would close the command line or drop an armed pick.
+        if a.pending == nil && prefix_arm(a, chord, ctx, kind) {
+            return
+        }
         // The miss rule (§8, §14): a context whose documents have a job of their own forwards,
         // and everything else stays quiet. A chord that IS bound and does nothing is the thing
         // that section exists to prevent; an unbound one is just an unbound one.
@@ -133,6 +200,13 @@ handle_chord :: proc(a: ^App, chord: input.Chord, repeat := false) {
         }
         return
     }
+    bind_dispatch(a, chord, b, extend)
+}
+
+// A resolved row, run. Split from handle_chord so a child reached under a primer takes exactly
+// the path its plain sibling takes (§4.2).
+@(private = "file")
+bind_dispatch :: proc(a: ^App, chord: input.Chord, b: input.Bind, extend: bool) {
     if line, is_line := b.target.(input.Bind_Line); is_line {
         bind_line_fire(a, chord, line)
         return

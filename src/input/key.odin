@@ -194,6 +194,45 @@ chord_physical :: proc(c: Chord, allocator := context.allocator) -> string {
     return strings.to_string(b)
 }
 
+// `"ctrl+b ctrl+f"`: a primer and the chord it qualifies, split on the space. Two and never
+// three — a tree deeper than one level is a mode with extra steps.
+//
+// The primer must carry a modifier and must not be a mouse code: a button already moves point
+// before dispatch, and an unmodified primer would swallow a key that types.
+chord_pair_parse :: proc(text: string, resolve: Layout_Resolve) -> (prefix, c: Chord, ok: bool) {
+    lo, _, hi := strings.partition(strings.trim_space(text), " ")
+    if hi == "" {
+        c = chord_parse(lo, resolve) or_return
+        return {}, c, true
+    }
+    hi = strings.trim_space(hi)
+    if strings.contains(hi, " ") {
+        return {}, {}, false
+    }
+    prefix = chord_parse(lo, resolve) or_return
+    c = chord_parse(hi, resolve) or_return
+    if prefix.mods == {} || c.mods == {} || mouse_is(prefix.code) {
+        return {}, {}, false
+    }
+    return prefix, c, true
+}
+
+// A primer and its child, spelled back the way the file writes them.
+chord_pair_format :: proc(prefix, c: Chord, layout: Layout_Name,
+                          allocator := context.allocator) -> string {
+    if prefix == (Chord{}) {
+        return chord_format(c, layout, allocator)
+    }
+    return strings.concatenate(
+        {
+            chord_format(prefix, layout, context.temp_allocator),
+            " ",
+            chord_format(c, layout, context.temp_allocator),
+        },
+        allocator,
+    )
+}
+
 // The layout spelling for display: the glyph the position types, a label for keys that type
 // nothing, the physical spelling as the last resort. A held key is a prefix like a modifier,
 // so `tab+enter` reads as the gesture it is (PANELS.md §6).

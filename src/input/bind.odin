@@ -272,6 +272,10 @@ command_named :: proc(name: string) -> (Command, bool) {
 
 Bind :: struct {
     chord:  Chord,
+    // The primer this row hides behind, zero for a row that answers on its own. A child is
+    // invisible to the scan until its primer is pending, which is a FILTER and not a fallback:
+    // nothing retries a miss with the prefix dropped.
+    prefix: Chord,
     target: Bind_Target,
     ctx:    Bind_Ctxs, // on the bind, not the verb: a plugin command has no COMMANDS row
     // Narrower than ctx: a row for one surface kind, which is how `enter` means one thing in a
@@ -306,8 +310,9 @@ bind_command :: proc(b: Bind) -> (Command, bool) {
 
 // How a plugin bind gets in: the caller resolved the name to a slot first (§6).
 bind_add :: proc(b: ^[dynamic]Bind, chord: Chord, target: Bind_Target, ctx: Bind_Ctxs,
-                 run: Code = 0, kind := Kind(0)) {
-    append(b, Bind{chord = chord, target = target, ctx = ctx, run = run, kind = kind})
+                 run: Code = 0, kind := Kind(0), prefix := Chord{}) {
+    append(b, Bind{chord = chord, prefix = prefix, target = target, ctx = ctx, run = run,
+                   kind = kind})
 }
 
 // The kernel defaults, resolved through the name table so a typo dies at startup, not in a
@@ -474,28 +479,143 @@ bind_put :: proc(b: ^[dynamic]Bind, key: string, mods: Mods, cmd: Command) {
     bind_add(b, {code, mods, 0}, cmd, COMMANDS[cmd].ctx, cmd == .Ring_Goto ? 8 : 0)
 }
 
+// A chord that is BOTH a primer and a row of its own. There is no priority between them: the
+// scan answers with whichever row it reaches first, so one of the two can never fire. Reported
+// rather than resolved — picking a winner here would be a precedence stack, and that is what
+// §6 deleted.
+Collision :: struct {
+    chord: string, // the primer's spelling
+    runs:  string, // the verb the plain row on that chord runs
+    kids:  int,    // how many rows hide behind it
+}
+
+// Every such chord in the table, spelled. Derived on demand and never stored: a row the file
+// grew since is in the answer at the next read.
+bind_collisions :: proc(binds: []Bind, layout: Layout_Name, names: Names = {},
+                        allocator := context.allocator) -> []Collision {
+    out := make([dynamic]Collision, allocator)
+    for b in binds {
+        if b.prefix == (Chord{}) {
+            continue
+        }
+        ctx := bind_one_ctx(b)
+        // bind_lookup, not bind_find: the Shift retry reaches a plain row too, and this report
+        // must ask exactly the question handle_chord asks.
+        plain, _, taken := bind_lookup(binds, b.prefix, ctx, b.kind)
+        if !taken {
+            continue
+        }
+        spelling := chord_format(b.prefix, layout, allocator)
+        if at, seen := collision_at(out[:], spelling); seen {
+            out[at].kids += 1
+            delete(spelling, allocator)
+            continue
+        }
+        runs, _ := target_info(plain.target, names)
+        append(&out, Collision{spelling, runs, 1})
+    }
+    return out[:]
+}
+
+collisions_destroy :: proc(c: []Collision, allocator := context.allocator) {
+    for it in c {
+        delete(it.chord, allocator)
+    }
+    delete(c, allocator)
+}
+
+@(private = "file")
+collision_at :: proc(c: []Collision, chord: string) -> (int, bool) {
+    for it, i in c {
+        if it.chord == chord {
+            return i, true
+        }
+    }
+    return 0, false
+}
+
+// The context a row answers in, for the callers that need one and not a set. A row carries one
+// in practice: the file writes a section, and a default names its verb's.
+@(private = "file")
+bind_one_ctx :: proc(b: Bind) -> Bind_Ctx {
+    for ctx in Bind_Ctx {
+        if ctx in b.ctx {
+            return ctx
+        }
+    }
+    return .Global
+}
+
+// The reserved key that lists a primer's children, and the one hole in §4.1's transparency: it
+// is unmodified, so it would otherwise fall through and type. One key, only while a primer is
+// up, and the menubar takes the rendering over when it lands.
+PREFIX_HELP :: "TLDE" // backtick
+
+// A primer is declared by its CHILDREN and by nothing else: no `ctrl+b = prefix` row to keep in
+// step, and deleting the last child is what ends the primer. So arming asks the table whether
+// any row hides behind this chord, in a context the keys can currently reach.
+bind_primes :: proc(binds: []Bind, chord: Chord, ctx: Bind_Ctx, kind: Kind = 0) -> bool {
+    for b in binds {
+        if b.prefix == chord && bind_reachable(b, ctx, kind) {
+            return true
+        }
+    }
+    return false
+}
+
+// The tiers bind_find would walk, as a predicate: this row's own kind, its context, or Global.
+@(private = "file")
+bind_reachable :: proc(b: Bind, ctx: Bind_Ctx, kind: Kind) -> bool {
+    if b.kind != 0 {
+        return b.kind == kind && ctx in b.ctx
+    }
+    return ctx in b.ctx || .Global in b.ctx
+}
+
+// The children of a primer, spelled `chord verb` and joined, for the label the bar shows. Capped
+// by the caller's budget rather than here, because what fits is the bar's question.
+bind_children :: proc(binds: []Bind, prefix: Chord, ctx: Bind_Ctx, layout: Layout_Name,
+                      names: Names = {}, kind: Kind = 0,
+                      allocator := context.allocator) -> string {
+    b := strings.builder_make(allocator)
+    for it in binds {
+        if it.prefix != prefix || !bind_reachable(it, ctx, kind) {
+            continue
+        }
+        if strings.builder_len(b) > 0 {
+            strings.write_string(&b, "  ")
+        }
+        name, _ := target_info(it.target, names)
+        fmt.sbprintf(&b, "%s %s", chord_format(it.chord, layout, context.temp_allocator), name)
+    }
+    return strings.to_string(b)
+}
+
 // Narrowest row wins: one written for this surface kind, then one for the context, then a
 // Global one (`esc = surface.send` shadows the global quit). First exact match inside a tier.
 // A bind with a run answers for its whole key range; the caller reads the offset off
 // b.chord.code.
-bind_find :: proc(binds: []Bind, chord: Chord, ctx: Bind_Ctx, kind: Kind = 0) -> (Bind, bool) {
+bind_find :: proc(binds: []Bind, chord: Chord, ctx: Bind_Ctx, kind: Kind = 0,
+                  prefix := Chord{}) -> (Bind, bool) {
     if kind != 0 {
-        if b, ok := bind_scan(binds, chord, {ctx}, kind); ok {
+        if b, ok := bind_scan(binds, chord, {ctx}, kind, prefix); ok {
             return b, true
         }
     }
     if ctx != .Global {
-        if b, ok := bind_scan(binds, chord, {ctx}, 0); ok {
+        if b, ok := bind_scan(binds, chord, {ctx}, 0, prefix); ok {
             return b, true
         }
     }
-    return bind_scan(binds, chord, {.Global}, 0)
+    return bind_scan(binds, chord, {.Global}, 0, prefix)
 }
 
 @(private = "file")
-bind_scan :: proc(binds: []Bind, chord: Chord, want: Bind_Ctxs, kind: Kind) -> (Bind, bool) {
+bind_scan :: proc(binds: []Bind, chord: Chord, want: Bind_Ctxs, kind: Kind,
+                  prefix := Chord{}) -> (Bind, bool) {
     for b in binds {
-        if b.chord.mods == chord.mods &&
+        if b.prefix == prefix &&
+           b.chord.mods == chord.mods &&
            b.chord.held == chord.held &&
            chord.code >= b.chord.code &&
            chord.code <= b.chord.code + b.run &&
@@ -510,8 +630,9 @@ bind_scan :: proc(binds: []Bind, chord: Chord, want: Bind_Ctxs, kind: Kind) -> (
 // One tier, no fallthrough: is THIS ctx-and-kind already holding the chord. The clash check
 // wants this and not bind_lookup, because a narrower row shadowing a wider one is the feature
 // (§6) and a resolving lookup reports it as a collision.
-bind_at :: proc(binds: []Bind, chord: Chord, ctx: Bind_Ctx, kind: Kind = 0) -> (Bind, bool) {
-    return bind_scan(binds, chord, {ctx}, kind)
+bind_at :: proc(binds: []Bind, chord: Chord, ctx: Bind_Ctx, kind: Kind = 0,
+                prefix := Chord{}) -> (Bind, bool) {
+    return bind_scan(binds, chord, {ctx}, kind, prefix)
 }
 
 // Shift is not written into most binds: a Shift-qualified chord matching nothing exactly
@@ -522,15 +643,19 @@ bind_lookup :: proc(
     chord: Chord,
     ctx: Bind_Ctx,
     kind: Kind = 0,
+    prefix := Chord{},
 ) -> (
     b: Bind,
     extend, ok: bool,
 ) {
-    if b, ok = bind_find(binds, chord, ctx, kind); ok {
+    if b, ok = bind_find(binds, chord, ctx, kind, prefix); ok {
         return b, false, true
     }
+    // The Shift retry stays UNDER the same primer: a child is reached by its own chord or not
+    // at all, and dropping the prefix here would be the fallback tier the filter exists to deny.
     if .Shift in chord.mods {
-        b, ok = bind_find(binds, {chord.code, chord.mods - {.Shift}, chord.held}, ctx, kind)
+        b, ok = bind_find(binds, {chord.code, chord.mods - {.Shift}, chord.held}, ctx, kind,
+                          prefix)
         return b, ok, ok
     }
     return {}, false, false
@@ -614,6 +739,13 @@ describe_chord :: proc(
                 spelling,
                 allocator = allocator,
             )
+        }
+        // A primer is a row's PREFIX and never a row, so the lookup above misses it and
+        // describe would call the chord unbound. It reads its children out instead.
+        if bind_primes(binds, chord, ctx, kind) {
+            kids := bind_children(binds, chord, ctx, layout, names, kind, context.temp_allocator)
+            return fmt.aprintf("%s%s arms a primer: %s", spelling, phys, kids,
+                               allocator = allocator)
         }
         if miss := ctx_miss(ctx); miss != .None {
             return fmt.aprintf(

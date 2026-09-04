@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:strings"
 import "../desc"
+import "../input"
 import "../store"
 import "../txt"
 
@@ -91,6 +92,19 @@ home_fill :: proc(a: ^App, id: store.Id) {
             row(&p, "plug", name, "")
         }
         say(&p, "  (:plug load <name> takes one again, once it is fixed)")
+    }
+
+    // A chord that is both a primer and a row of its own. Neither wins on merit — the scan takes
+    // whichever it reaches — so the file is asked to decide rather than the kernel (§4).
+    clashes := input.bind_collisions(a.binds[:], key_layout_name, names(a), context.temp_allocator)
+    if len(clashes) > 0 {
+        say(&p, "")
+        say(&p, "chords that are a primer AND a row; one of the two never fires:")
+        for c in clashes {
+            row(&p, "chord", c.chord, fmt.tprintf("   runs %s, and %d row(s) hide behind it",
+                                                  c.runs, c.kids))
+        }
+        say(&p, fmt.tprintf("  (move one of them in %s)", BINDS_NAME))
     }
 
     say(&p, "")

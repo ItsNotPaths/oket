@@ -44,6 +44,12 @@ code_is_mouse :: proc(c: Code) -> bool {
     return c >= MOUSE_BASE && c < MOUSE_BASE + Code(len(Mouse))
 }
 
+// Whether a code is a button at all, for the callers that only need the answer.
+mouse_is :: proc(c: Code) -> bool {
+    _, yes := mouse_of(c)
+    return yes
+}
+
 mouse_of :: proc(c: Code) -> (Mouse, bool) {
     if !code_is_mouse(c) {
         return {}, false

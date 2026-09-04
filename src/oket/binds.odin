@@ -131,9 +131,14 @@ binds_parse :: proc(a: ^App, text, origin_name: string) {
                            fmt.tprintf("[%s] names no context or surface kind", section))
             continue
         }
-        chord, parsed := input.chord_parse(row.key, key_layout_code)
+        prefix, chord, parsed := input.chord_pair_parse(row.key, key_layout_code)
         if !parsed {
-            conf_complain(a, origin_name, row.line, fmt.tprintf("%s is not a chord", row.key))
+            why := fmt.tprintf("%s is not a chord", row.key)
+            if strings.contains(strings.trim_space(row.key), " ") {
+                why = fmt.tprintf("%s: a sequence is two chords and both carry a modifier",
+                                  row.key)
+            }
+            conf_complain(a, origin_name, row.line, why)
             continue
         }
         target, made := binds_target(a, row.value)
@@ -144,7 +149,8 @@ binds_parse :: proc(a: ^App, text, origin_name: string) {
         origin := input.Origin{.Config, strings.clone(origin_name), row.line}
         // Prepended, because bind_scan takes the first match and the defaults are already in: a
         // file row has to be found before the default it is replacing.
-        inject_at(&a.binds, 0, input.Bind{chord, target, {ctx}, kind, origin, 0})
+        inject_at(&a.binds, 0, input.Bind{chord = chord, prefix = prefix, target = target,
+                                          ctx = {ctx}, kind = kind, origin = origin})
     }
 }
 
@@ -285,11 +291,11 @@ binds_write_rows :: proc(a: ^App, b: ^strings.Builder, owner: string, seen: ^map
 @(private = "file")
 binds_held :: proc(a: ^App, ctx_name, chord_text: string) -> (string, bool) {
     ctx, kind, ok := binds_ctx(a, ctx_name)
-    chord, parsed := input.chord_parse(chord_text, key_layout_code)
+    prefix, chord, parsed := input.chord_pair_parse(chord_text, key_layout_code)
     if !ok || !parsed {
         return "", false
     }
-    b, found := input.bind_at(a.binds[:], chord, ctx, kind)
+    b, found := input.bind_at(a.binds[:], chord, ctx, kind, prefix)
     if !found {
         return "", false
     }
@@ -302,11 +308,11 @@ binds_held :: proc(a: ^App, ctx_name, chord_text: string) -> (string, bool) {
 @(private = "file")
 binds_shadowed :: proc(a: ^App, ctx_name, chord_text: string) -> (string, bool) {
     ctx, kind, ok := binds_ctx(a, ctx_name)
-    chord, parsed := input.chord_parse(chord_text, key_layout_code)
+    prefix, chord, parsed := input.chord_pair_parse(chord_text, key_layout_code)
     if !ok || !parsed || kind == 0 && ctx == .Global {
         return "", false // nothing is wider than a global row
     }
-    b, _, found := input.bind_lookup(a.binds[:], chord, ctx, kind)
+    b, _, found := input.bind_lookup(a.binds[:], chord, ctx, kind, prefix)
     if !found {
         return "", false
     }

@@ -32,11 +32,22 @@ Pending_Pick :: struct {
     target: int,
 }
 
+// A primer is up (§4): the next chord is qualified by `chord`. Both labels are built at arm
+// time — the table cannot change while a primer is up — and owned the way an armed pick owns
+// its line. `listing` is what the reserved help key turned on: one bar row does not hold six
+// children, so the short form only points at the help key until the list is asked for.
+Pending_Prefix :: struct {
+    chord:        Chord,
+    short, long:  string,
+    listing:      bool,
+}
+
 Pending :: union {
     Pending_Describe,
     Pending_Cmdline,
     Pending_Switcher,
     Pending_Pick,
+    Pending_Prefix,
 }
 
 pending_describe :: proc(p: Pending) -> string {
@@ -52,6 +63,8 @@ pending_describe :: proc(p: Pending) -> string {
             "pick: @%d; arrows choose, the chord again makes a panel, release opens, esc cancels",
             v.target + 1,
         )
+    case Pending_Prefix:
+        return v.listing ? v.long : v.short
     }
     return ""
 }
@@ -59,8 +72,12 @@ pending_describe :: proc(p: Pending) -> string {
 // The one door onto the field, because a state may own memory: an armed pick holds the line it
 // captured, and whatever replaces it — Escape, another capture, the exit — is what frees it.
 pending_set :: proc(p: ^Pending, to: Pending = nil) {
-    if it, armed := p.(Pending_Pick); armed {
+    #partial switch it in p {
+    case Pending_Pick:
         delete(it.line)
+    case Pending_Prefix:
+        delete(it.short)
+        delete(it.long)
     }
     p^ = to
 }
