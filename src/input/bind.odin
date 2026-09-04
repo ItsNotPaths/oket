@@ -96,7 +96,6 @@ Command :: enum u8 {
     Panel_Prev,
     Panel_Move_Left,
     Panel_Move_Right,
-    Panel_Size,
     Pick_Left,
     Pick_Right,
     Pick_Cancel,
@@ -245,7 +244,6 @@ COMMANDS := [Command]Command_Info {
     .Panel_Prev          = {"panel.prev", "focus the panel to the left", {.Global}},
     .Panel_Move_Left     = {"panel.move_left", "swap this panel with the one to its left", {.Global}},
     .Panel_Move_Right    = {"panel.move_right", "swap this panel with the one to its right", {.Global}},
-    .Panel_Size          = {"panel.size", "toggle the focused panel between full and half width", {.Global}},
     .Pick_Left           = {"pick.left", "steer the armed picker one panel left", {.Pick}},
     .Pick_Right          = {"pick.right", "steer the armed picker one panel right", {.Pick}},
     .Pick_Cancel         = {"pick.cancel", "drop the armed picker; nothing is opened", {.Pick}},
@@ -394,7 +392,9 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     bind_put(&b, "RGHT", {.Alt, .Shift}, .Panel_Move_Right)
     bind_put(&b, "AD10", {.Alt}, .Panel_Open) // alt+p
     bind_put(&b, "AD10", {.Alt, .Shift}, .Panel_Close) // the panel, never the document in it
-    bind_put(&b, "AD02", {.Alt}, .Panel_Size) // alt+w, for width
+    // alt+w, for width. A LINE, because the sizing model is the row and not the kernel: rebind
+    // the list and the same key is a toggle, a three-way or a set.
+    bind_line(&b, "AD02", {.Alt}, ":width 100 50")
     // The universal spelling, and it moves the TEXT rather than the grid: ctrl+= is bigger
     // glyphs, which is fewer cells.
     bind_put(&b, "AE12", {.Ctrl}, .Font_Bigger) // ctrl+=

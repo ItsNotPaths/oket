@@ -9,15 +9,9 @@ import "core:math"
 // niri's rules, our arithmetic: a horizontal row you scroll, one thing on screen by default,
 // and a camera that follows focus by the least it can.
 //
-// Widths come in as PIXELS, not as modes: a panel that is resizing is between its two modes and
-// has to be laid out where it is (§7). `width_px` is what turns a mode into the destination.
-
-// Two widths and no more (§5). A width is a MODE, so sizing is a toggle rather than a drag and
-// nobody has to remember a pixel.
-Width :: enum u8 {
-    Full,
-    Half,
-}
+// Widths come in as PIXELS and never as percents: a panel that is resizing is between the two
+// widths it is travelling between, and has to be laid out where it is (§7). What a percent is
+// worth is the kernel's arithmetic, because the view it is a percent OF is (panel_dests).
 
 // Where a panel sits on the one axis it moves along, in pixels. The other axis is the window's:
 // the strip is one row and does not nest.
@@ -49,12 +43,6 @@ approach :: proc(x, dest, dt, tau: f32) -> f32 {
     }
     at := x + (dest - x) * (1 - math.exp(-dt / tau))
     return abs(dest - at) < SNAP ? dest : at
-}
-
-// The pixels a mode is worth. Full IS the view, so one-panel mode is a strip of length one
-// rather than a special case.
-width_px :: proc(s: Strip, w: Width) -> f32 {
-    return w == .Half ? s.view / 2 : s.view
 }
 
 // A panel's slot in strip coordinates: gaps included, camera not applied. Slots tile the strip

@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
+import "core:strconv"
 import "core:strings"
 import "../desc"
 import "../store"
@@ -36,6 +37,8 @@ cl_builtin :: proc(a: ^App, step: CL_Step) -> bool {
         ring_close(a, ring_slot(a))
     case "recover":
         return builtin_recover(a, args)
+    case "width":
+        return builtin_width(a, args)
     case "np", "new-panel":
         // `panel.open` as a command line, which is what the picker's second `tab+enter` runs:
         // a panel to the right of the one the keys are aimed at, and the aim goes with it.
@@ -97,6 +100,68 @@ builtin_open :: proc(a: ^App, args: string) -> bool {
 }
 
 USAGE_OPEN :: ":open <path> [#slot] [@panel]"
+
+// `:width <percent>... [@panel]`. The sizing model is the ROW and not the kernel (PANELS.md §5):
+// a list is a cycle, so `:width 100 50` is a toggle, `:width 100 50 33` is a three-way, and
+// `:width 50` is a set. `alt+w` is a line bind over this and nothing else.
+//
+// A bare number is a percent here and never a `#slot`, because a panel has no slot to name.
+@(private = "file")
+builtin_width :: proc(a: ^App, args: string) -> bool {
+    pcts := make([dynamic]int, 0, 4, context.temp_allocator)
+    target: Target
+    rest := strings.trim_space(args)
+    for rest != "" {
+        field := first_field(rest)
+        rest = strings.trim_space(rest[len(field):])
+        if field[0] == '@' {
+            aimed: bool
+            target, _, aimed = target_parse(field) // the last `@` wins, target_parse's own rule
+            if !aimed {
+                message_set(a, fmt.tprintf(":width: %s is not a panel (%s)", field, USAGE_WIDTH))
+                return false
+            }
+            continue
+        }
+        pct, num := width_pct(field)
+        if !num {
+            message_set(a, fmt.tprintf(":width: %s is not a percent (%s)", field, USAGE_WIDTH))
+            return false
+        }
+        append(&pcts, pct)
+    }
+    if len(pcts) == 0 {
+        message_set(a, USAGE_WIDTH)
+        return false
+    }
+    i, live := target_panel(a, target)
+    if !live {
+        message_set(a, ":width: the strip has no such panel")
+        return false
+    }
+    panel_width(a, i, pcts[:])
+    return true
+}
+
+USAGE_WIDTH :: ":width <percent>... [@panel]"
+
+// A percent, or one of the four words for the ones worth a name. Out of range is REPORTED and
+// not clamped: a row that says 200 meant something, and sizing it to 100 in silence hides it.
+@(private = "file")
+width_pct :: proc(field: string) -> (int, bool) {
+    switch field {
+    case "full":
+        return 100, true
+    case "half":
+        return 50, true
+    case "third":
+        return 33, true
+    case "quarter":
+        return 25, true
+    }
+    n, num := strconv.parse_int(field, 10)
+    return n, num && n >= WIDTH_MIN && n <= WIDTH_FULL
+}
 
 // A directory goes to whoever registered the `files` kind and to the kernel's own listing when
 // nobody did; a file goes to whoever registered `edit`, which is the editor plugin (§7). The

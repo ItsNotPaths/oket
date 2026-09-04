@@ -211,8 +211,6 @@ handle_chord :: proc(a: ^App, chord: input.Chord, repeat := false) {
         panel_shift(a, -1)
     case .Panel_Move_Right:
         panel_shift(a, +1)
-    case .Panel_Size:
-        panel_resize(a)
     case .Pick_Left:
         pick_step(a, -1)
     case .Pick_Right:
@@ -493,6 +491,11 @@ hole_next :: proc(s: string) -> (before, name, rest: string, ok: bool) {
 // Fills every `<name>` from the fields of the line point is on (§5). A name the document does
 // not carry stops the line and REPORTS rather than running one with a hole still in it (§14).
 bind_expand :: proc(a: ^App, template: string) -> (string, bool) {
+    // A line with no hole needs no point. `:width 100 50` is the whole line already, and a
+    // panel standing on nothing must not swallow the chord (§8).
+    if !strings.contains(template, "<") {
+        return strings.clone(template, context.temp_allocator), true
+    }
     s := active(a)
     if s == nil {
         return "", false

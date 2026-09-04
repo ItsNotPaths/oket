@@ -19,7 +19,7 @@ import "../strip"
 Panel :: struct {
     at:    Spot, // the lane, and the slot inside it, this panel shows
     prev:  Spot, // alt+`: the most recent spot IN THIS PANEL
-    size:  strip.Width, // full or half; `panel.size` toggles it
+    size:  int, // percent of the view it is going to; `:width` sets it
     w:     f32, // the pixels it is drawn at NOW; `size` says where it is going (§7)
     grid:  gfx.Grid,
     // Where the document was drawn, in the panel's OWN cells. A click is placed against it, so
@@ -36,11 +36,16 @@ Hover :: struct {
     on:           bool,
 }
 
+// A percent of the view, so one panel at 100 is a strip of length one rather than a special
+// case. WIDTH_MIN is what keeps a mistyped row from leaving a panel nobody can find.
+WIDTH_FULL :: 100
+WIDTH_MIN :: 1
+
 // The strip is never empty. Every reader goes through here rather than through a start of its
 // own, because the first document can reach the ring before the first fit does (main.odin).
 panels_ready :: proc(a: ^App) {
     if len(a.panels) == 0 {
-        append(&a.panels, Panel{})
+        append(&a.panels, Panel{size = WIDTH_FULL})
     }
 }
 
@@ -143,17 +148,31 @@ panel_shift :: proc(a: ^App, by: int) {
     panels_relayout(a) // the widths reordered, whatever the aim did with the focus
 }
 
-// The full/half toggle, which is the whole sizing model (§5).
-panel_resize :: proc(a: ^App) {
-    p := panel_focused(a)
-    p.size = p.size == .Full ? .Half : .Full
+// `:width`, on the LIVE panel the line named — that it is live is target_panel's check, not
+// this one's. The list is a CYCLE, so one percent is a set, two a toggle, and the sizing model
+// is whatever the row says it is (§5).
+panel_width :: proc(a: ^App, i: int, pcts: []int) {
+    p := &a.panels[i]
+    p.size = width_next(p.size, pcts)
     panels_relayout(a)
+}
+
+// The percent after the one the panel is at. A panel at a percent the list does not name takes
+// the first, so a row you just edited lands on its own first entry rather than nowhere.
+@(private = "file")
+width_next :: proc(now: int, pcts: []int) -> int {
+    for pct, i in pcts {
+        if pct == now {
+            return pcts[(i + 1) % len(pcts)]
+        }
+    }
+    return pcts[0]
 }
 
 // --- the layout ---
 
 // The strip's input: one width per panel, in strip order, in PIXELS. Two of them, because a
-// panel that is resizing is not yet the width its mode says — this is what is DRAWN, and
+// panel that is resizing is not yet the width its percent says — this is what is DRAWN, and
 // `panel_dests` is what it is moving to (§7). Temp-allocated, because the widths live on the
 // panels and the strip holds no copy to go stale.
 panel_widths :: proc(a: ^App) -> []f32 {
@@ -165,13 +184,13 @@ panel_widths :: proc(a: ^App) -> []f32 {
     return w
 }
 
-// Where every panel is going: its mode, in pixels. The camera aims at this layout and not at
-// the one in flight, so a resize and the scroll that follows it settle in the same place.
+// Where every panel is going: its percent of the view, in pixels. The camera aims at this
+// layout and not at the one in flight, so a resize and the scroll after it settle in one place.
 panel_dests :: proc(a: ^App) -> []f32 {
     panels_ready(a)
     w := make([]f32, len(a.panels), context.temp_allocator)
     for p, i in a.panels {
-        w[i] = strip.width_px(a.strip, p.size)
+        w[i] = a.strip.view * f32(p.size) / 100
     }
     return w
 }

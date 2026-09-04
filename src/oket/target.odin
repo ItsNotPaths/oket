@@ -115,6 +115,24 @@ target_reach :: proc(a: ^App, t: Target, doc: store.Id) -> int {
     return a.focus
 }
 
+// The LIVE panel a target names, for a builtin that acts ON a panel rather than opening into
+// one. Nothing is made and no document is asked about: a panel the strip does not have is an
+// error here, where `target_reach` would grow the strip until it had one.
+target_panel :: proc(a: ^App, t: Target) -> (int, bool) {
+    panels_ready(a)
+    switch t.how {
+    case .Here:
+        return a.focus, true
+    case .Nth:
+        return t.panel - 1, t.panel <= len(a.panels)
+    case .Step:
+        i := a.focus + t.panel
+        return i, i >= 0 && i < len(a.panels)
+    case .Showing: // `@=` is an answer about a document, and there is none to ask about
+    }
+    return a.focus, false
+}
+
 // `@` on its own is resolved here and nowhere else: the picker rewrites it to the `@N` of the
 // panel it was steered to, so the line that runs is one the user could have typed and the parse
 // above learns no fourth form (PANELS.md §6). Always a copy, because the line the picker holds
