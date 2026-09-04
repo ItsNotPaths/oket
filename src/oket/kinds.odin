@@ -1,8 +1,6 @@
 package main
 
 import "core:fmt"
-import "core:os"
-import "core:path/filepath"
 import "core:strings"
 import "../desc"
 import "../input"
@@ -149,26 +147,6 @@ doc_title :: proc(a: ^App, id: store.Id) -> string {
     }
     defer desc.release(d)
     return d.file != "" ? strings.clone(d.file, context.temp_allocator) : kind_name(a, d.kind)
-}
-
-// The ONE reading of which file a path names, so `:open`'s reuse and the journal's key cannot
-// drift about whether `./x` and `x` are one file. Lexical rather than `filepath.abs`, which
-// resolves and so answers nothing for a file that does not exist yet: a buffer over a new file
-// is exactly the work most worth journaling. Temp-allocated.
-path_abs :: proc(path: string) -> string {
-    if path == "" {
-        return ""
-    }
-    if filepath.is_abs(path) {
-        whole, _ := filepath.clean(path, context.temp_allocator)
-        return whole == "" ? path : whole
-    }
-    cwd, err := os.get_working_directory(context.temp_allocator)
-    if err != nil {
-        return path
-    }
-    whole, _ := filepath.join({cwd, path}, context.temp_allocator)
-    return whole == "" ? path : whole
 }
 
 // A document's file, as the key two documents are the SAME document by. "" for one that is not
