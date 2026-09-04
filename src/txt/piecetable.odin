@@ -221,6 +221,40 @@ pt_load :: proc(pt: ^Piece_Table, src: []u8) {
     }
 }
 
+// A Text assembled from a piece list a caller laid out, over blocks it does not own. `doc_off`,
+// the size and the line index are computed here, so the caller only has to get the block, the
+// offset and the length right. `arena` stays nil: the bytes are borrowed and this must not
+// outlive them.
+//
+// VIEWS.md §6's derived document is what wants it — pieces pointing into the ORIGINAL's blocks,
+// so unchanged text is never copied, plus one block of its own for what a view stage inserted.
+text_build :: proc(blocks: [][]u8, pieces: []Piece, alloc := context.temp_allocator) -> Text {
+    t := Text {
+        blocks = blocks,
+        pieces = make([dynamic]Piece, 0, len(pieces), alloc),
+        segs   = make([dynamic]Line_Seg, 1, 1, alloc),
+    }
+    starts := make([dynamic]int, 1, len(pieces) + 1, alloc) // line 0 starts at 0
+    for p in pieces {
+        if p.len <= 0 {
+            continue
+        }
+        q := p
+        q.doc_off = t.size
+        append(&t.pieces, q)
+        for c, i in blocks[p.block][p.off:][:p.len] {
+            if c == '\n' {
+                append(&starts, t.size + i + 1)
+            }
+        }
+        t.size += p.len
+    }
+    t.starts = starts[:]
+    t.segs[0] = Line_Seg{0, 0, len(starts), 0}
+    t.lines = len(starts)
+    return t
+}
+
 // --- reading --- Each of these takes a ^Text, so a live Piece_Table and a frozen Snapshot
 // read through the same code. Odin converts either pointer implicitly.
 
@@ -320,6 +354,33 @@ text_line :: proc(t: ^Text, line: int, alloc := context.allocator) -> []u8 {
         return s[:hi - lo]
     }
     return text_read(t, lo, hi, alloc)
+}
+
+// --- positions --- A Pos is a line and a BYTE column, and these three are the only conversion
+// between one and an offset. Doc's doc_pos / doc_off / doc_clamp_pos are these, over the live
+// table; view's derived map is these, over a Text it built (VIEWS.md §6).
+
+// Into the document, with the column on a rune boundary. Every Pos built from arithmetic passes
+// through here.
+text_clamp_pos :: proc(t: ^Text, p: Pos) -> Pos {
+    line := clamp(p.line, 0, t.lines - 1)
+    src := text_line(t, line, context.temp_allocator)
+    col := clamp(p.col, 0, len(src))
+    for col > 0 && col < len(src) && src[col] & 0xC0 == 0x80 {
+        col -= 1 // continuation byte: back to the rune's start
+    }
+    return Pos{line, col}
+}
+
+text_off :: proc(t: ^Text, p: Pos) -> int {
+    q := text_clamp_pos(t, p)
+    return text_line_start(t, q.line) + q.col
+}
+
+text_pos :: proc(t: ^Text, off: int) -> Pos {
+    o := clamp(off, 0, t.size)
+    line := text_line_at_off(t, o)
+    return Pos{line, o - text_line_start(t, line)}
 }
 
 // --- editing ---

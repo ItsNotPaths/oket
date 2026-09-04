@@ -163,14 +163,11 @@ doc_line :: proc(d: ^Doc, line: int, alloc := context.temp_allocator) -> []u8 {
 
 // The pair every edit crosses. Both clamp.
 doc_off :: proc(d: ^Doc, p: Pos) -> int {
-    q := doc_clamp_pos(d, p)
-    return text_line_start(&d.pt, q.line) + q.col
+    return text_off(&d.pt, p)
 }
 
 doc_pos :: proc(d: ^Doc, off: int) -> Pos {
-    o := clamp(off, 0, d.pt.size)
-    line := text_line_at_off(&d.pt, o)
-    return Pos{line, o - text_line_start(&d.pt, line)}
+    return text_pos(&d.pt, off)
 }
 
 doc_string :: proc(d: ^Doc, allocator := context.allocator) -> string {
@@ -298,13 +295,7 @@ doc_byte_col :: proc(d: ^Doc, line, cell: int) -> int {
 // Onto a real line, a real column, and a rune boundary. The one gate every derived Pos passes
 // through: a column landing mid-rune would split a character on the next edit.
 doc_clamp_pos :: proc(d: ^Doc, p: Pos) -> Pos {
-    line := clamp(p.line, 0, doc_line_count(d) - 1)
-    src := doc_line(d, line)
-    col := clamp(p.col, 0, len(src))
-    for col > 0 && col < len(src) && src[col] & 0xC0 == 0x80 {
-        col -= 1 // continuation byte: back to the rune's start
-    }
-    return Pos{line, col}
+    return text_clamp_pos(&d.pt, p)
 }
 
 // --- editing --- Every edit funnels through doc_apply: non-overlapping replacements, one per

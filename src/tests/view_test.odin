@@ -152,15 +152,15 @@ wrap_splits_a_line_into_rows :: proc(t: ^testing.T) {
 
     by_char := view.rows(&snap.text, dp, 0, 7, 8)
     testing.expect_value(t, len(by_char), 2)
-    testing.expect_value(t, by_char[0], view.Row{0, 0, 7, true})
-    testing.expect_value(t, by_char[1], view.Row{0, 7, 11, false})
+    testing.expect_value(t, by_char[0], view.Row{0, 0, 7, true, 0})
+    testing.expect_value(t, by_char[1], view.Row{0, 7, 11, false, 0})
 
     word := desc.new_from({wrap = .Word})
     defer desc.release(word)
     by_word := view.rows(&snap.text, word, 0, 7, 8)
     testing.expect_value(t, len(by_word), 2)
-    testing.expect_value(t, by_word[0], view.Row{0, 0, 4, true})
-    testing.expect_value(t, by_word[1], view.Row{0, 4, 11, false})
+    testing.expect_value(t, by_word[0], view.Row{0, 0, 4, true, 0})
+    testing.expect_value(t, by_word[1], view.Row{0, 4, 11, false, 0})
 }
 
 // wrap: none is one row per line and the draw clips it, so a long line costs the viewport's

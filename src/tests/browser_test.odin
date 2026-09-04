@@ -87,7 +87,7 @@ name_of :: proc(a: ^app.App, line: int) -> string {
     snap, d := reading(a)
     defer txt.snapshot_release(snap)
     defer desc.release(d)
-    out, _ := view.field_text(&snap.text, d, line, "name", context.temp_allocator)
+    out, _ := view.field_text(&snap.text, d, line, "name", alloc = context.temp_allocator)
     return strings.clone(out, context.temp_allocator)
 }
 
