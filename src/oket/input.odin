@@ -117,8 +117,9 @@ button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mods: i3
         // the screen, and placing those numbers against a panel's body would move its caret for
         // a click beside it.
         if pn == active_panel(a) {
-            // Point first, then the chord (§8): holes fill from point exactly as they do for a key.
-            point_place(a, cx, cy)
+            // Point first, then the chord (§8): holes fill from point exactly as they do for a
+            // key. Unless the row names a verb that places its own — see point_press.
+            point_press(a, input.MOUSE_BUTTONS[button], glfw_mods(mods), cx, cy)
             input.mouse_press(&a.mouse, input.MOUSE_BUTTONS[button], cx, cy)
         }
         return

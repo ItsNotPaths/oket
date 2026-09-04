@@ -21,6 +21,13 @@ active :: proc(a: ^App) -> ^Slot {
     return cl_active(a) ? &a.cl.slot : ring_focused(a)
 }
 
+// That document itself; nil for an empty ring or a closed doc.
+@(private = "file")
+active_doc :: proc(a: ^App) -> ^txt.Doc {
+    s := active(a)
+    return s != nil ? store.store_doc(&a.docs, s.doc) : nil
+}
+
 // Where that document was drawn, for a click. The line's row while it is open, the focused
 // panel's body otherwise, so a click never lands in a document the keys are not aimed at.
 active_rect :: proc(a: ^App) -> Rect {
@@ -83,6 +90,20 @@ pending_take :: proc(a: ^App, chord: input.Chord) -> bool {
     return false
 }
 
+// Escape with more than one caret up over the focused document. False with one, so Escape keeps
+// every other meaning it has and there is still a key that quits. Describe never answers for
+// Escape (pending_take cancels on it instead), so the BAR is what says a trail is up and how to
+// put it down — see bar_text.
+@(private = "file")
+esc_collapses :: proc(a: ^App, chord: input.Chord) -> bool {
+    esc, _ := input.key_code("ESC")
+    if chord != (input.Chord{esc, {}, 0}) {
+        return false
+    }
+    doc := active_doc(a)
+    return doc != nil && len(doc.cursors) > 1
+}
+
 handle_chord :: proc(a: ^App, chord: input.Chord, repeat := false) {
     if pending_take(a, chord) {
         return
@@ -93,6 +114,14 @@ handle_chord :: proc(a: ^App, chord: input.Chord, repeat := false) {
         return
     }
     message_set(a, "")
+    // A trail owns Escape ahead of every row that claims the key — quit, surface.send and the
+    // command line's own close alike (VIEWS.md §4). Behind an armed picker, which owns the
+    // keystroke outright, and not a row itself: the condition is the trail, and a bind table has
+    // no way to say `while N > 1`.
+    if _, armed := a.pending.(input.Pending_Pick); !armed && esc_collapses(a, chord) {
+        cursor_command(a, .Cursor_Collapse)
+        return
+    }
     ctx, kind := bind_ctx(a)
     b, extend, ok := input.bind_lookup(a.binds[:], chord, ctx, kind)
     if !ok {
@@ -123,6 +152,9 @@ handle_chord :: proc(a: ^App, chord: input.Chord, repeat := false) {
         return
     }
     if edit_command(a, cmd) {
+        return
+    }
+    if cursor_command(a, cmd) {
         return
     }
     #partial switch cmd {
@@ -281,6 +313,61 @@ edit_command :: proc(a: ^App, cmd: input.Command) -> bool {
     }
     point_sync(a)
     return true
+}
+
+// Which verbs place a caret rather than move or write one. Split from the bodies below for the
+// same reason `writes` is: the refusal is decided once, and a verb that only grows the set is
+// not caught by the typing gate.
+@(private = "file")
+places :: proc(cmd: input.Command) -> bool {
+    #partial switch cmd {
+    case .Cursor_Add, .Cursor_Add_Below, .Cursor_Add_Above, .Cursor_Add_Next, .Cursor_Add_All,
+         .Cursor_Split, .Cursor_Collapse:
+        return true
+    }
+    return false
+}
+
+// The placement verbs (VIEWS.md §4). Selecting is not editing, so a listing gets them with no
+// `editable` gate, the same way select.all and select.expand already reach one.
+@(private = "file")
+cursor_command :: proc(a: ^App, cmd: input.Command) -> bool {
+    if !places(cmd) {
+        return false
+    }
+    doc := active_doc(a)
+    if doc == nil {
+        return true
+    }
+    #partial switch cmd {
+    case .Cursor_Add:
+        cursor_add(a, doc)
+    case .Cursor_Add_Below:
+        txt.doc_add_cursor_line(doc, +1)
+    case .Cursor_Add_Above:
+        txt.doc_add_cursor_line(doc, -1)
+    case .Cursor_Add_Next:
+        txt.doc_add_next_match(doc)
+    case .Cursor_Add_All:
+        txt.doc_add_all_matches(doc)
+    case .Cursor_Split:
+        txt.doc_split_lines(doc, a.config.split)
+    case .Cursor_Collapse:
+        txt.doc_collapse_to_primary(doc)
+    }
+    point_sync(a)
+    return true
+}
+
+// alt+click. The kernel's point move was skipped for this chord (point_press), so the carets
+// already up are still up and the cell the pointer is over is where the new one goes.
+@(private = "file")
+cursor_add :: proc(a: ^App, doc: ^txt.Doc) {
+    p, hit := point_at(a, a.mouse.at.x, a.mouse.at.y)
+    if !hit {
+        return
+    }
+    txt.doc_add_cursor(doc, p)
 }
 
 // The active document, but only when its descriptor says typing reaches it.
@@ -529,25 +616,46 @@ point_move :: proc(a: ^App, motion: txt.Motion, extend: bool) {
     view.follow(&s.view, r.h)
 }
 
-// Where a click lands. Outside the document's rectangle the caret stays where it was, so a click
-// in the bar is not a jump to line 0.
-point_place :: proc(a: ^App, cx, cy: int, extend := false) {
+// Which document byte a cell is over. Outside the document's rectangle nothing is, so a click in
+// the bar is not a jump to line 0.
+@(private = "file")
+point_at :: proc(a: ^App, cx, cy: int) -> (txt.Pos, bool) {
     s := active(a)
     snap, d, ok := reading(a, s)
     if !ok {
-        return
+        return {}, false
     }
     defer txt.snapshot_release(snap)
     defer desc.release(d)
     r := active_rect(a)
     p, _, hit := view.locate(&snap.text, d, s.view, r.x, r.y, r.w, r.h, cx, cy)
+    return p, hit
+}
+
+// Where a click lands: one caret, there. A trail goes down, which is what makes a plain click
+// the way out of one that needs no key.
+point_place :: proc(a: ^App, cx, cy: int, extend := false) {
+    p, hit := point_at(a, cx, cy)
     if !hit {
         return
     }
-    doc := store.store_doc(&a.docs, s.doc)
+    doc := active_doc(a)
     txt.doc_collapse_to_primary(doc)
     txt.doc_set_head(doc, p, extend)
     point_sync(a)
+}
+
+// The point move a button PRESS makes before its release dispatches a chord (§8). WHICH move is
+// the row's to decide: a chord naming a verb that places its own point gets none, so alt+click
+// still has the trail to add to by the time cursor.add runs.
+point_press :: proc(a: ^App, m: input.Mouse, mods: input.Mods, cx, cy: int) {
+    ctx, kind := bind_ctx(a)
+    if b, _, ok := input.bind_lookup(a.binds[:], {input.mouse_code(m), mods, 0}, ctx, kind); ok {
+        if cmd, named := input.bind_command(b); named && input.command_places_point(cmd) {
+            return
+        }
+    }
+    point_place(a, cx, cy)
 }
 
 point_drag :: proc(a: ^App, cx, cy: int) {
@@ -581,8 +689,7 @@ select_expand :: proc(a: ^App) {
 // Selecting is not editing: a listing has a selection too, and `:sel` reads it.
 @(private = "file")
 select_all :: proc(a: ^App) {
-    s := active(a)
-    doc := s != nil ? store.store_doc(&a.docs, s.doc) : nil
+    doc := active_doc(a)
     if doc == nil {
         return
     }

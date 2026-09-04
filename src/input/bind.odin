@@ -61,6 +61,13 @@ Command :: enum u8 {
     Tab,
     Select_All,
     Select_Expand,
+    Cursor_Add,
+    Cursor_Add_Below,
+    Cursor_Add_Above,
+    Cursor_Add_Next,
+    Cursor_Add_All,
+    Cursor_Split,
+    Cursor_Collapse,
     View_Scroll_Up,
     View_Scroll_Down,
     View_Page_Up,
@@ -114,6 +121,14 @@ ctx_miss :: proc(ctx: Bind_Ctx) -> Command {
         return .Surface_Send
     }
     return .None
+}
+
+// A verb that places its own point. The kernel moves point to the cell under the pointer before
+// it dispatches a button chord (§8), and for these that move would take down the very carets the
+// verb exists to add to — so the press skips it, and describe says `runs` instead of `moves
+// point, then runs`.
+command_places_point :: proc(c: Command) -> bool {
+    return c == .Cursor_Add
 }
 
 // A registry slot, opaque here: `input` sits below the registry and never reads it.
@@ -195,6 +210,13 @@ COMMANDS := [Command]Command_Info {
     .Tab                 = {"edit.tab", "insert a tab", {.Text}},
     .Select_All          = {"edit.select_all", "one selection over the whole document", {.Text}},
     .Select_Expand       = {"select.expand", "select what point sits in, at the document's own granularity", {.Text, .Surface}},
+    .Cursor_Add          = {"cursor.add", "a caret under the pointer, keeping the ones already up", {.Text, .Surface}},
+    .Cursor_Add_Below    = {"cursor.add_below", "a caret on the line under the lowest one", {.Text, .Surface}},
+    .Cursor_Add_Above    = {"cursor.add_above", "a caret on the line over the highest one", {.Text, .Surface}},
+    .Cursor_Add_Next     = {"cursor.add_next_match", "select the word under point, then a caret over each next match of it", {.Text, .Surface}},
+    .Cursor_Add_All      = {"cursor.add_all_matches", "the same seed, then a caret over every match at once", {.Text, .Surface}},
+    .Cursor_Split        = {"cursor.split_lines", "one caret per line of each selection", {.Text, .Surface}},
+    .Cursor_Collapse     = {"cursor.collapse", "put the trail down; only the primary caret is left", {.Text, .Surface}},
     .View_Scroll_Up      = {"view.scroll_up", "scroll the view toward the start; point stays put", {.Global}},
     .View_Scroll_Down    = {"view.scroll_down", "scroll the view toward the end; point stays put", {.Global}},
     .View_Page_Up        = {"view.page_up", "scroll the view back one screenful; point stays put", {.Global}},
@@ -320,6 +342,18 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     bind_put(&b, "RTRN", {}, .Newline)
     bind_put(&b, "KPEN", {}, .Newline)
     bind_put(&b, "TAB", {}, .Tab)
+    // The placement verbs (VIEWS.md §4). A caret is PLACED, not walked to, which is why there is
+    // no prefix key and no armed mode here: each row says where the next caret goes, and the
+    // arrows above already move the whole set. `cursor.split_lines` keeps no default chord and
+    // `cursor.collapse` needs none — Escape answers it ahead of every row that claims the key,
+    // for exactly as long as a trail is up.
+    bind_put(&b, "DOWN", {.Ctrl, .Alt}, .Cursor_Add_Below)
+    bind_put(&b, "UP", {.Ctrl, .Alt}, .Cursor_Add_Above)
+    bind_put(&b, "AC03", {.Alt}, .Cursor_Add_Next) // alt+d
+    bind_put(&b, "AC03", {.Alt, .Shift}, .Cursor_Add_All)
+    // The mouse row costs nothing, because a button is already a chord (§8).
+    bind_put(&b, "click", {.Alt}, .Cursor_Add)
+
     // ctrl+a and ctrl+e are the most deployed pair there is: every readline prompt and every
     // Cocoa text field. Arrows already carry motion, so the only cost is select-all, which
     // stays a verb with no default chord (Emacs gives it none either).
@@ -589,6 +623,9 @@ describe_chord :: proc(
             )
         }
         return fmt.aprintf("%s%s is unbound", spelling, phys, allocator = allocator)
+    }
+    if cmd, is_cmd := b.target.(Command); is_cmd && command_places_point(cmd) {
+        moves_point = false
     }
     name, doc := target_info(b.target, names)
     // The tier the row actually won on. A kind row is narrower than its context, and saying
