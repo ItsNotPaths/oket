@@ -189,6 +189,26 @@ bind acts on document data with no callback into the plugin that drew it. A clic
 like any other, and hovering underlines the field a bound click would act on. `f1` then any
 chord says what it does and where it was bound.
 
+A key may be two chords. `ctrl+b ctrl+f` puts the row behind a primer, and the primer is
+declared by its children and by nothing else — delete the last child and it stops existing.
+
+```conf
+[global]
+ctrl+b ctrl+f = exec :ring files
+ctrl+b ctrl+k = exec :close
+```
+
+**Both chords carry a modifier.** `ctrl+b f` is refused at the parse, and that is what makes a
+primer transparent: an unmodified key after one is never part of a sequence, so it clears the
+primer and does exactly what it always did. A modified chord no child claims is absorbed and
+reported, because dispatching it on its own would fire an unrelated verb. Escape cancels, and
+`` ` `` lists the children while keeping the primer up.
+
+The kernel binds no primer of its own. `:` is already its dense-verb answer, and a typed line
+you can see before it commits beats a two-chord tree. Primers are for a plugin that wants chords
+instead of typing. A chord that is both a primer and a row of its own is a collision the home
+page names: there is no priority between them, so the file decides rather than the kernel.
+
 A field is a named span of a line, and it may carry a VALUE that is not the text it covers.
 That is what makes a row a link: the tree draws `browser.c` and `<path>` hands on
 `plugins/browser/browser.c`, so a row can be renamed by typing without what it points at moving.
