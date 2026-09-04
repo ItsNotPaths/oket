@@ -325,6 +325,23 @@ were sitting, and only while you have no unsaved edits of your own. If you do, i
 changes nothing. Motion, selection, the viewport, undo and the plain delete verbs are the
 kernel's, for every document. Swap in your own by registering the same kind.
 
+### Carets
+
+A caret is placed, not walked to, so there is no prefix key and no mode to arm. The arrows move
+every caret you have put down, and typing goes into all of them.
+
+| chord | |
+|---|---|
+| `ctrl+alt+down` `ctrl+alt+up` | a caret on the line under the lowest, or over the highest |
+| `alt+d` | the word under the caret, then one match at a time |
+| `alt+shift+d` | the same, then every match at once |
+| `alt+click` | a caret where you clicked; a plain click puts them all down |
+| `esc` | put them down, ahead of whatever else the key means |
+
+`cursor.split_lines` has no default chord. It gives you one selection per line of what was
+selected; `[cursor] split = carets` in `config.conf` puts a caret at each line's end instead,
+which is the other family. The bar says how many carets are up whenever there is more than one.
+
 ## Crashes, and the start after one
 
 Every document that is a file and takes typing is journaled: each splice is appended to a file
