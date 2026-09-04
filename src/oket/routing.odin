@@ -343,9 +343,9 @@ cursor_command :: proc(a: ^App, cmd: input.Command) -> bool {
     case .Cursor_Add:
         cursor_add(a, doc)
     case .Cursor_Add_Below:
-        txt.doc_add_cursor_line(doc, +1)
+        txt.doc_add_cursor_line(doc, +1, views_hidden(a, active(a).doc))
     case .Cursor_Add_Above:
-        txt.doc_add_cursor_line(doc, -1)
+        txt.doc_add_cursor_line(doc, -1, views_hidden(a, active(a).doc))
     case .Cursor_Add_Next:
         txt.doc_add_next_match(doc)
     case .Cursor_Add_All:
@@ -568,15 +568,23 @@ point_sync :: proc(a: ^App) {
 // Writes land at one point (§6), and the caret the frame draws catches up in the same breath.
 // Called after every drain — the frame's, and the one behind each plugin call — so a document
 // somebody else moved is on screen, and under a live caret, the moment it lands.
-docs_settle :: proc(a: ^App) {
+// The return is a view stage's latch (VIEWS.md §5), which is the one thing no keystroke and no
+// reader thread will wake. Every other caller ignores it: only the frame loop can act on it.
+docs_settle :: proc(a: ^App) -> (latched: bool) {
     applied, _ := store.store_drain(&a.docs)
     // Before the early return: a splice written straight through `store_doc` moves a document
     // with no transaction behind it, and its journal still has to be flushed (§10).
     journal_sync(a)
+    if applied != 0 {
+        point_sync(a)
+    }
+    // The view pipeline, after the drain and after the carets it moved: a stage reads both, and
+    // one built before them would draw the frame before. Its own generation cache decides
+    // whether anything is rebuilt, so a settled document costs a map lookup.
+    latched = views_settle(a)
     if applied == 0 {
         return
     }
-    point_sync(a)
     s := active(a)
     d := s != nil ? store.store_descriptor(&a.docs, s.doc) : nil
     if d == nil {
@@ -586,8 +594,15 @@ docs_settle :: proc(a: ^App) {
     // A tail document decides its own top by what is on screen (§11), and yanking it to the
     // caret would be the attached/detached flag that field exists to not need.
     if d.follow != .Tail {
-        view.follow(&s.view, active_rect(a).h)
+        snap := store.store_snapshot(&a.docs, s.doc)
+        if snap == nil {
+            return
+        }
+        defer txt.snapshot_release(snap)
+        t, dv := views_text(a, s.doc, &snap.text)
+        view.follow(&s.view, active_rect(a).h, t, dv)
     }
+    return
 }
 
 // The read pair every event wants: the frozen text and the descriptor its generation named. The
@@ -610,10 +625,17 @@ point_move :: proc(a: ^App, motion: txt.Motion, extend: bool) {
     if doc == nil {
         return
     }
-    txt.doc_move(doc, motion, extend)
+    // §7's export to the pipeline, and the whole of it: the runs of the original no cell stands
+    // for. `txt` takes a slice and stays pure — it never learns what a fold is.
+    txt.doc_move(doc, motion, extend, hidden = views_hidden(a, s.doc))
     point_sync(a)
-    r := active_rect(a)
-    view.follow(&s.view, r.h)
+    snap := store.store_snapshot(&a.docs, s.doc)
+    if snap == nil {
+        return
+    }
+    defer txt.snapshot_release(snap)
+    t, dv := views_text(a, s.doc, &snap.text)
+    view.follow(&s.view, active_rect(a).h, t, dv)
 }
 
 // Which document byte a cell is over. Outside the document's rectangle nothing is, so a click in
@@ -628,7 +650,8 @@ point_at :: proc(a: ^App, cx, cy: int) -> (txt.Pos, bool) {
     defer txt.snapshot_release(snap)
     defer desc.release(d)
     r := active_rect(a)
-    p, _, hit := view.locate(&snap.text, d, s.view, r.x, r.y, r.w, r.h, cx, cy)
+    t, dv := views_text(a, s.doc, &snap.text)
+    p, _, hit := view.locate(t, d, s.view, r.x, r.y, r.w, r.h, cx, cy, dv)
     return p, hit
 }
 
@@ -707,7 +730,8 @@ scroll_by :: proc(a: ^App, lines: int) {
         return
     }
     defer txt.snapshot_release(snap)
-    view.scroll(&s.view, &snap.text, lines)
+    t, _ := views_text(a, s.doc, &snap.text) // `top` is a line of the DRAWN document
+    view.scroll(&s.view, t, lines)
 }
 
 // Does this line act on the span the pointer is over — the field itself, or a wider one it
@@ -776,7 +800,8 @@ hover_update :: proc(a: ^App, panel, cx, cy: int) {
     defer txt.snapshot_release(snap)
     defer desc.release(d)
     b := pn.body
-    p, field, hit := view.locate(&snap.text, d, s.view, b.x, b.y, b.w, b.h, cx, cy)
+    t, dv := views_text(a, s.doc, &snap.text)
+    p, field, hit := view.locate(t, d, s.view, b.x, b.y, b.w, b.h, cx, cy, dv)
     if !hit || field == "" {
         return
     }

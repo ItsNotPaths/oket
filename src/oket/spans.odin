@@ -15,7 +15,17 @@ import "../view"
 
 // The runs covering the lines the viewport is showing. `rows` is the body's height, which is a
 // SUPERSET of the lines drawn — wrapping only ever costs more rows per line, never fewer.
-doc_styles :: proc(a: ^App, id: store.Id, t: ^txt.Text, top, rows: int) -> []view.Style {
+//
+// TWO SPACES, and the split is §6's: the viewport counts lines of the DRAWN document, while the
+// store holds bytes of the ORIGINAL — nothing was ever measured over a fold marker. `t` is what
+// is drawn and `dv` is the map, which is nil and the identity for a document nobody derived.
+doc_styles :: proc(
+    a: ^App,
+    id: store.Id,
+    t: ^txt.Text,
+    dv: ^view.Derived,
+    top, rows: int,
+) -> []view.Style {
     lines := txt.text_line_count(t)
     first := clamp(top, 0, max(lines - 1, 0))
     last := min(first + max(rows, 1), lines)
@@ -24,17 +34,23 @@ doc_styles :: proc(a: ^App, id: store.Id, t: ^txt.Text, top, rows: int) -> []vie
     }
     lo := txt.text_line_start(t, first)
     _, hi := txt.text_line_range(t, last - 1)
+    orig := view.original(dv, t)
+    if dv != nil {
+        lo, _ = view.src_off(dv, lo)
+        hi, _ = view.src_off(dv, hi)
+    }
     spans := store.store_spans(&a.docs, id, lo, hi, spans_order(a, id))
     if len(spans) == 0 {
         return nil
     }
+    olines := txt.text_line_count(orig)
     out := make([dynamic]view.Style, 0, len(spans), context.temp_allocator)
     for sp in spans {
         // Spans arrive sorted and non-overlapping and each one's pieces come out in line
         // order, so appending in this order leaves the result sorted by line — which is what
         // view.line_styles binary-searches.
-        for line := txt.text_line_at_off(t, sp.lo); line < lines; line += 1 {
-            a_off, b_off := txt.text_line_range(t, line)
+        for line := txt.text_line_at_off(orig, sp.lo); line < olines; line += 1 {
+            a_off, b_off := txt.text_line_range(orig, line)
             if a_off >= sp.hi {
                 break
             }

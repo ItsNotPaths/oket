@@ -41,6 +41,9 @@ Plugin :: struct {
     // is what it has been told, per document, so a moved generation is reported once.
     watch:   plug.Event_Fn,
     seen:    map[store.Id]Watch,
+    // Its view stage (§5), if it has one. ONE per plugin: the config line that orders the
+    // pipeline ranks stages by PLUGIN NAME, the same rule the span store's producers follow.
+    viewer:  plug.View_Fn,
 }
 
 // What a handler was last told about one document; an instance's owner and a watcher keep the
@@ -62,6 +65,8 @@ Record_Kind :: enum u8 {
     Command,
     Bind,
     Watch,
+    View,
+    Config,
 }
 
 Record :: struct {
@@ -118,11 +123,15 @@ plug_init :: proc(a: ^App) {
             request_bind = api_request_bind,
             register_token = api_register_token,
             register_watch = api_register_watch,
+            register_view = api_register_view,
+            request_config = api_request_config,
             submit = api_submit,
             reveal = api_reveal,
             point = api_point,
             snapshot = api_snapshot,
             release = api_release,
+            world = api_world,
+            world_release = api_world_release,
             message = api_message,
             io_spawn = api_io_spawn,
             io_write = api_io_write,
@@ -204,9 +213,11 @@ plug_load :: proc(a: ^App, path: string) -> bool {
         message_set(a, fmt.tprintf(":plug: %s refused to load (%d)", name, r.code))
         return false
     }
-    // A kind or a command may be named by a row, so the file is read again now that the names
-    // resolve. One path in, and a requested row is indistinguishable from a typed one (§8).
+    // A kind or a command may be named by a row, so both files are read again now that the
+    // names resolve. One path in, and a requested row is indistinguishable from a typed one.
+    config_sync(a)
     binds_sync(a)
+    views_dirty(a)
     return true
 }
 
@@ -253,6 +264,14 @@ plug_unload :: proc(a: ^App, i: int) -> bool {
         case .Watch:
             p.watch = nil
             clear(&p.seen)
+        case .View:
+            p.viewer = nil
+        case .Config:
+            // The row stays in the user's file; only the asking dies, the same way a bind's
+            // request does.
+            if r.idx < len(a.creqs) {
+                a.creqs[r.idx].dead = true
+            }
         }
     }
     clear(&p.ledger)
@@ -263,6 +282,7 @@ plug_unload :: proc(a: ^App, i: int) -> bool {
     }
     p.lib = {}
     p.live = false
+    views_dirty(a) // a `view =` line naming it resolves to nothing now
     return true
 }
 
@@ -594,29 +614,39 @@ Plug_Ret :: struct {
 // sit in the frame that MAKES the call: the handler's siglongjmp lands there, and a frame that
 // has already returned is not one to jump into.
 Plug_Call :: struct {
-    what:  enum {
+    what:    enum {
         Entry,
         Open,
         Close,
         Event,
         Watch,
         Command,
+        View,
     },
-    entry: plug.Entry_Fn,
-    vt:    plug.Kind_Vt,
-    fn:    plug.Command_Fn,
-    fn_ev: plug.Event_Fn, // a watcher's, which belongs to no kind
-    doc:   plug.Doc,
-    at:    ^plug.At,
-    inst:  rawptr,
-    ev:    plug.Event,
-    data:  []u8,
+    entry:   plug.Entry_Fn,
+    vt:      plug.Kind_Vt,
+    fn:      plug.Command_Fn,
+    fn_ev:   plug.Event_Fn, // a watcher's, which belongs to no kind
+    fn_view: plug.View_Fn, // a view stage's, which belongs to no kind either
+    doc:     plug.Doc,
+    at:      ^plug.At,
+    inst:    rawptr,
+    ev:      plug.Event,
+    data:    []u8,
+    out:     ^plug.View_Out,
 }
 
 // EVERY call into a plugin goes through here, and nothing else calls one. A fault or a hang in
 // there comes back as `ok = false` with the plugin unloaded and named, and the kernel carries
 // on; a fault anywhere else is the kernel's own and dies honestly (fault.odin).
 plug_dispatch :: proc(a: ^App, i: int, c: Plug_Call) -> (r: Plug_Ret, ok: bool) {
+    // A PLUGIN THAT RAN IS A PLUGIN WHOSE VIEW MAY HAVE CHANGED (VIEWS.md §5). A fold toggled by
+    // a command moves no generation and no caret, and there is nothing in a stage's own state
+    // the kernel can watch — so running its code is the signal, and it needs no seventh message.
+    // The view call itself is excluded, or every settle would invalidate the chain it just built.
+    if c.what != .View {
+        views_dirty(a)
+    }
     // Nothing dispatches from inside a dispatch today. If that ever changes, the outer net
     // still catches the fault; it just blames the outer plugin.
     if !fault_ready() || fault_armed() {
@@ -661,6 +691,8 @@ plug_run :: proc(a: ^App, i: int, c: Plug_Call) -> (r: Plug_Ret) {
         r.code = c.fn_ev(api, self, c.at, c.ev, raw_data(c.data), len(c.data))
     case .Command:
         r.code = c.fn(api, self, c.at, raw_data(c.data), len(c.data))
+    case .View:
+        r.code = c.fn_view(api, self, c.at, c.out)
     }
     return
 }
@@ -745,6 +777,38 @@ api_register_token :: proc "c" (api: ^plug.Api, self: plug.Self, name: [^]u8,
 }
 
 @(private = "file")
+api_register_view :: proc "c" (api: ^plug.Api, self: plug.Self, fn: plug.View_Fn) {
+    a, i, ok := api_app(api, self)
+    defer api_done()
+    if !ok || fn == nil {
+        return
+    }
+    context = a.api.ctx
+    p := &a.plugs[i]
+    if p.viewer == nil { // registering twice replaces, and leaves one ledger record
+        append(&p.ledger, Record{.View, 0})
+    }
+    p.viewer = fn
+    views_dirty(a) // a name in a `view =` line resolves to something it did not a moment ago
+}
+
+@(private = "file")
+api_request_config :: proc "c" (api: ^plug.Api, self: plug.Self, section: [^]u8,
+                                section_len: uint, key: [^]u8, key_len: uint,
+                                value: [^]u8, value_len: uint) {
+    a, i, ok := api_app(api, self)
+    defer api_done()
+    if !ok {
+        return
+    }
+    context = a.api.ctx
+    if config_request(a, a.plugs[i].name, string(section[:section_len]), string(key[:key_len]),
+                      string(value[:value_len])) {
+        append(&a.plugs[i].ledger, Record{.Config, len(a.creqs) - 1})
+    }
+}
+
+@(private = "file")
 api_register_watch :: proc "c" (api: ^plug.Api, self: plug.Self, fn: plug.Event_Fn) {
     a, i, ok := api_app(api, self)
     defer api_done()
@@ -819,6 +883,28 @@ plug_spans_take :: proc(a: ^App, plugin: int, pub: ^plug.Span_Pub) -> Maybe(stor
         hi   = int(min(pub.hi, uint(max(int)))),
         list = list,
     }
+}
+
+@(private = "file")
+api_world :: proc "c" (api: ^plug.Api, self: plug.Self) -> ^plug.World {
+    a, _, ok := api_app(api, self)
+    defer api_done()
+    if !ok {
+        return nil
+    }
+    context = a.api.ctx
+    return &world_make(a).world
+}
+
+@(private = "file")
+api_world_release :: proc "c" (api: ^plug.Api, self: plug.Self, w: ^plug.World) {
+    a, _, ok := api_app(api, self)
+    defer api_done()
+    if !ok || w == nil {
+        return
+    }
+    context = a.api.ctx
+    world_free((^Plug_World)(w)) // `world` is the first field, so the cast is the identity
 }
 
 @(private = "file")

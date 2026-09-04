@@ -59,7 +59,7 @@ producers_destroy :: proc(a: ^App) {
 // plugin installed tomorrow must not come up invisible under a parser named today.
 spans_order :: proc(a: ^App, id: store.Id, alloc := context.temp_allocator) -> []store.Producer {
     out := make([dynamic]store.Producer, 0, len(a.producers), alloc)
-    for name in config_spans(&a.config, kind_name(a, doc_kind(a, id))) {
+    for name in config_names(&a.config, kind_name(a, doc_kind(a, id)), "spans") {
         for p, i in a.producers {
             if p == name {
                 append(&out, store.Producer(i))

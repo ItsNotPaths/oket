@@ -6,6 +6,7 @@ import "../desc"
 import "../plug"
 import "../store"
 import "../txt"
+import "../view"
 
 // The read half of the seam (§6). A plugin reads text, the line index, cursors and the
 // descriptor by POINTER, with no lock and no call back into the kernel — so what crosses is a
@@ -43,41 +44,113 @@ view_make :: proc(a: ^App, id: store.Id) -> ^Plug_View {
     }
     v := new(Plug_View)
     v.src = src
+    view_fill(a, v, id, &src.text, src.gen, nil)
+    return v
+}
+
+// The same header over text THE KERNEL BUILT rather than a document's own. A view stage past the
+// first is handed the stage before it (§5), and that document exists only inside the pipeline —
+// so there is no snapshot to hold and the caller owns the bytes for the whole call.
+view_over :: proc(
+    a: ^App,
+    id: store.Id,
+    t: ^txt.Text,
+    gen: u64,
+    dv: ^view.Derived,
+) -> ^Plug_View {
+    v := new(Plug_View)
+    view_fill(a, v, id, t, gen, dv)
+    return v
+}
+
+@(private = "file")
+view_fill :: proc(a: ^App, v: ^Plug_View, id: store.Id, t: ^txt.Text, gen: u64,
+                  dv: ^view.Derived) {
     v.d = store.store_descriptor(&a.docs, id)
 
     // Cursors come off the live document, not the snapshot: the caret a plugin should read is
-    // the one the renderer is drawing (§5).
+    // the one the renderer is drawing (§5). MAPPED into the space this call hands over, or a
+    // popup positioning itself under the caret lands where the text used to be.
     primary: uint
     if doc := store.store_doc(&a.docs, id); doc != nil {
-        v.curs = slice.clone(transmute([]plug.Cursor)doc.cursors[:])
+        curs := slice.clone(doc.cursors[:], context.temp_allocator)
+        for &c in curs {
+            c.anchor, _ = view.view_pos(dv, t, c.anchor)
+            c.head, _ = view.view_pos(dv, t, c.head)
+        }
+        v.curs = slice.clone(transmute([]plug.Cursor)curs)
         primary = uint(doc.primary)
     }
     v.snap = {
         desc     = view_desc(v),
-        blocks   = ([^]plug.Block)(raw_data(src.text.blocks)),
-        starts   = ([^]c.ptrdiff_t)(raw_data(src.text.starts)),
-        pieces   = ([^]plug.Piece)(raw_data(src.text.pieces[:])),
-        segs     = ([^]plug.Seg)(raw_data(src.text.segs[:])),
+        blocks   = ([^]plug.Block)(raw_data(t.blocks)),
+        starts   = ([^]c.ptrdiff_t)(raw_data(t.starts)),
+        pieces   = ([^]plug.Piece)(raw_data(t.pieces[:])),
+        segs     = ([^]plug.Seg)(raw_data(t.segs[:])),
         cursors  = raw_data(v.curs),
-        nblocks  = len(src.text.blocks),
-        nstarts  = len(src.text.starts),
-        npieces  = len(src.text.pieces),
-        nsegs    = len(src.text.segs),
+        nblocks  = len(t.blocks),
+        nstarts  = len(t.starts),
+        npieces  = len(t.pieces),
+        nsegs    = len(t.segs),
         ncursors = len(v.curs),
         primary  = primary,
-        size     = uint(src.text.size),
-        lines    = uint(src.text.lines),
-        gen      = src.gen,
+        size     = uint(t.size),
+        lines    = uint(t.lines),
+        gen      = gen,
         doc      = plug_doc(id),
     }
-    return v
+}
+
+// --- the world (§12) ---
+//
+// A view stage has to size what it inserts and cannot ask the pane how wide it is, so the layout
+// crosses the seam the way a snapshot does: built, flat, and read as memory. The App itself is
+// not what crosses — freezing a layout would be the worse version of that.
+
+Plug_World :: struct {
+    world: plug.World, // FIRST, so the pointer a plugin holds casts straight back to this
+    panes: []plug.Pane,
+}
+
+world_make :: proc(a: ^App) -> ^Plug_World {
+    w := new(Plug_World)
+    w.panes = make([]plug.Pane, len(a.panels))
+    for &p, i in a.panels {
+        s := panel_slot(a, &p)
+        w.panes[i] = {
+            doc     = s != nil ? plug_doc(s.doc) : 0,
+            x       = i32(p.body.x),
+            y       = i32(p.body.y),
+            w       = i32(p.body.w),
+            h       = i32(p.body.h),
+            top     = s != nil ? i32(s.view.top) : 0,
+            focused = b8(i == a.focus),
+        }
+    }
+    w.world = {
+        panes  = raw_data(w.panes),
+        npanes = len(w.panes),
+        cols   = i32(a.chrome.cols),
+        rows   = i32(a.chrome.rows),
+    }
+    return w
+}
+
+world_free :: proc(w: ^Plug_World) {
+    if w == nil {
+        return
+    }
+    delete(w.panes)
+    free(w)
 }
 
 view_free :: proc(v: ^Plug_View) {
     if v == nil {
         return
     }
-    txt.snapshot_release(v.src)
+    if v.src != nil {
+        txt.snapshot_release(v.src) // nil for a stage's own input, which nobody refcounts
+    }
     desc.release(v.d)
     delete(v.cols)
     delete(v.flds)
@@ -194,8 +267,15 @@ reveal_span :: proc(a: ^App, id: store.Id, lo, hi: int, at: plug.Reveal) {
         return
     }
     defer txt.snapshot_release(snap)
-    first := txt.text_line_at_off(&snap.text, max(lo, 0))
-    last := txt.text_line_at_off(&snap.text, max(hi, lo))
+    // `top` counts lines of the DRAWN document and a reveal names bytes of the one being edited
+    // (§6). A span a stage hid maps to the cell the cut left behind, which is §12's answer to
+    // "reveal into a fold": scroll to the nearest visible position, and unfolding is a verb the
+    // user presses.
+    t, dv := views_text(a, id, &snap.text)
+    orig := view.original(dv, t)
+    from, _ := view.view_pos(dv, t, txt.text_pos(orig, max(lo, 0)))
+    to, _ := view.view_pos(dv, t, txt.text_pos(orig, max(hi, lo)))
+    first, last := from.line, to.line
     h := max(doc_rect(a, id).h, 1)
 
     top := s.view.top
@@ -211,7 +291,7 @@ reveal_span :: proc(a: ^App, id: store.Id, lo, hi: int, at: plug.Reveal) {
             top = last - h + 1
         }
     }
-    s.view.top = clamp(top, 0, max(snap.text.lines - 1, 0))
+    s.view.top = clamp(top, 0, max(txt.text_line_count(t) - 1, 0))
 }
 
 // The slot showing a document, if one is. A plugin's document that is not on screen still

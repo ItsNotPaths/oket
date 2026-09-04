@@ -142,7 +142,7 @@ an_underline_over_a_colour_draws_as_both :: proc(t: ^testing.T) {
     // filled a colour in would have made every publisher opaque again.
     snap := store.store_snapshot(&a.docs, id)
     defer txt.snapshot_release(snap)
-    drawn := app.doc_styles(&a, id, &snap.text, 0, 4)
+    drawn := app.doc_styles(&a, id, &snap.text, nil, 0, 4)
     testing.expect_value(t, drawn[1].fg, RED)
     testing.expect_value(t, drawn[1].bg, a.theme[.Bg])
     testing.expect_value(t, drawn[1].attrs, gfx.Attrs{.Underline})
@@ -338,7 +338,7 @@ a_run_is_bytes_and_the_renderer_splits_it_by_line :: proc(t: ^testing.T) {
     across := [?]store.Span{{lo = 4, hi = 13, fg = RED, attrs = 1, set = {.Fg, .Attrs}}}
     testing.expect(t, publish(&a, id, "syntax", 0, 20, across[:]))
 
-    out := app.doc_styles(&a, id, &snap.text, 0, 4)
+    out := app.doc_styles(&a, id, &snap.text, nil, 0, 4)
     testing.expect_value(t, len(out), 2)
     testing.expect_value(t, out[0].line, 0)
     testing.expect_value(t, out[0].lo, 4) // to the end of "let a = 1", the newline excluded
@@ -349,7 +349,7 @@ a_run_is_bytes_and_the_renderer_splits_it_by_line :: proc(t: ^testing.T) {
     testing.expect_value(t, out[0].attrs, gfx.Attrs{.Bold})
 
     // And only what is on screen costs anything: the store holds both, one row asks for one.
-    one := app.doc_styles(&a, id, &snap.text, 1, 1)
+    one := app.doc_styles(&a, id, &snap.text, nil, 1, 1)
     testing.expect_value(t, len(one), 1)
     testing.expect_value(t, one[0].line, 1)
 }

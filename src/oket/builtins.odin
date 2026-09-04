@@ -298,11 +298,12 @@ plug_list :: proc(a: ^App) -> bool {
                 kinds += 1
             case .Command:
                 cmds += 1
-            case .Bind, .Watch:
+            case .Bind, .Watch, .View, .Config:
             }
         }
-        sys_println(a, fmt.tprintf("%s  %d kind(s), %d command(s)  %s", p.name, kinds, cmds,
-                                   p.path))
+        stage := p.viewer != nil ? ", a view stage" : ""
+        sys_println(a, fmt.tprintf("%s  %d kind(s), %d command(s)%s  %s", p.name, kinds, cmds,
+                                   stage, p.path))
         n += 1
     }
     if n == 0 {

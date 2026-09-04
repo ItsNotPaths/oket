@@ -83,12 +83,15 @@ panel_draw :: proc(a: ^App, p: ^Panel, marked: bool) {
 
     gfx.grid_clear(&p.grid, th[.Fg], th[.Bg])
 
+    // What is DRAWN is the view pipeline's document when a stage built one (VIEWS.md §5), and
+    // `dv` is the map back to the one being edited. Nil for everything nobody derived.
     b := p.body
-    view.draw(&p.grid, th, &snap.text, d, s.view, b.x, b.y, b.w, b.h,
-              doc_styles(a, s.doc, &snap.text, s.view.top, b.h), marked)
+    t, dv := views_text(a, s.doc, &snap.text)
+    view.draw(&p.grid, th, t, d, s.view, b.x, b.y, b.w, b.h,
+              doc_styles(a, s.doc, t, dv, s.view.top, b.h), marked, dv, views_over(a, s.doc))
     if p.hover.on {
-        view.underline(&p.grid, &snap.text, d, s.view, b.x, b.y, b.w, b.h,
-                       p.hover.line, p.hover.lo, p.hover.hi)
+        view.underline(&p.grid, t, d, s.view, b.x, b.y, b.w, b.h,
+                       p.hover.line, p.hover.lo, p.hover.hi, dv)
     }
 }
 

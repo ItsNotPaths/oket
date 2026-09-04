@@ -134,12 +134,13 @@ main :: proc() {
         term_pump(&a)
         sh_pump(&a)
         chain_pump(&a)
-        docs_settle(&a)
+        settled := docs_settle(&a) // and, with it, the view pipeline (VIEWS.md §5)
         io_pump(&a) // before the moved pass, so what an I/O handler wrote is reported once
         // Whose generation moved, told once the drain has settled. A plugin that answered
         // "not finished" is the one thing no keystroke and no reader thread will wake, so the
-        // frame after it is polled rather than waited for (§9).
-        latched := plug_pump(&a)
+        // frame after it is polled rather than waited for (§9). A view stage says the same
+        // thing the same way.
+        latched := plug_pump(&a) | settled
 
         surface_draw(&a)
 
