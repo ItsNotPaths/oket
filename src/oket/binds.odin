@@ -97,10 +97,11 @@ binds_request :: proc(a: ^App, owner, ctx, chord, line: string) {
 // identity it never reads.
 binds_base :: proc() -> [dynamic]input.Bind {
     b := input.binds_default()
-    // A home-page row is a file with unsaved work on it, and `enter` is what takes that work
-    // back. Narrower than the surface row it shadows, which would open the file and leave the
-    // journal sitting beside it (§13).
-    input.bind_line(&b, "RTRN", {}, ":recover <path>", ctx = {.Surface}, kind = KIND_HOME)
+    // A home-page row is an offer, and `enter` is what takes it: the work a crash left, the
+    // plugin that is held back, the file to open. Which one is the row's own field, so one row
+    // covers every section (home.odin). Narrower than the surface row it shadows, which would
+    // open a recovered file and leave the journal sitting beside it (§13).
+    input.bind_line(&b, "RTRN", {}, ":home enter", ctx = {.Surface}, kind = KIND_HOME)
     return b
 }
 
@@ -120,6 +121,7 @@ binds_load :: proc(a: ^App, path: string) {
 // skipped; one typo does not cost the file.
 binds_parse :: proc(a: ^App, text, origin_name: string) {
     rows, errs := conf.parse(text)
+    conf_forget(a, origin_name) // a re-read replaces what the last one found
     for e in errs {
         conf_complain(a, origin_name, e.line, e.why)
     }
@@ -186,6 +188,55 @@ binds_target :: proc(a: ^App, value: string) -> (input.Bind_Target, bool) {
         return slot, true
     }
     return input.Command.None, false
+}
+
+// A chord a plugin asked for that the file answers with something else (§8, §13). Derived from
+// the LIVE TABLE and never from the writeback: the writeback speaks once per owner — it appends
+// a section and never reads it again — so a row it commented out on an earlier start is silent
+// on every start after it, which is the one a user is looking at.
+//
+// A chord bound to NOTHING is not here. That is the user deleting a row, which is the file
+// deciding, and the whole reason a plugin asks rather than claims.
+Bind_Unmet :: struct {
+    owner: string, // borrowed from the request
+    chord: string, // borrowed
+    held:  string, // what the chord runs instead; borrowed from the name tables
+}
+
+binds_unmet :: proc(a: ^App, allocator := context.temp_allocator) -> []Bind_Unmet {
+    out := make([dynamic]Bind_Unmet, allocator)
+    for r in a.reqs {
+        if r.dead {
+            continue
+        }
+        ctx, kind, known := binds_ctx(a, r.ctx)
+        prefix, chord, parsed := input.chord_pair_parse(r.chord, key_layout_code)
+        if !known || !parsed {
+            continue
+        }
+        // bind_at, not bind_lookup: a wider row still leaves this tier free, and the writeback
+        // writes the narrow row live.
+        b, found := input.bind_at(a.binds[:], chord, ctx, kind, prefix)
+        if !found {
+            continue
+        }
+        if held, _ := input.target_info(b.target, names(a)); held != req_line(r.line) {
+            append(&out, Bind_Unmet{r.owner, r.chord, held})
+        }
+    }
+    return out[:]
+}
+
+// The request without its mode word, which is what a table row holds: `exec :note` is asked
+// for, `:note` is bound, and the two are the same row.
+@(private = "file")
+req_line :: proc(line: string) -> string {
+    for word in ([?]string{"exec", "stage", "pick"}) {
+        if rest, cut := cut_word(line, word); cut {
+            return rest
+        }
+    }
+    return line
 }
 
 // A word, never a prefix: a verb called `execute.all` is not a command line.

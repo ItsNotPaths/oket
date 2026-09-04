@@ -99,22 +99,20 @@ main :: proc() {
     // Before autoload, and it reads the file before it opens it for the handler: a plugin an
     // earlier start died IN is held back, and the handler gets somewhere to name the next one
     // (§13).
-    safe := flag(SAFE)
     quarantine_open(&a)
-    if !safe && !flag(NO_PLUGINS) {
+    if a.start == .Ordinary {
         plug_autoload(&a)
     }
 
-    // The ring, in the order the answers get worse: what the last session had, then the news
-    // this start has to deliver, then the working directory. That last one is a PLUGIN's
-    // document (kinds.odin), so a start with none opens nothing and draws the screen floor —
-    // the same answer `:open` gives for a file with no editor loaded.
-    if safe || !session_restore(&a) {
-        if !safe && home_news(&a) {
-            ring_add(&a, home_open(&a))
-        } else if id, opened := files_open(&a, "."); opened {
-            ring_add(&a, id)
-        }
+    // The ring: what the last session had, and the home page when it had nothing. The page is
+    // the DEFAULT DOCUMENT and not a listing (§13) — the working directory is a row on it, and
+    // a listing cannot say that a plugin is quarantined or that this start is a safe one.
+    // A session that DID restore gets the news in the bar instead, because a page that stole
+    // the focus from the files you left open would be the worse answer.
+    if a.start == .Safe || !session_restore(&a) {
+        ring_add(&a, home_open(&a))
+    } else if home_news(&a) {
+        message_set(&a, "this start has something to report; :home says what")
     }
 
     // The strip's motion is stepped on the CLOCK and not on the frame (PANELS.md §7), so this

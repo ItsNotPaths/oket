@@ -101,6 +101,7 @@ config_load :: proc(a: ^App) {
         return
     }
     rows, errs := conf.parse(string(raw))
+    conf_forget(a, CONFIG_NAME) // a re-read replaces what the last one found
     for e in errs {
         conf_complain(a, CONFIG_NAME, e.line, e.why)
     }
@@ -351,7 +352,38 @@ conf_int :: proc(value: string, fallback: int) -> int {
     return ok && n >= 0 ? n : fallback
 }
 
+// A line of config.conf or binds.conf the parse could not use. Two readers, because they
+// answer at different times: the bar says the last one NOW, and the home page lists them all at
+// the next start, which is the moment a typo actually costs you a chord (§13).
+Gripe :: struct {
+    file: string, // owned
+    line: int,
+    why:  string, // owned
+}
+
 // One bad row is reported and skipped, never fatal — for both files the kernel reads.
 conf_complain :: proc(a: ^App, file: string, line: int, why: string) {
+    append(&a.gripes, Gripe{strings.clone(file), line, strings.clone(why)})
     message_set(a, fmt.tprintf("%s:%d: %s", file, line, why))
+}
+
+// One file's gripes, dropped. Called at the top of every parse, because binds.conf is read
+// twice in a sync and a list that only grows would report one typo as two.
+conf_forget :: proc(a: ^App, file: string) {
+    for i := len(a.gripes) - 1; i >= 0; i -= 1 {
+        if a.gripes[i].file == file {
+            delete(a.gripes[i].file)
+            delete(a.gripes[i].why)
+            ordered_remove(&a.gripes, i)
+        }
+    }
+}
+
+gripes_destroy :: proc(a: ^App) {
+    for g in a.gripes {
+        delete(g.file)
+        delete(g.why)
+    }
+    delete(a.gripes)
+    a.gripes = nil
 }

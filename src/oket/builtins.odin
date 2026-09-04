@@ -44,6 +44,11 @@ cl_builtin :: proc(a: ^App, step: CL_Step) -> bool {
         // a panel to the right of the one the keys are aimed at, and the aim goes with it.
         panel_open(a)
     case "home":
+        // `:home enter` is the page's own row acting on itself; a bare `:home` asks for the
+        // page. Both are lines you could type, which is what keeps the page a document.
+        if _, verb := first_arg(args); verb == "enter" {
+            return home_enter(a)
+        }
         ring_add(a, home_open(a))
     case "plug":
         return builtin_plug(a, args)
@@ -335,7 +340,9 @@ builtin_plug :: proc(a: ^App, args: string) -> bool {
     case "":
         return plug_list(a)
     case "load":
-        return plug_load(a, plug_path(a, name))
+        ok := plug_load(a, plug_path(a, name))
+        home_refresh(a) // the page that named it as quarantined offered this, and is stale now
+        return ok
     case "unload":
         if i := plug_find(a, name); i >= 0 {
             return plug_unload(a, i)

@@ -68,6 +68,14 @@ App :: struct {
     producers:    [dynamic]string,
     config:       Config, // config.conf, which holds two settings today (config.odin)
     creqs:        [dynamic]Config_Request, // what a plugin asked the file for (§7)
+    // What the two config files could not be read as (config.odin). The bar says the last one
+    // and the next keystroke clears it; the home page lists them all, because a start is where
+    // a typo in binds.conf is actually read.
+    gripes:       [dynamic]Gripe,
+    // How this start was asked to come up (§13). An escape hatch rather than a setting, and
+    // the home page says which one is on: a start that holds every plugin back looks exactly
+    // like a start whose plugins are broken.
+    start:        Start_Mode,
     // The view pipeline (VIEWS.md §5), per document: the text that is DRAWN, the map back to
     // the original, and the runs no cell stands for. Absent for every document until a
     // `[<kind>] view =` line names a stage. By pointer, because a derived text borrows the
@@ -96,6 +104,14 @@ App :: struct {
     quit:         bool,
 }
 
+// One field, not two flags: `--safe` is `--no-plugins` plus ignoring the session, so a
+// safe-without-no-plugins state must not exist to hold.
+Start_Mode :: enum {
+    Ordinary,
+    No_Plugins,
+    Safe,
+}
+
 Rect :: struct {
     x, y, w, h: int,
 }
@@ -104,6 +120,13 @@ app_init :: proc(a: ^App) {
     a.theme = gfx.DEFAULT_THEME
     a.hand = glfw.CreateStandardCursor(glfw.HAND_CURSOR)
     a.home = filepath.dir(os.args[0]) // beside the binary
+    // Read once, here, so main and the home page cannot disagree about which start this is.
+    switch {
+    case flag(SAFE):
+        a.start = .Safe
+    case flag(NO_PLUGINS):
+        a.start = .No_Plugins
+    }
     config_sync(a)
     plug_init(a) // before binds_sync: a row may name a kind or a command a plugin registers
     cl_init(a)
@@ -121,6 +144,7 @@ app_destroy :: proc(a: ^App) {
     views_destroy(a)
     config_requests_destroy(a)
     config_destroy(&a.config)
+    gripes_destroy(a)
     chain_clear(a)
     cl_destroy(a)
     ring_destroy(a)
