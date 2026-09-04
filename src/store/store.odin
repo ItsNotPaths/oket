@@ -42,7 +42,7 @@ Slot :: struct {
     doc:   ^txt.Doc, // nil = closed
     desc:  ^desc.Descriptor,
     seen:  u64, // the highest generation store_check has seen; it may never go backwards
-    spans: [Layer][dynamic]Span, // the style layers (spans.odin)
+    spans: [dynamic]Bucket, // one bucket per publisher (spans.odin)
     // Where the document's owner asked point to be, applied at the drain so it lands WITH the
     // transaction it belongs to (store_point). -1 is nobody asking, and `point_tag` is the
     // transaction it rides on, or 0 for a bare move with no write behind it.
@@ -61,7 +61,7 @@ Txn :: struct {
     tag:   u64,
     edits: []txt.Edit,
     desc:  ^desc.Descriptor, // nil = leave the descriptor as it stands
-    spans: Maybe(Spans),     // nil = leave every layer as it stands
+    spans: Maybe(Spans),     // nil = leave every publisher's runs as they stand
     // The carets here were put where they are by NAVIGATION, so leave them on their rows
     // (cursor_policy). Said by the author, because the offsets cannot say it.
     regen: bool,
@@ -74,9 +74,10 @@ store_destroy :: proc(s: ^Store) {
             free(slot.doc)
             desc.release(slot.desc)
         }
-        for &list in slot.spans {
-            delete(list)
+        for &b in slot.spans {
+            delete(b.list)
         }
+        delete(slot.spans)
     }
     for t in s.pending {
         txn_destroy(t)
@@ -106,8 +107,8 @@ store_open :: proc(s: ^Store, text := "") -> Id {
     s.slots[slot].seen = 0 // a new document, so store_check's high-water mark starts again
     s.slots[slot].point = -1
     s.slots[slot].point_tag = 0
-    for &list in s.slots[slot].spans {
-        clear(&list) // the slot may be a reused one, and its colours were somebody else's
+    for &b in s.slots[slot].spans {
+        clear(&b.list) // the slot may be a reused one, and its colours were somebody else's
     }
     return Id{slot, s.slots[slot].seq}
 }
@@ -119,8 +120,8 @@ store_close :: proc(s: ^Store, id: Id) -> bool {
     txt.doc_destroy(slot.doc)
     free(slot.doc)
     desc.release(slot.desc)
-    for &list in slot.spans {
-        clear(&list)
+    for &b in slot.spans {
+        clear(&b.list)
     }
     slot.doc = nil
     slot.desc = nil

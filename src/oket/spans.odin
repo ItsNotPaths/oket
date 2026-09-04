@@ -10,7 +10,8 @@ import "../view"
 // is where a run is split by line.
 //
 // Only the lines about to be drawn are asked for. That is what keeps a 1 MB file's colours off
-// the frame: the store holds them all, and the cost per frame is one screen's worth.
+// the frame: the store holds them all, and the cost per frame is one screen's worth. Who is
+// merged in what order is producers.odin's answer.
 
 // The runs covering the lines the viewport is showing. `rows` is the body's height, which is a
 // SUPERSET of the lines drawn — wrapping only ever costs more rows per line, never fewer.
@@ -23,7 +24,7 @@ doc_styles :: proc(a: ^App, id: store.Id, t: ^txt.Text, top, rows: int) -> []vie
     }
     lo := txt.text_line_start(t, first)
     _, hi := txt.text_line_range(t, last - 1)
-    spans := store.store_spans(&a.docs, id, lo, hi)
+    spans := store.store_spans(&a.docs, id, lo, hi, spans_order(a, id))
     if len(spans) == 0 {
         return nil
     }
@@ -43,9 +44,12 @@ doc_styles :: proc(a: ^App, id: store.Id, t: ^txt.Text, top, rows: int) -> []vie
                     line  = line,
                     lo    = cut_lo,
                     hi    = cut_hi,
-                    fg    = sp.fg,
-                    bg    = sp.bg,
-                    attrs = transmute(gfx.Attrs)sp.attrs,
+                    // A channel nobody set is the theme's. The store merged whoever did set it
+                    // and stopped there, because a store that filled a colour in would have
+                    // made every publisher opaque again.
+                    fg    = .Fg in sp.set ? sp.fg : a.theme[.Fg],
+                    bg    = .Bg in sp.set ? sp.bg : a.theme[.Bg],
+                    attrs = .Attrs in sp.set ? transmute(gfx.Attrs)sp.attrs : {},
                 })
             }
         }

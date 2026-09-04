@@ -437,7 +437,9 @@ static void emit(painter *p, uint32_t lo, uint32_t hi, oket_token tok) {
     if (lo >= hi) {
         return;
     }
-    oket_spans_add(&p->out, lo, hi, tok, 0);
+    /* A colour and nothing else: no claim on the background, and none on the attributes a
+     * linter above may want to put on the same bytes. */
+    oket_spans_add(&p->out, lo, hi, tok, 0, OKET_SET_FG);
     p->n++;
 }
 
@@ -510,8 +512,7 @@ static int paint_slice(const oket_api *api, oket_self self, tracked *d, uint64_t
                  d->l->caps[match.captures[index].index]);
         }
     }
-    oket_spans_publish(api, self, d->doc, gen, OKET_LAYER_SYNTAX, from,
-                       more ? p->at : (uint32_t)-1, &p->out);
+    oket_spans_publish(api, self, d->doc, gen, from, more ? p->at : (uint32_t)-1, &p->out);
     return more;
 }
 

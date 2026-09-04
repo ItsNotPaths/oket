@@ -30,7 +30,7 @@
 extern "C" {
 #endif
 
-#define OKET_API 5
+#define OKET_API 6
 
 /* A plugin exports exactly this, and hidden visibility keeps everything else in. */
 #define OKET_EXPORT __attribute__((visibility("default")))
@@ -168,7 +168,7 @@ typedef struct {
     size_t      text_len;
 } oket_edit;
 
-/* --- the style layer (§5) ---
+/* --- style runs (§5, VIEWS §8) ---
  *
  * A style TOKEN, never a colour: the theme decides what it looks like, and a plugin that names
  * an RGB value breaks every theme. An id and not an enum, because a syntax vocabulary is open —
@@ -193,15 +193,17 @@ enum {
     OKET_ATTR_REVERSE   = 1 << 3
 };
 
-/* Who published. Fixed priority, lowest first: a diagnostic outranks syntax, a search hit
- * outranks both, and the kernel merges in this order so nothing merges by hand. Selection is
- * not a layer — the kernel owns the cursors and the renderer reads them straight. */
-typedef enum {
-    OKET_LAYER_SYNTAX     = 0,
-    OKET_LAYER_SEMANTIC   = 1,
-    OKET_LAYER_DIAGNOSTIC = 2,
-    OKET_LAYER_SEARCH     = 3
-} oket_layer;
+/* Which channels a run SETS. What it leaves unset is whoever is below it, so a parser saying
+ * `fg`, a linter saying `underline` and a search saying `bg` all draw at one byte instead of
+ * the top one deleting the other two.
+ *
+ * There is no layer here. WHO published is the ordering: the kernel knows which plugin called,
+ * and `[<kind>] spans = a, b, c` in config.conf says which of them draws over which. */
+enum {
+    OKET_SET_FG    = 1 << 0,
+    OKET_SET_BG    = 1 << 1, /* the token paints the BACKGROUND of this run */
+    OKET_SET_ATTRS = 1 << 2  /* including `attrs = 0`, which is how a run clears them */
+};
 
 /* A run of the document, in BYTES, with a style token on it. Not a line and a column: a line
  * number is a display convenience, and making it the unit costs every run that crosses a line
@@ -210,16 +212,17 @@ typedef struct {
     size_t     lo, hi;
     oket_token tok;
     uint8_t    attrs; /* OKET_ATTR_* */
-    uint8_t    _pad[5];
+    uint8_t    set;   /* OKET_SET_*; a run that sets nothing draws nothing */
+    uint8_t    _pad[4];
 } oket_span;
 
-/* One layer's range-scoped REPLACE, as it rides a submit. Whatever this layer held inside
+/* One PUBLISHER's range-scoped REPLACE, as it rides a submit. Whatever this plugin held inside
  * [lo, hi) is dropped and `spans` takes its place, so republishing a viewport does not make the
  * store grow with the file. Out of order, overlapping and out of range are all survived: the
- * kernel clips, sorts, and lets the span that starts first win. */
+ * kernel clips, sorts, and lets the span that starts first win.
+ *
+ * There is no publisher field: the kernel knows which plugin called. */
 typedef struct {
-    uint8_t    layer; /* oket_layer */
-    uint8_t    _pad[7];
     size_t     lo, hi;
     const oket_span *spans;
     size_t     nspans;
@@ -346,9 +349,9 @@ typedef struct oket_api {
      * and oket_replace in oket_helpers.h read the newest generation for you; oket_batch_submit
      * takes the one off the snapshot you read.
      *
-     * `spans` may be NULL to leave every layer as it stands. Edits, descriptor and spans land
-     * together at ONE generation, so nothing ever paints a colour against bytes it was not
-     * measured over. `flags` is OKET_SUBMIT_* and 0 for an ordinary edit. */
+     * `spans` may be NULL to leave this plugin's runs as they stand. Edits, descriptor and
+     * spans land together at ONE generation, so nothing ever paints a colour against bytes it
+     * was not measured over. `flags` is OKET_SUBMIT_* and 0 for an ordinary edit. */
     void (*submit)(const struct oket_api *api, oket_self self, oket_doc doc, uint64_t gen,
                    const oket_edit *edits, size_t nedits, const oket_descriptor *d,
                    const oket_span_pub *spans, uint32_t flags);
@@ -424,7 +427,7 @@ _Static_assert(sizeof(oket_field) == 48, "oket_field");
 _Static_assert(sizeof(oket_descriptor) == 80, "oket_descriptor");
 _Static_assert(sizeof(oket_edit) == 32, "oket_edit");
 _Static_assert(sizeof(oket_span) == 24, "oket_span");
-_Static_assert(sizeof(oket_span_pub) == 40, "oket_span_pub");
+_Static_assert(sizeof(oket_span_pub) == 32, "oket_span_pub");
 _Static_assert(sizeof(oket_at) == 40, "oket_at");
 _Static_assert(sizeof(oket_kind_spec) == 56, "oket_kind_spec");
 

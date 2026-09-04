@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strconv"
 import "core:strings"
 import "../conf"
@@ -27,6 +28,17 @@ Config :: struct {
     behind:  int, // [strip] behind = 12 — percent the surface behind the panels is darkened
     tau:     int, // [strip] tau = 90 — milliseconds the strip's motion decays by 1/e (§7)
     split:   txt.Split, // [cursor] split = selections — what cursor.split_lines leaves per line
+    // [<kind>] spans = treesitter, lsp, rainbow — who draws over whom, lowest first (§8, §9).
+    // A kind and not a document, because the answer is about the vocabulary a kind is written
+    // in. A publisher the line does not name draws on top of the ones it does (spans.odin).
+    order:   [dynamic]Span_Order,
+}
+
+// One kind's z-order, as the file said it. Both strings are owned, because the rows the parser
+// hands back point into a file body that is temp-allocated.
+Span_Order :: struct {
+    kind:  string,
+    names: []string,
 }
 
 // The zero value is not the default: a gap of nothing puts two documents against each other.
@@ -65,6 +77,7 @@ SETTINGS := [?]Setting {
 }
 
 config_load :: proc(a: ^App) {
+    config_destroy(&a.config)
     a.config = config_default()
     if a.home == "" {
         return
@@ -86,8 +99,38 @@ config_load :: proc(a: ^App) {
     }
 }
 
+// What the file says this kind's publishers stack in, or nothing said. The order is read per
+// drawn document, so a line the file grew since is live at the next frame.
+config_spans :: proc(c: ^Config, kind: string) -> []string {
+    for o in c.order {
+        if o.kind == kind {
+            return o.names
+        }
+    }
+    return nil
+}
+
+config_destroy :: proc(c: ^Config) {
+    for o in c.order {
+        delete(o.kind)
+        for n in o.names {
+            delete(n)
+        }
+        delete(o.names)
+    }
+    delete(c.order)
+    c.order = nil
+}
+
 @(private = "file")
 config_set :: proc(c: ^Config, row: conf.Row) -> bool {
+    // The one key whose SECTION is a kind rather than a setting group. It is read here rather
+    // than in SETTINGS because the section is data: `[edit]` and `[files]` are names a plugin
+    // registered, and the table above is a rodata list of pairs.
+    if row.key == "spans" {
+        config_order(c, row)
+        return true
+    }
     for s in SETTINGS {
         if s.section == row.section && s.key == row.key {
             s.read(c, row.value)
@@ -95,6 +138,32 @@ config_set :: proc(c: ^Config, row: conf.Row) -> bool {
         }
     }
     return false
+}
+
+// `a, b, c`, in the order written. A name repeated is kept once, at its first position, so a
+// line that says a publisher twice ranks it once and reads back the way it was written.
+@(private = "file")
+config_order :: proc(c: ^Config, row: conf.Row) {
+    names := make([dynamic]string, 0, 4)
+    rest := row.value
+    for part in strings.split_iterator(&rest, ",") {
+        name := strings.trim_space(part)
+        if name == "" || slice.contains(names[:], name) {
+            continue
+        }
+        append(&names, strings.clone(name))
+    }
+    for &o in c.order {
+        if o.kind == row.section {
+            for n in o.names {
+                delete(n)
+            }
+            delete(o.names)
+            o.names = names[:]
+            return
+        }
+    }
+    append(&c.order, Span_Order{strings.clone(row.section), names[:]})
 }
 
 // The spellings a flat value file has to take, or a user reads `on` back as false with nothing

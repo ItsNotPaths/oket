@@ -63,6 +63,9 @@ App :: struct {
     // Style-token names, interned (tokens.odin). A span carries an id; the palette says what
     // the id looks like, so a plugin never names a colour.
     tokens:       [dynamic]Token_Def,
+    // Who publishes style runs, interned by name (spans.odin). The store keys its buckets by
+    // the id; config ranks them by the name.
+    producers:    [dynamic]string,
     config:       Config, // config.conf, which holds two settings today (config.odin)
     cl:           Cmdline,
     chain:        Chain,
@@ -107,6 +110,8 @@ app_destroy :: proc(a: ^App) {
     io_destroy(a) // before the plugins: their close runs with no completion still arriving
     plug_destroy(a)
     tokens_destroy(a)
+    producers_destroy(a)
+    config_destroy(&a.config)
     chain_clear(a)
     cl_destroy(a)
     ring_destroy(a)

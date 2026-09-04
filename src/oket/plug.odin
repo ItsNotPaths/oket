@@ -228,6 +228,11 @@ plug_unload :: proc(a: ^App, i: int) -> bool {
         doc_close(a, id) // calls close through plug_inst_close
     }
     io_forget(a, i) // its children die with it, rather than reading into nobody (§9)
+    // Its colours go with it, and nobody else's move: a bucket is per publisher, so this is a
+    // clear and not a merge (§8). A reload interns the same name again and republishes into it.
+    if who, published := producer_find(a, a.plugs[i].name); published {
+        store.store_spans_forget(&a.docs, who)
+    }
     p := &a.plugs[i]
     #reverse for r in p.ledger {
         switch r.what {
@@ -772,7 +777,7 @@ api_submit :: proc "c" (api: ^plug.Api, self: plug.Self, doc: plug.Doc, gen: u64
     }
     nd := d != nil ? plug_desc_take(a, id, d) : nil
     defer desc.release(nd)
-    tag := store.store_submit(&a.docs, id, gen, own, nd, plug_spans_take(a, spans),
+    tag := store.store_submit(&a.docs, id, gen, own, nd, plug_spans_take(a, i, spans),
                               .Regen in transmute(plug.Submit_Flags)flags)
     if inst, held := &a.insts[id]; held && inst.owner == i {
         inst.tag = tag
@@ -782,30 +787,37 @@ api_submit :: proc "c" (api: ^plug.Api, self: plug.Self, doc: plug.Doc, gen: u64
     }
 }
 
-// A published layer, with its tokens RESOLVED against the palette on the way in (tokens.odin).
-// The seam speaks tokens and the store speaks colours, the same split plug_desc_take makes for
-// a descriptor: a plugin that named a colour would break every theme, and the renderer that
+// A publish, with its tokens RESOLVED against the palette on the way in (tokens.odin). The
+// seam speaks tokens and the store speaks colours, the same split plug_desc_take makes for a
+// descriptor: a plugin that named a colour would break every theme, and the renderer that
 // looked one up per cell would do it per frame instead of per publish.
+//
+// WHO published is the caller, not a field it filled in, so a plugin cannot replace another's
+// runs however it is compiled. One token per run, and `set` says which channel it paints: a
+// colour that is not claimed as a foreground or a background is not drawn at all.
 @(private = "file")
-plug_spans_take :: proc(a: ^App, pub: ^plug.Span_Pub) -> Maybe(store.Spans) {
+plug_spans_take :: proc(a: ^App, plugin: int, pub: ^plug.Span_Pub) -> Maybe(store.Spans) {
     if pub == nil {
         return nil
     }
     list := make([]store.Span, pub.nspans, context.temp_allocator)
     for sp, n in pub.spans[:pub.nspans] {
+        color := token_color(a, sp.tok)
+        set := sp.set & desc.Chans{.Fg, .Bg, .Attrs} // untrusted byte: stray bits are not channels
         list[n] = {
             lo    = int(min(sp.lo, uint(max(int)))),
             hi    = int(min(sp.hi, uint(max(int)))),
-            fg    = token_color(a, sp.tok),
-            bg    = a.theme[.Bg],
+            fg    = .Fg in set ? color : {},
+            bg    = .Bg in set ? color : {},
             attrs = sp.attrs,
+            set   = set,
         }
     }
     return store.Spans{
-        layer = pub.layer,
-        lo    = int(min(pub.lo, uint(max(int)))),
-        hi    = int(min(pub.hi, uint(max(int)))),
-        list  = list,
+        who  = producer_intern(a, a.plugs[plugin].name),
+        lo   = int(min(pub.lo, uint(max(int)))),
+        hi   = int(min(pub.hi, uint(max(int)))),
+        list = list,
     }
 }
 

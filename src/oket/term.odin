@@ -18,8 +18,9 @@ import "../txt"
 // That is the whole of why there is no terminal scroll code. The kernel's viewport scrolls it
 // like anything else, `follow: tail` is the live bottom, point is the caret, and a drag selects
 // for copy. What is left that a text document does not have is colour, and that goes into the
-// span store like everybody else's (store/spans.odin) — on the `syntax` layer, which is where
-// what the CONTENT says it looks like lives, whether that is an SGR or a keyword.
+// span store like everybody else's (store/spans.odin), under the name `term`: the kernel is a
+// publisher here and config ranks it beside the plugins, because a terminal is one more thing
+// with an opinion about what its bytes look like.
 //
 // The descriptor says the rest: `render: grid`, `input: raw` so an unclaimed chord reaches the
 // shell, and `mouse: events` while a TUI has tracking on.
@@ -152,7 +153,7 @@ term_trim :: proc(a: ^App, tm: ^Term, doc: ^txt.Doc) {
     // The whole list, because every run that survived moved. This is the one path that
     // republishes frozen scrollback, and it runs only when the cap is crossed.
     store.store_spans_publish(&a.docs, tm.doc,
-                              {layer = .Syntax, lo = 0, hi = max(int), list = tm.spans[:]})
+                              {producer_intern(a, TERM_PRODUCER), 0, max(int), tm.spans[:]})
 }
 
 // Everything from the first line that is not yet frozen: the scrollback lines pushed since the
@@ -189,8 +190,8 @@ term_rewrite :: proc(a: ^App, tm: ^Term, doc: ^txt.Doc) {
     // To the END and not to the new length: a screen that shrank must not leave the runs that
     // were under what it dropped.
     store.store_spans_publish(&a.docs, tm.doc,
-                              {layer = .Syntax, lo = lo, hi = max(int),
-                               list = tm.spans[frozen:]})
+                              {producer_intern(a, TERM_PRODUCER), lo, max(int),
+                               tm.spans[frozen:]})
 }
 
 // One physical row as text plus its style runs. Trailing blanks go only where they carry the
@@ -238,7 +239,10 @@ term_close_run :: proc(a: ^App, tm: ^Term, run: ^store.Span, at: int) {
 // two of them over one cell cancel out.
 @(private = "file")
 term_style :: proc(a: ^App, tm: ^Term, cell: vt.ScreenCell, at: int) -> store.Span {
-    st := store.Span{lo = at}
+    // All three channels, always: a cell is a resolved colour on a resolved background, and a
+    // terminal that left one to whoever is below it would draw somebody else's paint inside a
+    // TUI's own.
+    st := store.Span{lo = at, set = {.Fg, .Bg, .Attrs}}
     fg, fdef := pty.terminal_color(&tm.t, cell.fg)
     bg, bdef := pty.terminal_color(&tm.t, cell.bg)
     st.fg = fdef ? a.theme[.Fg] : fg

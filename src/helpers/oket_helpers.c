@@ -703,7 +703,8 @@ int oket_batch_submit(const oket_api *api, oket_self self, oket_doc doc, uint64_
 
 /* --- publishing spans (§9) --- */
 
-void oket_spans_add(oket_spans *b, size_t lo, size_t hi, oket_token tok, uint8_t attrs) {
+void oket_spans_add(oket_spans *b, size_t lo, size_t hi, oket_token tok, uint8_t attrs,
+                    uint8_t set) {
     oket_span *sp;
 
     if (hi <= lo || !grow(&b->oom, (void **)&b->spans, &b->cap, b->n + 1, sizeof *b->spans)) {
@@ -715,23 +716,23 @@ void oket_spans_add(oket_spans *b, size_t lo, size_t hi, oket_token tok, uint8_t
     sp->hi = hi;
     sp->tok = tok;
     sp->attrs = attrs;
+    sp->set = set;
 }
 
 int oket_spans_publish(const oket_api *api, oket_self self, oket_doc doc, uint64_t gen,
-                       oket_layer layer, size_t lo, size_t hi, oket_spans *b) {
+                       size_t lo, size_t hi, oket_spans *b) {
     oket_span_pub pub;
 
     if (b->oom) {
         return 0;
     }
     memset(&pub, 0, sizeof pub);
-    pub.layer = (uint8_t)layer;
     pub.lo = lo;
     pub.hi = hi;
     pub.spans = b->spans;
     pub.nspans = b->n;
-    /* An EMPTY list still goes: a range-scoped replace with nothing in it is how a layer says
-     * "no colours here any more", and refusing it would leave the last parse's on screen. */
+    /* An EMPTY list still goes: a range-scoped replace with nothing in it is how a publisher
+     * says "no colours here any more", and refusing it would leave the last parse's on screen. */
     api->submit(api, self, doc, gen, NULL, 0, NULL, &pub, 0);
     return 1;
 }

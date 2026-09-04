@@ -24,7 +24,7 @@ import "../input"
 // pointer, with no lock and no call back in (§6). Adding a field is a struct field, not a
 // message.
 
-API :: 5
+API :: 6
 
 // A plugin's own identity, handed back on every call so a plugin needs no state of its own.
 // Index plus load generation, packed: a handle kept across a reload resolves to nothing rather
@@ -195,15 +195,19 @@ Span :: struct {
     hi:    c.size_t,
     tok:   Token,
     attrs: u8, // Attr's bits
-    _:     [5]u8,
+    // Which of the three this run has an opinion about. What it leaves unset is whoever is
+    // below it, so an underline over a colour draws as both (§8).
+    set:   desc.Chans,
+    _:     [4]u8,
 }
 
-// One layer's range-scoped REPLACE, as it rides a submit. Whatever this layer held inside
+// One PUBLISHER's range-scoped REPLACE, as it rides a submit. Whatever this plugin held inside
 // [lo, hi) is dropped and `spans` takes its place, so a publisher republishing a viewport does
 // not make the store grow with the file.
+//
+// Who is publishing is not a field: the kernel knows which plugin called, and a name it could
+// have written down is a name a second plugin could have written down too (§8).
 Span_Pub :: struct {
-    layer:  desc.Layer,
-    _:      [7]u8,
     lo:     c.size_t,
     hi:     c.size_t,
     spans:  [^]Span,
@@ -403,7 +407,7 @@ Entry_Fn :: #type proc "c" (api: ^Api, self: Self) -> c.int32_t
 #assert(size_of(Field) == 48)
 #assert(size_of(Descriptor) == 80)
 #assert(size_of(Span) == 24)
-#assert(size_of(Span_Pub) == 40)
+#assert(size_of(Span_Pub) == 32)
 #assert(size_of(Edit) == 32)
 #assert(size_of(At) == 40)
 #assert(size_of(Kind_Spec) == 56)
