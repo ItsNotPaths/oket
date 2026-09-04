@@ -76,30 +76,12 @@ fields_replace :: proc(slot: ^Slot, fields: []desc.Field) {
 // One field through one splice. False means the field did not survive it.
 @(private = "file")
 field_shift :: proc(f: desc.Field, ch: txt.Doc_Change) -> (desc.Field, bool) {
-    lo := point_shift({f.line, f.lo}, ch, low = true)
-    hi := point_shift({f.line, f.hi}, ch, low = false)
+    lo := txt.point_shift({f.line, f.lo}, ch, low = true)
+    hi := txt.point_shift({f.line, f.hi}, ch, low = false)
     if lo.line != hi.line || lo.col >= hi.col {
         return f, false
     }
     out := f
     out.line, out.lo, out.hi = lo.line, lo.col, hi.col
     return out, true
-}
-
-// Where a position lands. `low` is the left edge of a span and is the only asymmetry: text
-// inserted exactly at it belongs to the span, so a low edge stays put where a high edge moves.
-@(private = "file")
-point_shift :: proc(p: txt.Pos, ch: txt.Doc_Change, low: bool) -> txt.Pos {
-    s, o, n := ch.start_pt, ch.old_end_pt, ch.new_end_pt
-    if !txt.pos_less(p, o) && (!low || txt.pos_less(s, p)) {
-        // After the splice: on the last line it replaced, the column rebases on the new end.
-        if p.line == o.line {
-            return {n.line, n.col + p.col - o.col}
-        }
-        return {p.line + n.line - o.line, p.col}
-    }
-    if txt.pos_less(s, p) {
-        return s // inside what the splice replaced, so it collapses onto the front of it
-    }
-    return p
 }

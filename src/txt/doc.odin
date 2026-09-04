@@ -80,6 +80,22 @@ Cursor :: struct {
     goal:   int,
 }
 
+// Where an edit leaves the carets. A parameter of the COMMIT, not a property of the document:
+// one buffer takes a keystroke and a formatter on consecutive frames and wants a different
+// answer for each.
+Cursor_Policy :: enum {
+    Follow, // one cursor per edit, at its end          — typing
+    Shift,  // the old set, carried through the splices — formatting, indent, foreign
+    Pin,    // line and column unchanged                — regen: the ROW is the identity
+    Set,    // the author says exactly                  — computed motion
+}
+
+// The cursor half of a commit. `set` is read by .Set and ignored by the rest.
+Commit :: struct {
+    policy: Cursor_Policy,
+    set:    []Cursor,
+}
+
 // --- lifecycle ---
 
 DOC_MAGIC :: 0x6f6b_6574_646f_6300 // "oketdoc\0"
@@ -128,6 +144,23 @@ doc_reset_cursor :: proc(d: ^Doc, p: Pos) {
     clear(&d.cursors)
     append(&d.cursors, Cursor{anchor = q, head = q, goal = doc_cell_col(d, q)})
     d.primary = 0
+}
+
+// The whole set, verbatim: the one place a caller's own answer to "where do the carets go"
+// lands, so .Set, an undo restore and a plugin's computed motion cannot drift apart. Clamped,
+// because the positions may have been read BEFORE the edit and the document can be shorter now.
+// An empty set is nobody asking, since a Doc holds at least one cursor.
+doc_set_cursors :: proc(d: ^Doc, src: []Cursor, primary: int) {
+    if len(src) == 0 {
+        return
+    }
+    clear(&d.cursors)
+    for c in src {
+        k := c
+        k.anchor, k.head = doc_clamp_pos(d, c.anchor), doc_clamp_pos(d, c.head)
+        append(&d.cursors, k)
+    }
+    d.primary = clamp(primary, 0, len(d.cursors) - 1)
 }
 
 // Esc out of a trail: keep only the primary.
@@ -254,6 +287,28 @@ cursor_range :: proc(c: Cursor) -> (lo, hi: Pos) {
 
 pos_less :: proc(a, b: Pos) -> bool {
     return a.line < b.line || (a.line == b.line && a.col < b.col)
+}
+
+// One position through one splice, which is the whole of the .Shift policy and of how a
+// descriptor's fields ride the text (store/fields.odin). Replay a change list in the order it
+// was recorded and a point comes out where the text under it went.
+//
+// `low` is the left edge of a span and the only asymmetry: text inserted exactly at it belongs
+// to the span, so a low edge stays put where a high edge moves. A caret is a high edge — typing
+// in front of it pushes it along.
+point_shift :: proc(p: Pos, ch: Doc_Change, low: bool) -> Pos {
+    s, o, n := ch.start_pt, ch.old_end_pt, ch.new_end_pt
+    if !pos_less(p, o) && (!low || pos_less(s, p)) {
+        // After the splice: on the last line it replaced, the column rebases on the new end.
+        if p.line == o.line {
+            return {n.line, n.col + p.col - o.col}
+        }
+        return {p.line + n.line - o.line, p.col}
+    }
+    if pos_less(s, p) {
+        return s // inside what the splice replaced, so it collapses onto the front of it
+    }
+    return p
 }
 
 // --- the cell grid --- The painter draws CELLS, one per rune; the document counts BYTES. The
@@ -517,39 +572,6 @@ doc_insert_text :: proc(d: ^Doc, text: string) -> bool {
 
 doc_newline :: proc(d: ^Doc) -> bool {
     return doc_insert_text(d, "\n")
-}
-
-// One edit per line, with the cursors put back on those same lines. `deltas[i]` is what
-// `lines[i]` gains, or loses when negative, and a line with no edit carries 0.
-//
-// doc_apply rebuilds the cursors collapsed onto each edit, which is right for typing and wrong
-// here: Tab is pressed twice to indent twice. A line-wise edit never moves a line, so a cursor
-// comes back where it was with its column shifted by what that line gained or lost.
-doc_line_commit :: proc(d: ^Doc, edits: []Edit, lines, deltas: []int) -> bool {
-    if len(edits) == 0 {
-        return false
-    }
-    kept := make([dynamic]Cursor, 0, len(d.cursors), context.temp_allocator)
-    for c in d.cursors {
-        k := c
-        k.anchor = line_shift(d, c.anchor, lines, deltas)
-        k.head = line_shift(d, c.head, lines, deltas)
-        append(&kept, k)
-    }
-    return doc_commit(d, edits, kept[:])
-}
-
-// The line's length AFTER the edit is its length now plus the delta, so the clamp is right
-// without waiting for the edit to land. A caret inside whitespace a dedent removed lands at 0.
-@(private = "file")
-line_shift :: proc(d: ^Doc, p: Pos, lines, deltas: []int) -> Pos {
-    for line, i in lines {
-        if line == p.line {
-            n := doc_line_len(d, line) + deltas[i]
-            return Pos{line, clamp(p.col + deltas[i], 0, max(n, 0))}
-        }
-    }
-    return p
 }
 
 // --- clipboard (GLFW I/O lives in input.odin) ---
@@ -855,10 +877,10 @@ Edit :: struct {
     caret_delta: int,
 }
 
-// Back-to-front, then the cursors are rebuilt collapsed onto each new end. Back-to-front keeps
-// the offsets self-consistent: every edit sits after the ones still to be applied. Non-nil `rec`
-// collects reversible patches for the undo journal. `edits_in` is read only.
-doc_apply :: proc(d: ^Doc, edits_in: []Edit, rec: ^Batch = nil) -> bool {
+// Back-to-front, then `cur` says where the carets go. Back-to-front keeps the offsets
+// self-consistent: every edit sits after the ones still to be applied. Non-nil `rec` collects
+// reversible patches for the undo journal. `edits_in` is read only.
+doc_apply :: proc(d: ^Doc, edits_in: []Edit, rec: ^Batch = nil, cur := Commit{}) -> bool {
     if len(edits_in) == 0 {
         return false
     }
@@ -872,11 +894,11 @@ doc_apply :: proc(d: ^Doc, edits_in: []Edit, rec: ^Batch = nil) -> bool {
     // replaced once, by both texts in document order. Insertions are points and never fuse.
     w := 0
     for r in 1 ..< len(edits) {
-        cur, e := &edits[w], edits[r]
-        if e.lo < cur.hi {
-            cur.hi = max(cur.hi, e.hi)
-            cur.text = strings.concatenate({cur.text, e.text}, context.temp_allocator)
-            cur.caret_delta = e.caret_delta
+        acc, e := &edits[w], edits[r]
+        if e.lo < acc.hi {
+            acc.hi = max(acc.hi, e.hi)
+            acc.text = strings.concatenate({acc.text, e.text}, context.temp_allocator)
+            acc.caret_delta = e.caret_delta
             continue
         }
         w += 1
@@ -895,6 +917,9 @@ doc_apply :: proc(d: ^Doc, edits_in: []Edit, rec: ^Batch = nil) -> bool {
     }
 
     changed := false
+    // .Shift replays these, and the Doc's own log cannot serve it: that one is bounded and may
+    // drop the very batch we are applying (DOC_CHANGE_MAX).
+    spliced := make([dynamic]Doc_Change, 0, len(edits), context.temp_allocator)
     removed := make([]string, len(edits), context.temp_allocator)
     for i := len(edits) - 1; i >= 0; i -= 1 {
         e := edits[i]
@@ -919,6 +944,7 @@ doc_apply :: proc(d: ^Doc, edits_in: []Edit, rec: ^Batch = nil) -> bool {
         if e.lo != e.hi || len(e.text) > 0 {
             ch.new_end_pt = doc_pos(d, ch.new_end)
             doc_record_change(d, ch)
+            append(&spliced, ch)
         }
     }
 
@@ -939,15 +965,35 @@ doc_apply :: proc(d: ^Doc, edits_in: []Edit, rec: ^Batch = nil) -> bool {
         }
     }
 
-    clear(&d.cursors)
-    for e, i in edits {
-        p := doc_pos(d, landed[i] + len(e.text))
-        p.col = clamp(p.col - e.caret_delta, 0, doc_line_len(d, p.line)) // same line, by contract
-        q := doc_clamp_pos(d, p)
-        append(&d.cursors, Cursor{anchor = q, head = q, goal = doc_cell_col(d, q)})
+    switch cur.policy {
+    case .Follow:
+        clear(&d.cursors)
+        for e, i in edits {
+            p := doc_pos(d, landed[i] + len(e.text))
+            // same line, by contract
+            p.col = clamp(p.col - e.caret_delta, 0, doc_line_len(d, p.line))
+            q := doc_clamp_pos(d, p)
+            append(&d.cursors, Cursor{anchor = q, head = q, goal = doc_cell_col(d, q)})
+        }
+        d.primary = 0
+        doc_merge_cursors(d)
+    case .Shift:
+        // The splice loop never touches the cursors, so they still hold pre-edit positions.
+        for &c in d.cursors {
+            for ch in spliced {
+                c.anchor = point_shift(c.anchor, ch, low = false)
+                c.head = point_shift(c.head, ch, low = false)
+            }
+            c.anchor, c.head = doc_clamp_pos(d, c.anchor), doc_clamp_pos(d, c.head)
+        }
+    case .Pin:
+        // Clamped only: the document can be shorter than the rows the carets sit on.
+        for &c in d.cursors {
+            c.anchor, c.head = doc_clamp_pos(d, c.anchor), doc_clamp_pos(d, c.head)
+        }
+    case .Set:
+        doc_set_cursors(d, cur.set, d.primary)
     }
-    d.primary = 0
-    doc_merge_cursors(d)
     if changed {
         doc_bump(d)
     }

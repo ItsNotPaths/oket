@@ -63,7 +63,7 @@ Txn :: struct {
     desc:  ^desc.Descriptor, // nil = leave the descriptor as it stands
     spans: Maybe(Spans),     // nil = leave every layer as it stands
     // The carets here were put where they are by NAVIGATION, so leave them on their rows
-    // (regen_cursors). Said by the author, because the offsets cannot say it.
+    // (cursor_policy). Said by the author, because the offsets cannot say it.
     regen: bool,
 }
 
@@ -255,7 +255,7 @@ store_drain :: proc(s: ^Store) -> (applied, stale: int) {
             stale += 1
             continue
         }
-        txt.doc_commit(slot.doc, t.edits, regen_cursors(slot, t))
+        txt.doc_commit(slot.doc, t.edits, {policy = cursor_policy(slot, t)})
         if t.regen {
             // REGEN's other half (Submit_Flags): derived text holds nothing of the user's to
             // take back, so the log goes — what was typed before it is still in the text.
@@ -327,9 +327,9 @@ store_check :: proc(s: ^Store) -> bool {
 // --- internals ---
 
 // A REGENERATION, not an edit: a browser rewrites its rows to expand a directory, and the
-// carets there are navigation rather than the place a keystroke landed. Point stays on its
-// line, instead of collapsing onto the splice the way it must for the editor (§5, §6). nil is
-// that collapse, which is doc_commit's own default.
+// carets there are navigation rather than the place a keystroke landed. .Pin leaves them on
+// their rows, instead of collapsing onto the splice the way .Follow must for the editor (§5,
+// §6).
 //
 // Two things answer it. A document that takes no typing has nothing in it a keystroke put
 // there, so every write to one is a regeneration. A document that takes typing AND rewrites
@@ -337,11 +337,11 @@ store_check :: proc(s: ^Store) -> bool {
 // offsets cannot, because replacing a whole document and replacing a whole selection are the
 // same two numbers.
 @(private = "file")
-regen_cursors :: proc(slot: ^Slot, t: Txn) -> []txt.Cursor {
+cursor_policy :: proc(slot: ^Slot, t: Txn) -> txt.Cursor_Policy {
     if slot.desc != nil && slot.desc.editable && !t.regen {
-        return nil
+        return .Follow
     }
-    return slice.clone(slot.doc.cursors[:], context.temp_allocator)
+    return .Pin
 }
 
 @(private)

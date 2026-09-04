@@ -58,22 +58,17 @@ doc_forget_undo :: proc(d: ^Doc) {
 // A single-character insert extends the most recent step while that step's last inserted
 // character was not a break char and the caret is where the step left off.
 //
-// doc_apply leaves one collapsed cursor per edit, which is right for typing and wrong for an
-// edit spanning whole lines — the selection has to survive Tab so a second press indents again.
-// `after_set` is the caller saying where its edit left the cursors; the step records those, so
-// redo lands on them too.
-doc_commit :: proc(d: ^Doc, edits: []Edit, after_set: []Cursor = nil) -> bool {
+// `cur` is the commit's cursor policy (doc.odin), and the step records where it left them, so
+// redo lands there too.
+doc_commit :: proc(d: ^Doc, edits: []Edit, cur := Commit{}) -> bool {
     before := clone_cursors(d.cursors[:])
     before_primary := d.primary
     batch: Batch
-    changed := doc_apply(d, edits, &batch)
+    changed := doc_apply(d, edits, &batch, cur)
     if !changed {
         delete(before)
         batch_destroy(&batch)
         return false
-    }
-    if len(after_set) > 0 {
-        set_cursors(d, after_set, before_primary)
     }
     undo_clear_redo(d)
     after := clone_cursors(d.cursors[:])
@@ -115,7 +110,7 @@ doc_undo :: proc(d: ^Doc) -> bool {
         }
         doc_apply(d, edits[:])
     }
-    set_cursors(d, step.before[:], step.before_primary)
+    doc_set_cursors(d, step.before[:], step.before_primary)
     append(&u.redo, step)
     return true
 }
@@ -134,7 +129,7 @@ doc_redo :: proc(d: ^Doc) -> bool {
         }
         doc_apply(d, edits[:])
     }
-    set_cursors(d, step.after[:], step.after_primary)
+    doc_set_cursors(d, step.after[:], step.after_primary)
     append(&u.steps, step)
     return true
 }
@@ -200,19 +195,6 @@ clone_cursors :: proc(src: []Cursor) -> [dynamic]Cursor {
     dst := make([dynamic]Cursor, len(src))
     copy(dst[:], src)
     return dst
-}
-
-@(private = "file")
-set_cursors :: proc(d: ^Doc, src: []Cursor, primary: int) {
-    clear(&d.cursors)
-    for c in src {
-        // Clamped: a caller may be handing back positions read BEFORE the edit, and a
-        // regenerated document can be shorter than the one whose carets these are.
-        k := c
-        k.anchor, k.head = doc_clamp_pos(d, c.anchor), doc_clamp_pos(d, c.head)
-        append(&d.cursors, k)
-    }
-    d.primary = clamp(primary, 0, len(d.cursors) - 1)
 }
 
 @(private = "file")
