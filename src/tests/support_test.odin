@@ -55,8 +55,7 @@ panel_grid :: proc(a: ^app.App) -> ^gfx.Grid {
     return &app.panel_focused(a).grid
 }
 
-// The full/half toggle, as the `:width 100 50` row that carries it: what every test that sizes
-// a panel without caring how means.
+// A two-percent row, which is the toggle every test that sizes a panel without caring how means.
 panel_toggle :: proc(a: ^app.App) {
     app.panel_width(a, a.focus, []int{100, 50})
 }

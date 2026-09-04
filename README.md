@@ -59,7 +59,7 @@ panel to the next. The layout is a horizontal strip you scroll, no nesting.
 | `alt+shift+left` `alt+shift+right` | move this panel along it |
 | `alt+p` | a panel to the right of this one, standing on nothing |
 | `alt+shift+p` | close the panel; what was in it stays in the ring |
-| `alt+w` | the next width in its row's list; `:width 100 50` by default |
+| `alt+w` | the next width in its row's list; `:width 30 50 100` by default |
 
 The sizing model is the row, not the kernel. `:width` takes a list of percents and moves the
 panel to the next one, so the same key is a toggle, a three-way or a set depending on what the
@@ -68,7 +68,7 @@ file says. `full`, `half`, `third` and `quarter` are the same numbers in words.
 ```conf
 # config.conf's neighbour, binds.conf
 [global]
-alt+w       = exec :width 100 50 33
+alt+w       = exec :width 100 50
 alt+shift+w = exec :width quarter
 ```
 

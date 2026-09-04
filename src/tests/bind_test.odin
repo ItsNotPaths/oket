@@ -37,7 +37,7 @@ describe_reads_the_width_row_out :: proc(t: ^testing.T) {
 
     s := input.describe_chord(binds[:], {w, {.Alt}, 0}, .Global, nil)
     defer delete(s)
-    testing.expect(t, strings.contains(s, "runs :width 100 50"), s)
+    testing.expect(t, strings.contains(s, "runs :width 30 50 100"), s)
 }
 
 @(test)

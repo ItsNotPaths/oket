@@ -394,7 +394,7 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     bind_put(&b, "AD10", {.Alt, .Shift}, .Panel_Close) // the panel, never the document in it
     // alt+w, for width. A LINE, because the sizing model is the row and not the kernel: rebind
     // the list and the same key is a toggle, a three-way or a set.
-    bind_line(&b, "AD02", {.Alt}, ":width 100 50")
+    bind_line(&b, "AD02", {.Alt}, ":width 30 50 100")
     // The universal spelling, and it moves the TEXT rather than the grid: ctrl+= is bigger
     // glyphs, which is fewer cells.
     bind_put(&b, "AE12", {.Ctrl}, .Font_Bigger) // ctrl+=
