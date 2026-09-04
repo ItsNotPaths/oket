@@ -353,6 +353,41 @@ every caret you have put down, and typing goes into all of them.
 selected; `[cursor] split = carets` in `config.conf` puts a caret at each line's end instead,
 which is the other family. The bar says how many carets are up whenever there is more than one.
 
+## Folding, and a popup
+
+What is on screen can be a document derived from the one you are editing. A plugin registers a
+VIEW STAGE, the kernel hands it a snapshot, and it returns edits against what it was handed —
+so a fold is a deleted run with a marker in its place, and a popup is an inserted box. Nothing
+of that reaches the file. Motion is told which runs no cell stands for and steps over them;
+undo, find, `:w` and the recovery journal go on seeing the document you are editing.
+
+```
+# config.conf, beside the binary
+[edit]
+view = fold, popup   # in order; each stage is handed the one before it
+```
+
+The ORDER is the point. A stage past the first is handed the stage before it, caret and all, so
+a popup that puts its box under the caret's row is right whether or not a fold above it took
+five lines off the screen. It does no mapping to get that right — it cannot: the snapshot it
+reads is already the folded one.
+
+| chord | |
+|---|---|
+| `alt+z` | fold or unfold the block point is standing on; blocks are indent |
+| `alt+shift+z` | unfold every one of them |
+| `alt+/` | the words in the buffer that carry on from the one point is inside |
+| `alt+/` again | the next candidate |
+| `alt+shift+/` | put it in, which is an ordinary edit against the document |
+
+A stage's name is in that line or it is never called, so installing one is `cp` plus a row and
+uninstalling one is deleting the row. A plugin writes its own row the first time it loads and
+never asks again, which is what makes an edit to the line stick.
+
+Text a stage inserted is not enterable: point never lands in it, a click in a fold marker
+answers the real byte beside it, and a gutter number belongs to the line being edited. A stage
+that needs more than one frame says so and is called again on the next one.
+
 ## Crashes, and the start after one
 
 Every document that is a file and takes typing is journaled: each splice is appended to a file
