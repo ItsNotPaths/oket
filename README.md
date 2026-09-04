@@ -59,7 +59,21 @@ panel to the next. The layout is a horizontal strip you scroll, no nesting.
 | `alt+shift+left` `alt+shift+right` | move this panel along it |
 | `alt+p` | a panel to the right of this one, standing on nothing |
 | `alt+shift+p` | close the panel; what was in it stays in the ring |
-| `alt+w` | full width or half width, which is the whole sizing model |
+| `alt+w` | the next width in its row's list; `:width 100 50` by default |
+
+The sizing model is the row, not the kernel. `:width` takes a list of percents and moves the
+panel to the next one, so the same key is a toggle, a three-way or a set depending on what the
+file says. `full`, `half`, `third` and `quarter` are the same numbers in words.
+
+```conf
+# config.conf's neighbour, binds.conf
+[global]
+alt+w       = exec :width 100 50 33
+alt+shift+w = exec :width quarter
+```
+
+`:width 50 @2` sizes panel 2 from the command line and leaves the focus where it is. It reaches
+a panel and never makes one: there is no document to put in a panel that is not there.
 
 The two numberings do not interfere. A ring slot is per kind, stable and keeps its gaps; a panel
 is positional, so closing one renumbers the strip and no document at all. `alt+N` addresses slot
