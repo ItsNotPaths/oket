@@ -12,8 +12,8 @@ import "core:unicode/utf8"
 // doc_cell_col are the only bridge. doc_clamp_pos is the one gate guaranteeing a column lands on
 // a rune boundary, and every Pos built from arithmetic passes through it.
 //
-// Invariants: >= 1 line, >= 1 cursor, cursors sorted by head and non-overlapping. `primary` is
-// the cursor driving scroll-follow and the gutter; after an edit it falls back to the topmost.
+// Invariants: >= 1 line, >= 1 cursor. `primary` is the cursor driving scroll-follow and the
+// gutter; after an edit it falls back to the topmost. What the SET guarantees is cursor.odin's.
 Doc :: struct {
     // At the head, and checked after every plugin dispatch (§10). A wild store from a plugin
     // walking a snapshot lands near a document's header more often than anywhere else, and a
@@ -73,30 +73,6 @@ Pos :: struct {
     col:  int, // BYTES into the line
 }
 
-// anchor == head means no selection; head is the moving caret. goal is the sticky column for
-// vertical motion, in CELLS — a byte column would drift through multi-byte lines.
-Cursor :: struct {
-    anchor: Pos,
-    head:   Pos,
-    goal:   int,
-}
-
-// Where an edit leaves the carets. A parameter of the COMMIT, not a property of the document:
-// one buffer takes a keystroke and a formatter on consecutive frames and wants a different
-// answer for each.
-Cursor_Policy :: enum {
-    Follow, // one cursor per edit, at its end          — typing
-    Shift,  // the old set, carried through the splices — formatting, indent, foreign
-    Pin,    // line and column unchanged                — regen: the ROW is the identity
-    Set,    // the author says exactly                  — computed motion
-}
-
-// The cursor half of a commit. `set` is read by .Set and ignored by the rest.
-Commit :: struct {
-    policy: Cursor_Policy,
-    set:    []Cursor,
-}
-
 // --- lifecycle ---
 
 DOC_MAGIC :: 0x6f6b_6574_646f_6300 // "oketdoc\0"
@@ -138,61 +114,6 @@ doc_set_text :: proc(d: ^Doc, text: string) {
 
 doc_clear :: proc(d: ^Doc) {
     doc_set_text(d, "")
-}
-
-doc_reset_cursor :: proc(d: ^Doc, p: Pos) {
-    q := doc_clamp_pos(d, p)
-    clear(&d.cursors)
-    append(&d.cursors, Cursor{anchor = q, head = q, goal = doc_cell_col(d, q)})
-    d.primary = 0
-}
-
-// The whole set, verbatim: the one place a caller's own answer to "where do the carets go"
-// lands, so .Set, an undo restore and a plugin's computed motion cannot drift apart. Clamped,
-// because the positions may have been read BEFORE the edit and the document can be shorter now.
-// An empty set is nobody asking, since a Doc holds at least one cursor.
-doc_set_cursors :: proc(d: ^Doc, src: []Cursor, primary: int) {
-    if len(src) == 0 {
-        return
-    }
-    clear(&d.cursors)
-    for c in src {
-        k := c
-        k.anchor, k.head = doc_clamp_pos(d, c.anchor), doc_clamp_pos(d, c.head)
-        append(&d.cursors, k)
-    }
-    d.primary = clamp(primary, 0, len(d.cursors) - 1)
-}
-
-// Esc out of a trail: keep only the primary.
-doc_collapse_to_primary :: proc(d: ^Doc) {
-    p := d.cursors[d.primary]
-    clear(&d.cursors)
-    append(&d.cursors, p)
-    d.primary = 0
-}
-
-// Alt+A: leave a fixed cursor where the free caret is, which keeps roaming. The coincident pair
-// collapses to one at the next edit.
-doc_drop_anchor :: proc(d: ^Doc) {
-    c := d.cursors[d.primary]
-    append(&d.cursors, Cursor{anchor = c.head, head = c.head, goal = c.goal})
-}
-
-// The cursors an edit fans out over. Alt+A leaves a fixed cursor exactly under the free caret,
-// and that pair names one range, not two — an edit per copy would apply it twice. Only the
-// selection matters here, so a stale goal column does not split a coincident pair.
-edit_cursors :: proc(d: ^Doc) -> []Cursor {
-    out := make([dynamic]Cursor, 0, len(d.cursors), context.temp_allocator)
-    next: for c in d.cursors {
-        for k in out {
-            if k.anchor == c.anchor && k.head == c.head {
-                continue next
-            }
-        }
-        append(&out, c)
-    }
-    return out[:]
 }
 
 // --- reading ---
@@ -254,40 +175,6 @@ doc_pos :: proc(d: ^Doc, off: int) -> Pos {
 
 doc_string :: proc(d: ^Doc, allocator := context.allocator) -> string {
     return string(text_read(&d.pt, 0, d.pt.size, allocator))
-}
-
-cursor_has_selection :: proc(c: Cursor) -> bool {
-    return c.anchor != c.head
-}
-
-doc_any_selection :: proc(d: ^Doc) -> bool {
-    for c in d.cursors {
-        if cursor_has_selection(c) {
-            return true
-        }
-    }
-    return false
-}
-
-// The primary drives the gutter, but a centred viewport should hold the top of the SET. Cursors
-// are not kept globally sorted, so scan.
-doc_top_cursor_line :: proc(d: ^Doc) -> int {
-    line := d.cursors[0].head.line
-    for c in d.cursors[1:] {
-        line = min(line, c.head.line)
-    }
-    return line
-}
-
-cursor_range :: proc(c: Cursor) -> (lo, hi: Pos) {
-    if pos_less(c.head, c.anchor) {
-        return c.head, c.anchor
-    }
-    return c.anchor, c.head
-}
-
-pos_less :: proc(a, b: Pos) -> bool {
-    return a.line < b.line || (a.line == b.line && a.col < b.col)
 }
 
 // One position through one splice, which is the whole of the .Shift policy and of how a
@@ -408,9 +295,6 @@ doc_byte_col :: proc(d: ^Doc, line, cell: int) -> int {
     return i
 }
 
-// --- pointer-placed cursors --- Keyboard ops are motions; a pointer names an absolute
-// position. All clamp — a stale layout must never index out of bounds.
-
 // Onto a real line, a real column, and a rune boundary. The one gate every derived Pos passes
 // through: a column landing mid-rune would split a character on the next edit.
 doc_clamp_pos :: proc(d: ^Doc, p: Pos) -> Pos {
@@ -421,137 +305,6 @@ doc_clamp_pos :: proc(d: ^Doc, p: Pos) -> Pos {
         col -= 1 // continuation byte: back to the rune's start
     }
     return Pos{line, col}
-}
-
-// select=true keeps the anchor (shift-click); false collapses onto the new position. The same
-// `cursor_place` a keyboard motion uses, with a destination instead of a direction.
-doc_set_head :: proc(d: ^Doc, p: Pos, select: bool) {
-    q := doc_clamp_pos(d, p)
-    c := &d.cursors[d.primary]
-    cursor_place(c, q, select)
-    c.goal = doc_cell_col(d, q)
-}
-
-// Alt+click. Unlike doc_drop_anchor the NEW cursor is the one that goes on to move. No merge: a
-// coincident drop stays a pair, collapsing at the next edit.
-doc_add_cursor :: proc(d: ^Doc, p: Pos) {
-    q := doc_clamp_pos(d, p)
-    append(&d.cursors, Cursor{anchor = q, head = q, goal = doc_cell_col(d, q)})
-    d.primary = len(d.cursors) - 1
-}
-
-// What a drag needs, since a word-grade drag re-derives both ends every frame. The order is the
-// gesture's and not normalised: the head stays where the eye is, and cursor_range orders on read.
-doc_select_span :: proc(d: ^Doc, anchor, head: Pos) {
-    a := doc_clamp_pos(d, anchor)
-    h := doc_clamp_pos(d, head)
-    clear(&d.cursors)
-    append(&d.cursors, Cursor{anchor = a, head = h, goal = doc_cell_col(d, h)})
-    d.primary = 0
-}
-
-// Every cursor at once, which is what a plugin that computed its own motion sends back (§9).
-// The order inside a span is the caller's and is not normalised; overlapping spans fuse, the
-// same way two edits at one word do.
-doc_set_spans :: proc(d: ^Doc, spans: [][2]Pos) {
-    if len(spans) == 0 {
-        return
-    }
-    clear(&d.cursors)
-    for s in spans {
-        a, h := doc_clamp_pos(d, s[0]), doc_clamp_pos(d, s[1])
-        append(&d.cursors, Cursor{anchor = a, head = h, goal = doc_cell_col(d, h)})
-    }
-    d.primary = 0
-    doc_merge_cursors(d)
-}
-
-// The double-click. The head is the run's END, so a following Shift+Right extends forward.
-doc_select_word :: proc(d: ^Doc, p: Pos) {
-    q := doc_clamp_pos(d, p)
-    lo, hi := word_span(doc_line(d, q.line), q.col)
-    doc_select_span(d, Pos{q.line, lo}, Pos{q.line, hi})
-}
-
-// The triple-click. The span is the line's TEXT, not the line plus its break — exactly what
-// Home then Shift+End selects.
-doc_select_line :: proc(d: ^Doc, line: int) {
-    anchor, head := line_span(d, line)
-    doc_select_span(d, anchor, head)
-}
-
-// Ctrl+L, which is the triple-click at every cursor: the trail is kept, since collapsing it
-// would undo an Alt+A this verb has nothing to do with. Two cursors on one line fuse.
-doc_select_lines :: proc(d: ^Doc) {
-    for &c in d.cursors {
-        c.anchor, c.head = line_span(d, c.head.line)
-        c.goal = doc_cell_col(d, c.head)
-    }
-    doc_merge_cursors(d)
-}
-
-// Ctrl+A. One selection over everything, the head at the end so a following Shift+motion grows
-// from where the eye is.
-doc_select_all :: proc(d: ^Doc) {
-    last := doc_line_count(d) - 1
-    doc_select_span(d, Pos{0, 0}, Pos{last, doc_line_len(d, last)})
-}
-
-line_span :: proc(d: ^Doc, line: int) -> (anchor, head: Pos) {
-    l := clamp(line, 0, doc_line_count(d) - 1)
-    return Pos{l, 0}, Pos{l, doc_line_len(d, l)}
-}
-
-// The lines a LINE-WISE edit acts on: every line any cursor touches, ascending and without
-// repeats. doc_select_lines asks the smaller question (the line each caret sits on); this one
-// reads the selection, and a selection ending at column 0 does not reach that line — the caret
-// sits there, it covers no text on it. That is what stops a full-line sweep from taking the line
-// below it as well.
-doc_cursor_lines :: proc(d: ^Doc, alloc := context.temp_allocator) -> []int {
-    out := make([dynamic]int, 0, 8, alloc)
-    for c in d.cursors {
-        lo, hi := cursor_range(c)
-        last := hi.line > lo.line && hi.col == 0 ? hi.line - 1 : hi.line
-        for line in lo.line ..= last {
-            append(&out, line)
-        }
-    }
-    slice.sort(out[:])
-    w := 0
-    for line in out {
-        if w == 0 || out[w - 1] != line {
-            out[w] = line
-            w += 1
-        }
-    }
-    return out[:w]
-}
-
-// Word (2) or line (3+); grade 1 is doc_set_head. `press` and `at` carry glyph positions, not
-// caret boundaries. Expanded per frame, so a double-click-drag grows by whole words.
-doc_drag_span :: proc(d: ^Doc, grade: int, press, at: Pos) -> (anchor, head: Pos) {
-    p := doc_clamp_pos(d, press)
-    q := doc_clamp_pos(d, at)
-    if grade >= 3 {
-        // Compare LINES, not positions: dragging left within the pressed line has not
-        // reversed the gesture.
-        if q.line >= p.line {
-            return Pos{p.line, 0}, Pos{q.line, doc_line_len(d, q.line)}
-        }
-        return Pos{p.line, doc_line_len(d, p.line)}, Pos{q.line, 0}
-    }
-    plo, phi := word_span(doc_line(d, p.line), p.col)
-    qlo, qhi := word_span(doc_line(d, q.line), q.col)
-    if !pos_less(q, p) {
-        return Pos{p.line, plo}, Pos{q.line, qhi}
-    }
-    return Pos{p.line, phi}, Pos{q.line, qlo}
-}
-
-// The command line's "park at end" after a text swap.
-doc_cursor_to_end :: proc(d: ^Doc) {
-    last := doc_line_count(d) - 1
-    doc_reset_cursor(d, Pos{last, doc_line_len(d, last)})
 }
 
 // --- editing --- Every edit funnels through doc_apply: non-overlapping replacements, one per
@@ -765,89 +518,6 @@ doc_delete_word_forward :: proc(d: ^Doc) -> bool {
         }
     }
     return doc_commit(d, edits[:])
-}
-
-// --- movement --- select=true extends; a plain move with a selection collapses to the edge it
-// moves toward, GUI-style. Vertical motion keeps the goal column.
-
-Motion :: enum {
-    Left,
-    Right,
-    Word_Left,
-    Word_Right,
-    Home,
-    End,
-    Doc_Start,
-    Doc_End,
-    Up,
-    Down,
-}
-
-// Bare-arrow behaviour: only the primary moves. `count` applies to Up/Down only.
-doc_move :: proc(d: ^Doc, motion: Motion, select := false, count := 1) {
-    move_cursor(d, &d.cursors[d.primary], motion, select, count)
-}
-
-// The Alt+M one-shot prefix: every cursor together.
-doc_move_all :: proc(d: ^Doc, motion: Motion, select := false, count := 1) {
-    for &c in d.cursors {
-        move_cursor(d, &c, motion, select, count)
-    }
-    doc_merge_cursors(d)
-}
-
-@(private = "file")
-move_cursor :: proc(d: ^Doc, c: ^Cursor, motion: Motion, select: bool, count := 1) {
-    switch motion {
-    case .Left:
-        if !select && cursor_has_selection(c^) {
-            lo, _ := cursor_range(c^)
-            cursor_place(c, lo, false)
-        } else {
-            cursor_place(c, pos_left(d, c.head), select)
-        }
-        c.goal = doc_cell_col(d, c.head)
-    case .Right:
-        if !select && cursor_has_selection(c^) {
-            _, hi := cursor_range(c^)
-            cursor_place(c, hi, false)
-        } else {
-            cursor_place(c, pos_right(d, c.head), select)
-        }
-        c.goal = doc_cell_col(d, c.head)
-    case .Word_Left:
-        cursor_place(c, Pos{c.head.line, word_left_index(doc_line(d, c.head.line), c.head.col)}, select)
-        c.goal = doc_cell_col(d, c.head)
-    case .Word_Right:
-        cursor_place(c, Pos{c.head.line, word_right_index(doc_line(d, c.head.line), c.head.col)}, select)
-        c.goal = doc_cell_col(d, c.head)
-    case .Home:
-        // The indentation first, column 0 on the second press: a line begins in two places and
-        // this is the only key that reaches either.
-        lead := line_indent_cols(doc_line(d, c.head.line))
-        cursor_place(c, Pos{c.head.line, c.head.col == lead ? 0 : lead}, select)
-        c.goal = doc_cell_col(d, c.head)
-    case .End:
-        cursor_place(c, Pos{c.head.line, doc_line_len(d, c.head.line)}, select)
-        c.goal = doc_cell_col(d, c.head)
-    case .Doc_Start:
-        cursor_place(c, Pos{0, 0}, select)
-        c.goal = 0
-    case .Doc_End:
-        last := doc_line_count(d) - 1
-        cursor_place(c, Pos{last, doc_line_len(d, last)}, select)
-        c.goal = doc_cell_col(d, c.head)
-    case .Up:
-        if c.head.line > 0 {
-            line := max(0, c.head.line - count)
-            cursor_place(c, Pos{line, doc_byte_col(d, line, c.goal)}, select)
-        }
-    case .Down:
-        if c.head.line < doc_line_count(d) - 1 {
-            line := min(doc_line_count(d) - 1, c.head.line + count)
-            cursor_place(c, Pos{line, doc_byte_col(d, line, c.goal)}, select)
-        }
-    }
 }
 
 // --- internals ---
@@ -1126,63 +796,4 @@ cursor_order :: proc(d: ^Doc, alloc := context.allocator) -> []int {
         out[i] = k.idx
     }
     return out
-}
-
-@(private = "file")
-cursor_place :: proc(c: ^Cursor, to: Pos, select: bool) {
-    c.head = to
-    if !select {
-        c.anchor = to
-    }
-}
-
-// One rune left / right, wrapping across the line break.
-@(private = "file")
-pos_left :: proc(d: ^Doc, p: Pos) -> Pos {
-    if p.col > 0 {
-        _, size := doc_rune_before(d, p)
-        return Pos{p.line, p.col - size}
-    }
-    if p.line > 0 {
-        return Pos{p.line - 1, doc_line_len(d, p.line - 1)}
-    }
-    return p
-}
-
-@(private = "file")
-pos_right :: proc(d: ^Doc, p: Pos) -> Pos {
-    src := doc_line(d, p.line)
-    if p.col < len(src) {
-        _, size := utf8.decode_rune(src[p.col:])
-        return Pos{p.line, p.col + max(size, 1)}
-    }
-    if p.line < doc_line_count(d) - 1 {
-        return Pos{p.line + 1, 0}
-    }
-    return p
-}
-
-// Sort by selection start and fuse any that overlap or touch.
-doc_merge_cursors :: proc(d: ^Doc) {
-    if len(d.cursors) <= 1 {
-        return
-    }
-    slice.sort_by(d.cursors[:], proc(a, b: Cursor) -> bool {
-        alo, _ := cursor_range(a)
-        blo, _ := cursor_range(b)
-        return pos_less(alo, blo)
-    })
-    w := 0
-    for r in 1 ..< len(d.cursors) {
-        alo, ahi := cursor_range(d.cursors[w])
-        blo, bhi := cursor_range(d.cursors[r])
-        if pos_less(ahi, blo) { // disjoint
-            w += 1
-            d.cursors[w] = d.cursors[r]
-        } else if pos_less(ahi, bhi) { // overlap: fuse into the union
-            d.cursors[w] = Cursor{anchor = alo, head = bhi, goal = doc_cell_col(d, bhi)}
-        }
-    }
-    resize(&d.cursors, w + 1)
-    d.primary = clamp(d.primary, 0, w)
 }

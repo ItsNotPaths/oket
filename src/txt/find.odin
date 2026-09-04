@@ -42,13 +42,13 @@ doc_find :: proc(d: ^Doc, pattern: string, from: Pos, dir: Find_Dir) -> (Pos, bo
     return {}, false
 }
 
-// Every occurrence, as one batch and one undo entry. Offsets are taken before anything moves,
-// which is what doc_apply's back-to-front rule needs.
-doc_replace_all :: proc(d: ^Doc, pattern, with: string) -> int {
+// Every literal occurrence, in document order, as [lo, hi) pairs. The replace-all batch and the
+// match-all cursor verb ask the one question, so the scan is written once.
+doc_find_all :: proc(d: ^Doc, pattern: string, alloc := context.temp_allocator) -> [][2]Pos {
+    out := make([dynamic][2]Pos, 0, 16, alloc)
     if pattern == "" {
-        return 0
+        return out[:]
     }
-    edits := make([dynamic]Edit, 0, 16, context.temp_allocator)
     for line in 0 ..< doc_line_count(d) {
         text := string(doc_line(d, line))
         at := 0
@@ -57,10 +57,23 @@ doc_replace_all :: proc(d: ^Doc, pattern, with: string) -> int {
             if k < 0 {
                 break
             }
-            lo := doc_off(d, Pos{line, at + k})
-            append(&edits, Edit{lo, lo + len(pattern), with, 0})
+            append(&out, [2]Pos{{line, at + k}, {line, at + k + len(pattern)}})
             at += k + len(pattern)
         }
     }
-    return len(edits) > 0 && doc_commit(d, edits[:]) ? len(edits) : 0
+    return out[:]
+}
+
+// Every occurrence, as one batch and one undo entry. Offsets are taken before anything moves,
+// which is what doc_apply's back-to-front rule needs.
+doc_replace_all :: proc(d: ^Doc, pattern, with: string) -> int {
+    hits := doc_find_all(d, pattern)
+    if len(hits) == 0 {
+        return 0
+    }
+    edits := make([]Edit, len(hits), context.temp_allocator)
+    for h, i in hits {
+        edits[i] = Edit{doc_off(d, h[0]), doc_off(d, h[1]), with, 0}
+    }
+    return doc_commit(d, edits) ? len(edits) : 0
 }
