@@ -229,10 +229,21 @@ them. `oket --no-plugins` starts with none of them, for the day that is not enou
 
 ## Syntax
 
-Colour is a span layer: a byte range with a style token on it, stored per document and per
-publisher. A parser, a linter and a search each write their own layer, the kernel merges them in
-one fixed order, and the renderer paints the answer. Nothing that publishes colour knows what a
-theme is — it names a token, and the palette decides.
+Colour is a span: a byte range with a style token on it, stored per document and per publisher.
+A parser, a linter and a search each own their runs under their own name, the kernel merges
+them, and the renderer paints the answer. Nothing that publishes colour knows what a theme is —
+it names a token, and the palette decides.
+
+A run says which of foreground, background and attributes it SETS, and what it leaves unset
+comes from whoever is below it. So an LSP's underline over a keyword's colour draws as both, and
+a search hit's background lets the syntax under it show through. Who draws over whom is a line
+per kind, and a publisher the line does not name draws on top of the ones it does:
+
+```
+# config.conf, beside the binary
+[edit]
+spans = syntax, lsp   # lowest first; `term` is the terminal's own
+```
 
 `plugins/syntax` is a tree-sitter plugin that draws nothing. It asks to be told about every
 document, picks a grammar off the file's extension, and publishes what its highlights query
