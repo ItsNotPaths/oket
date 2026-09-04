@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "../gfx"
 import "../input"
+import "../store"
 
 // The kernel's own screen, drawn with zero plugins loaded: the recovery floor (§7, §13) and
 // where kernel-level notices live. A document like any other once §5 exists.
@@ -51,8 +52,15 @@ bar_text :: proc(a: ^App) -> string {
         return fmt.tprintf("%sN#  the system session", tag)
     }
     if s := ring_focused(a); s != nil {
-        return fmt.tprintf("%s%s %s  %s", tag, kind_name(a, doc_kind(a, s.doc)),
-                           slot_tag(ring_slot(a)), doc_title(a, s.doc))
+        // A trail is half-visible state: the carets are drawn, the count and the way out are not
+        // (VIEWS.md §4). Escape puts one down ahead of every row that claims the key, and no row
+        // is what describe could read out, so the bar is where that is said.
+        trail := ""
+        if doc := store.store_doc(&a.docs, s.doc); doc != nil && len(doc.cursors) > 1 {
+            trail = fmt.tprintf("  %d carets, esc puts them down", len(doc.cursors))
+        }
+        return fmt.tprintf("%s%s %s  %s%s", tag, kind_name(a, doc_kind(a, s.doc)),
+                           slot_tag(ring_slot(a)), doc_title(a, s.doc), trail)
     }
     if tag != "" {
         return fmt.tprintf("%sempty; alt+N opens something here", tag)
