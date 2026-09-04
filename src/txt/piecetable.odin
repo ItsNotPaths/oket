@@ -58,6 +58,22 @@ Piece_Table :: struct {
     using text: Text,
     tail:       int, // the block appends go into, -1 before the first
     tail_used:  int, // bytes of it already written
+    // The rebuild's other buffer: the next piece list is built here and the two are swapped, so
+    // they trade places forever and neither is reallocated once the document has settled on a
+    // size. Never read.
+    spare:      [dynamic]Piece,
+    // Pieces the last splice looked at, counted wherever one is carried, dropped or re-based.
+    // O(pieces + edits) is the whole claim of pt_splice_many and a counter is the only way to
+    // hold a test to it.
+    touched:    int,
+}
+
+// One replacement in a transaction: the bytes in [lo, hi) become `text`. What an Edit lowers
+// to. A batch is sorted by `lo` and disjoint — doc_apply fuses overlapping ranges before it
+// gets here, and splice_clamp holds the rule against a bad caller.
+Splice :: struct {
+    lo, hi: int,
+    text:   []u8,
 }
 
 // A run of consecutive lines whose starts sit at `starts[at ..< at+n]`, each read back
@@ -183,6 +199,7 @@ pt_init :: proc(pt: ^Piece_Table) {
 pt_destroy :: proc(pt: ^Piece_Table) {
     arena_release(pt.arena)
     delete(pt.pieces)
+    delete(pt.spare)
     delete(pt.segs)
     pt^ = {}
 }
@@ -307,39 +324,34 @@ text_line :: proc(t: ^Text, line: int, alloc := context.allocator) -> []u8 {
 
 // --- editing ---
 
-// The one mutator, and what a Patch lowers to. Returns the byte delta the callers' own indices
-// shift by. The fast path is typing: an insert at the end of a piece that runs to the end of
-// the append tail extends it, rather than pushing a piece per keystroke.
-pt_splice :: proc(pt: ^Piece_Table, lo, hi: int, text: []u8) -> (delta: int) {
-    a := clamp(lo, 0, pt.size)
-    b := clamp(hi, a, pt.size)
-    if a == b && len(text) == 0 {
-        return 0
-    }
-    delta = len(text) - (b - a)
-
-    pt_splice_lines(pt, a, b, text, delta)
-
-    if a == b && pt_extend_tail(pt, a, text) {
-        pt.size += delta
+// THE ONE MUTATOR, AND IT TAKES A WHOLE TRANSACTION. `edits` is sorted by `lo` and disjoint.
+//
+// The list is rebuilt front to back, so each old piece is visited once and each new one is
+// written with its final `doc_off` — O(pieces + edits). A splice per caret would repair every
+// piece after each cut, O(N * pieces) per keystroke with P growing with N as well — a thousand
+// carets on a line each, which cursor.split_lines makes in one press (§11).
+pt_splice_many :: proc(pt: ^Piece_Table, edits: []Splice) {
+    pt.touched = 0
+    if len(edits) == 0 {
         return
     }
-
-    // Cut at both ends so the replaced region is whole pieces, drop them, and put the new text
-    // in their place. `at` is where the removed run began.
-    at := pt_split_at(pt, a)
-    end := pt_split_at(pt, b)
-    remove_range(&pt.pieces, at, end)
-    if len(text) > 0 {
-        block, off := pt_append(pt, text)
-        inject_at(&pt.pieces, at, Piece{block = block, off = off, len = len(text), doc_off = a})
-        at += 1
+    // One splice keeps the incremental line index and the typing fast path. Both are written
+    // against a single cut and neither generalises, so a batch flattens the index instead.
+    if len(edits) == 1 {
+        a, b := splice_clamp(edits[0], 0, pt.size)
+        text := edits[0].text
+        if a == b && len(text) == 0 {
+            return
+        }
+        pt_splice_lines(pt, a, b, text, len(text) - (b - a))
+        if a == b && pt_extend_tail(pt, a, text) {
+            pt.size += len(text)
+            return
+        }
+    } else {
+        lines_rebuild(pt, edits)
     }
-    pt.size += delta
-    for i in at ..< len(pt.pieces) {
-        pt.pieces[i].doc_off += delta
-    }
-    return
+    pt_rebuild(pt, edits)
 }
 
 // Asked by doc_maintain, never by an edit. Two things grow:
@@ -385,6 +397,7 @@ pt_renew :: proc(pt: ^Piece_Table) {
     pt.arena = arena_new()
     pt.blocks, pt.starts = nil, nil
     clear(&pt.pieces)
+    clear(&pt.spare)
     clear(&pt.segs)
     pt.tail, pt.tail_used, pt.size, pt.lines = -1, 0, 0, 0
 }
@@ -405,26 +418,81 @@ piece_at :: proc(pieces: []Piece, off: int) -> int {
     return lo < len(pieces) ? lo : -1
 }
 
-// Returns the index of the piece starting at `off` (len(pieces) at the end of the document).
-// A no-op when one already ends there, so an aligned edit's two calls cost nothing.
+// Both ends into [floor, size], `hi` never behind `lo`: the sorted-disjoint rule, enforced
+// rather than trusted.
 @(private = "file")
-pt_split_at :: proc(pt: ^Piece_Table, off: int) -> int {
-    i := piece_at(pt.pieces[:], off)
-    if i < 0 {
-        return len(pt.pieces)
+splice_clamp :: proc(e: Splice, floor, size: int) -> (lo, hi: int) {
+    lo = clamp(e.lo, floor, size)
+    hi = clamp(e.hi, lo, size)
+    return
+}
+
+// How far a rebuild has read the old piece list and how far the bytes it carries have moved.
+// `pi` holds `cur`, so the two walks below never search: both only ever go forwards.
+@(private = "file")
+Rebuild :: struct {
+    pt:    ^Piece_Table,
+    out:   ^[dynamic]Piece,
+    pi:    int, // the old piece `cur` sits in
+    cur:   int, // the old offset reached
+    shift: int, // where an old byte lands, minus where it was
+}
+
+// The old document's [cur, to) into the output, cut on the piece boundaries it already has.
+@(private = "file")
+rb_carry :: proc(r: ^Rebuild, to: int) {
+    for r.cur < to {
+        p := r.pt.pieces[r.pi]
+        off := r.cur - p.doc_off
+        take := min(p.len - off, to - r.cur)
+        append(r.out, Piece{p.block, p.off + off, take, r.cur + r.shift})
+        r.cur += take
+        r.pt.touched += 1
+        if r.cur == p.doc_off + p.len {
+            r.pi += 1
+        }
     }
-    p := pt.pieces[i]
-    if p.doc_off == off {
-        return i
+}
+
+// The same walk, emitting nothing: these bytes are what the splice replaces.
+@(private = "file")
+rb_drop :: proc(r: ^Rebuild, to: int) {
+    for r.cur < to {
+        p := r.pt.pieces[r.pi]
+        end := p.doc_off + p.len
+        r.pt.touched += 1
+        if end > to {
+            r.cur = to
+            return
+        }
+        r.cur = end
+        r.pi += 1
     }
-    cut := off - p.doc_off
-    pt.pieces[i].len = cut
-    inject_at(
-        &pt.pieces,
-        i + 1,
-        Piece{block = p.block, off = p.off + cut, len = p.len - cut, doc_off = off},
-    )
-    return i + 1
+}
+
+// The piece list for a whole batch, built into the spare buffer and swapped in. The two arrays
+// trade places every transaction, so this allocates only while one of them is growing.
+@(private = "file")
+pt_rebuild :: proc(pt: ^Piece_Table, edits: []Splice) {
+    r := Rebuild {
+        pt  = pt,
+        out = &pt.spare,
+    }
+    clear(r.out)
+    for e in edits {
+        lo, hi := splice_clamp(e, r.cur, pt.size)
+        rb_carry(&r, lo)
+        if len(e.text) > 0 {
+            block, off := pt_append(pt, e.text)
+            append(r.out, Piece{block, off, len(e.text), lo + r.shift})
+            r.shift += len(e.text)
+        }
+        rb_drop(&r, hi)
+        r.shift -= hi - lo
+    }
+    rb_carry(&r, pt.size)
+    pt.pieces, pt.spare = pt.spare, pt.pieces
+    pt.size += r.shift
 }
 
 // `text` at `at` extends the piece ENDING there, when that piece's block bytes also end at the
@@ -455,6 +523,7 @@ pt_extend_tail :: proc(pt: ^Piece_Table, at: int, text: []u8) -> bool {
     p.len += len(text)
     for k in i + 1 ..< len(pt.pieces) {
         pt.pieces[k].doc_off += len(text)
+        pt.touched += 1
     }
     return true
 }
@@ -588,6 +657,41 @@ seg_split :: proc(t: ^Text, line: int) {
     take := line - s.first
     t.segs[i].n = take
     inject_at(&t.segs, i + 1, Line_Seg{line, s.at + take, s.n - take, s.delta})
+}
+
+// The line index for a whole batch, flattened in one pass over the lines. A start that survives
+// carries the byte delta of the edits before it, the lines a replacement spans are dropped, and
+// the lines its text brings go in their place.
+//
+// Flat rather than incremental because the incremental one re-bases every segment AFTER the cut
+// and a batch cuts in N places, which is O(N * segments) — the piece problem over again. One
+// splice never comes here (pt_splice_many), so typing keeps the cheap path and a transaction
+// pays O(lines) once.
+@(private = "file")
+lines_rebuild :: proc(pt: ^Piece_Table, edits: []Splice) {
+    flat := make([dynamic]int, 0, pt.lines, context.temp_allocator)
+    line := 0 // the next old line to carry
+    cum := 0 // the byte delta of the edits already folded in
+    prev := 0
+    for e in edits {
+        lo, hi := splice_clamp(e, prev, pt.size)
+        prev = hi
+        first, last := text_line_at_off(pt, lo), text_line_at_off(pt, hi)
+        for ; line <= first; line += 1 {
+            append(&flat, text_line_start(pt, line) + cum)
+        }
+        for c, i in e.text {
+            if c == '\n' {
+                append(&flat, lo + cum + i + 1)
+            }
+        }
+        line = last + 1 // the lines the replacement straddles go with it
+        cum += len(e.text) - (hi - lo)
+    }
+    for ; line < pt.lines; line += 1 {
+        append(&flat, text_line_start(pt, line) + cum)
+    }
+    lines_set(pt, flat[:])
 }
 
 // Resolve every line into one fresh segment. The starts it flattened over become arena garbage

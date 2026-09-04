@@ -64,7 +64,8 @@ Doc_Change :: struct {
 }
 
 // How far the log may run ahead of its slowest reader. Past it the log is dropped and everyone
-// behind is told they lost it — a rebuild costs less than an unbounded list.
+// behind is told they lost it — a rebuild costs less than an unbounded list. Measured between
+// commits: one commit is atomic in the log whatever its size (doc_record_changes).
 DOC_CHANGE_MAX :: 256
 
 Pos :: struct {
@@ -877,8 +878,14 @@ Edit :: struct {
     caret_delta: int,
 }
 
-// Back-to-front, then `cur` says where the carets go. Back-to-front keeps the offsets
-// self-consistent: every edit sits after the ones still to be applied. Non-nil `rec` collects
+@(private = "file")
+edit_is_noop :: proc(e: Edit) -> bool {
+    return e.lo == e.hi && len(e.text) == 0
+}
+
+// One pass for the whole batch, then `cur` says where the carets go. Every offset here is
+// stated against the document as it arrived, and the piece table takes them all together, so
+// nothing has to stay true while the bytes underneath it move. Non-nil `rec` collects
 // reversible patches for the undo journal. `edits_in` is read only.
 doc_apply :: proc(d: ^Doc, edits_in: []Edit, rec: ^Batch = nil, cur := Commit{}) -> bool {
     if len(edits_in) == 0 {
@@ -906,9 +913,9 @@ doc_apply :: proc(d: ^Doc, edits_in: []Edit, rec: ^Batch = nil, cur := Commit{})
     }
     edits = edits[:w + 1]
 
-    // Where each edit's text ends up once the batch is done: `lo` is valid while it is applied,
-    // but the edits before it land afterwards and move what follows. The cursors and the
-    // journal's inverse both read the finished document, so both want this rather than `lo`.
+    // Where each edit's text ends up once the batch is done: `lo` is where it was stated, and
+    // the edits before it grow or shrink the text ahead of it. The cursors and the journal's
+    // inverse both read the finished document, so both want this rather than `lo`.
     landed := make([]int, len(edits), context.temp_allocator)
     cum := 0
     for e, i in edits {
@@ -916,37 +923,47 @@ doc_apply :: proc(d: ^Doc, edits_in: []Edit, rec: ^Batch = nil, cur := Commit{})
         cum += len(e.text) - (e.hi - e.lo)
     }
 
+    // EVERYTHING BELOW READS THE DOCUMENT AS IT STANDS — the batch lands in one pass at the
+    // end, so the inserted text says where it ends rather than the document being asked after.
     changed := false
-    // .Shift replays these, and the Doc's own log cannot serve it: that one is bounded and may
-    // drop the very batch we are applying (DOC_CHANGE_MAX).
-    spliced := make([dynamic]Doc_Change, 0, len(edits), context.temp_allocator)
     removed := make([]string, len(edits), context.temp_allocator)
-    for i := len(edits) - 1; i >= 0; i -= 1 {
-        e := edits[i]
-        if e.lo != e.hi || len(e.text) > 0 {
+    splices := make([]Splice, len(edits), context.temp_allocator)
+    for e, i in edits {
+        if !edit_is_noop(e) {
             changed = true
         }
         removed[i] = string(text_read(&d.pt, e.lo, e.hi, context.temp_allocator))
-        // Either side of the splice: two of the three points read the document before it, the
-        // third after. Back-to-front is the apply order, so it is the replay order too.
-        ch := Doc_Change {
-            start      = e.lo,
-            old_end    = e.hi,
-            new_end    = e.lo + len(e.text),
-            start_pt   = doc_pos(d, e.lo),
-            old_end_pt = doc_pos(d, e.hi),
+        splices[i] = Splice{lo = e.lo, hi = e.hi, text = transmute([]u8)e.text}
+    }
+
+    // Back to front, which is the order both readers replay in: each entry is stated against the
+    // document the ones before it have already landed on. .Shift replays `spliced` as well, and
+    // the Doc's own log cannot serve it — that one is bounded and drops.
+    spliced := make([dynamic]Doc_Change, 0, len(edits), context.temp_allocator)
+    for i := len(edits) - 1; i >= 0; i -= 1 {
+        e := edits[i]
+        if edit_is_noop(e) {
+            continue
         }
-        pt_splice(&d.pt, e.lo, e.hi, transmute([]u8)e.text)
-        // Emitted in apply order = replay order (above); already-applied splices sit after it.
-        if d.sink.write != nil && (e.lo != e.hi || len(e.text) > 0) {
+        start_pt := doc_pos(d, e.lo)
+        append(
+            &spliced,
+            Doc_Change {
+                start = e.lo,
+                old_end = e.hi,
+                new_end = e.lo + len(e.text),
+                start_pt = start_pt,
+                old_end_pt = doc_pos(d, e.hi),
+                new_end_pt = pos_after(start_pt, e.text),
+            },
+        )
+        if d.sink.write != nil {
             d.sink.write(d.sink.user, e.lo, e.hi - e.lo, e.text)
         }
-        if e.lo != e.hi || len(e.text) > 0 {
-            ch.new_end_pt = doc_pos(d, ch.new_end)
-            doc_record_change(d, ch)
-            append(&spliced, ch)
-        }
     }
+
+    pt_splice_many(&d.pt, splices)
+    doc_record_changes(d, spliced[:])
 
     if rec != nil {
         for e, i in edits {
@@ -1037,13 +1054,31 @@ doc_changes_reset :: proc(d: ^Doc) {
     doc_changes_drop(d)
 }
 
+// A COMMIT'S CHANGES GO IN TOGETHER. Half a transaction in the log is worse than none: a
+// reader would carry its spans through some of the splices under them and not the rest, and
+// nothing afterwards says so. So the drop is decided once, before the batch lands, and one
+// batch may run past DOC_CHANGE_MAX — the cap bounds the log BETWEEN commits (§11).
 @(private = "file")
-doc_record_change :: proc(d: ^Doc, c: Doc_Change) {
-    if len(d.changes) >= DOC_CHANGE_MAX {
-        doc_changes_drop(d) // everyone behind rebuilds; the log restarts AT this change
+doc_record_changes :: proc(d: ^Doc, batch: []Doc_Change) {
+    if len(batch) == 0 {
+        return
     }
-    append(&d.changes, c)
-    d.changes_next += 1
+    if len(d.changes) + len(batch) > DOC_CHANGE_MAX {
+        doc_changes_drop(d) // everyone behind rebuilds; the log restarts AT this batch
+    }
+    append(&d.changes, ..batch)
+    d.changes_next += u64(len(batch))
+}
+
+// Where `text` inserted at `at` ends. The batch has not landed when this is asked, so it is
+// arithmetic rather than a read of the document.
+@(private = "file")
+pos_after :: proc(at: Pos, text: string) -> Pos {
+    nl := strings.last_index_byte(text, '\n')
+    if nl < 0 {
+        return {at.line, at.col + len(text)}
+    }
+    return {at.line + strings.count(text, "\n"), len(text) - nl - 1}
 }
 
 // CRLF collapsed to LF and one trailing newline dropped — both the load's business; Buffer puts
