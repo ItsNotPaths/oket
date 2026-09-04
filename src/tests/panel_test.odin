@@ -491,15 +491,15 @@ two_sigils_and_a_bare_number :: proc(t: ^testing.T) {
         {"", {}},
         {"3", {slot = 3}},
         {"#3", {slot = 3}},
-        {"@2", {panel = 2}},
-        {"@-1", {panel = -1, rel = true}},
-        {"@+2 #4", {slot = 4, panel = 2, rel = true}},
-        {"#4 @2", {slot = 4, panel = 2}},
-        {"@=", {showing = true}},
-        {"@= #4", {slot = 4, showing = true}},
+        {"@2", {panel = 2, how = .Nth}},
+        {"@-1", {panel = -1, how = .Step}},
+        {"@+2 #4", {slot = 4, panel = 2, how = .Step}},
+        {"#4 @2", {slot = 4, panel = 2, how = .Nth}},
+        {"@=", {how = .Showing}},
+        {"@= #4", {slot = 4, how = .Showing}},
         // Last sigil wins, and `@=` is on the same axis as `@N`: neither survives the other.
-        {"@= @2", {panel = 2}},
-        {"@2 @=", {showing = true}},
+        {"@= @2", {panel = 2, how = .Nth}},
+        {"@2 @=", {how = .Showing}},
     }) {
         target, _, ok := app.target_parse(row.text)
         testing.expectf(t, ok, "%q is not an address", row.text)
@@ -577,17 +577,17 @@ an_address_makes_the_panel_it_names :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    testing.expect_value(t, app.target_reach(&a, {panel = 3}, {}), 2)
+    testing.expect_value(t, app.target_reach(&a, {panel = 3, how = .Nth}, {}), 2)
     testing.expect_value(t, len(a.panels), 3)
 
     app.panel_focus(&a, 0)
-    testing.expect_value(t, app.target_reach(&a, {panel = -1, rel = true}, {}), 0)
+    testing.expect_value(t, app.target_reach(&a, {panel = -1, how = .Step}, {}), 0)
     testing.expect_value(t, len(a.panels), 4) // a new leftmost, and the old one moved right
     testing.expect_value(t, a.focus, 1)
 
-    testing.expect_value(t, app.target_reach(&a, {panel = 9, rel = true}, {}), 4)
+    testing.expect_value(t, app.target_reach(&a, {panel = 9, how = .Step}, {}), 4)
     testing.expect_value(t, len(a.panels), 5) // a walk stops at the end, and makes one there
-    testing.expect_value(t, app.target_reach(&a, {panel = 1, rel = true}, {}), 2) // inside: nothing made
+    testing.expect_value(t, app.target_reach(&a, {panel = 1, how = .Step}, {}), 2) // inside: nothing made
     testing.expect_value(t, len(a.panels), 5)
 }
 
@@ -704,4 +704,12 @@ an_open_can_go_to_the_panel_that_has_it :: proc(t: ^testing.T) {
     testing.expect_value(t, a.focus, 0)
     testing.expect_value(t, len(a.panels), 2)
     testing.expect_value(t, app.doc_title(&a, panel_doc(&a, 0)), fresh)
+
+    // A document live in a slot no panel shows is not up anywhere: `@=` falls back to the
+    // panel you are in, and the open is the ordinary move.
+    app.cl_exec(&a, fmt.tprintf(":open %s @=", other))
+    testing.expect_value(t, a.focus, 0)
+    testing.expect_value(t, panel_doc(&a, 0), second)
+    testing.expect_value(t, panel_doc(&a, 1), first)
+    testing.expect_value(t, len(a.panels), 2)
 }

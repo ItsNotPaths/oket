@@ -26,11 +26,18 @@ import "../store"
 // file and that panel has to start pointing at an edit slot, possibly one that does not exist
 // yet; which slot it lands in stays the kernel's business, the way `kind_fresh` is.
 
+// The form the `@` took. The zero value is a line with no `@` at all.
+Panel_Addr :: enum {
+    Here,    // land in the panel the keys are already aimed at
+    Nth,     // `@N`: panel N, counted from the left
+    Step,    // `@±N`: N panels from the focused one
+    Showing, // `@=`: the panel this document is already in
+}
+
 Target :: struct {
-    slot:    int, // `#N`. 0: wherever the document's own lane has room for it
-    panel:   int, // `@N`, or the step in `@±N`. 0: the panel the keys are already aimed at
-    rel:     bool,
-    showing: bool, // `@=`. The panel this document is already in, and `panel` is then unread
+    slot:  int, // `#N`. 0: wherever the document's own lane has room for it
+    panel: int, // the N of `@N` or `@±N`; unread otherwise
+    how:   Panel_Addr,
 }
 
 // The arguments past the one a builtin takes for itself, in any order, and the last of a sigil
@@ -49,7 +56,7 @@ target_parse :: proc(args: string) -> (t: Target, bad: string, ok: bool) {
         // The one address that is not a number. Written before the parse rather than as a
         // case inside it, because there is no integer it could stand for.
         if panel && body == "=" {
-            t.panel, t.rel, t.showing = 0, false, true
+            t.panel, t.how = 0, .Showing
             continue
         }
         n, num := strconv.parse_int(body, 10)
@@ -60,8 +67,7 @@ target_parse :: proc(args: string) -> (t: Target, bad: string, ok: bool) {
             return {}, field, false
         }
         if panel {
-            // Last sigil wins, so a numbered panel after `@=` has to put `showing` back down.
-            t.panel, t.rel, t.showing = n, step, false
+            t.panel, t.how = n, step ? Panel_Addr.Step : .Nth
         } else {
             t.slot = n
         }
@@ -79,35 +85,34 @@ target_parse :: proc(args: string) -> (t: Target, bad: string, ok: bool) {
 // none: a panel showing the document either exists or it does not.
 target_reach :: proc(a: ^App, t: Target, doc: store.Id) -> int {
     panels_ready(a)
-    // `@=`. A document already up goes to the panel that has it and the rest of the strip is
-    // left alone — no swap, because `ring_move` finds the focused panel already standing there.
-    // One that is NOT up, or that is in a slot no panel shows, falls back to where you are,
-    // which is what a line with no `@` at all does.
-    if t.showing {
+    switch t.how {
+    case .Here:
+    case .Showing:
+        // A document already up goes to the panel that has it and the rest of the strip is
+        // left alone — no swap, because `ring_move` finds the focused panel already standing
+        // there. One that is NOT up, or that is in a slot no panel shows, falls through to
+        // where you are, which is what a line with no `@` at all does.
         if at, held := ring_find(a, doc); held {
             if i := panel_at_spot(a, at); i >= 0 {
                 return i
             }
         }
-        return a.focus
-    }
-    if t.panel == 0 {
-        return a.focus
-    }
-    if !t.rel {
+    case .Nth:
         for len(a.panels) < t.panel {
             panel_make(a, len(a.panels))
         }
         return t.panel - 1
+    case .Step:
+        switch i := a.focus + t.panel; {
+        case i < 0:
+            return panel_make(a, 0)
+        case i >= len(a.panels):
+            return panel_make(a, len(a.panels))
+        case:
+            return i
+        }
     }
-    switch i := a.focus + t.panel; {
-    case i < 0:
-        return panel_make(a, 0)
-    case i >= len(a.panels):
-        return panel_make(a, len(a.panels))
-    case:
-        return i
-    }
+    return a.focus
 }
 
 // `@` on its own is resolved here and nowhere else: the picker rewrites it to the `@N` of the
