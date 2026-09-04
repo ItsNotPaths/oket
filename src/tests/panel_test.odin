@@ -185,24 +185,32 @@ hover_belongs_to_the_panel_under_the_pointer :: proc(t: ^testing.T) {
 
 // --- stage 3: more than one panel ---
 
-// A new panel stands on NOTHING (§2: a live slot is in at most one panel), and it takes the
-// lane it was opened from, so `alt+N` there addresses the numbers you were just looking at.
+// A new panel opens on the HOME PAGE, on a fresh document of its own (§2: a live slot is in
+// at most one panel).
 @(test)
-a_new_panel_stands_on_nothing_in_the_lane_it_came_from :: proc(t: ^testing.T) {
+a_new_panel_stands_on_the_home_page :: proc(t: ^testing.T) {
     a, _, ok := listing_app(t, "oket-panel-open")
     if !ok {
         return
     }
     defer close_app(&a)
 
-    lane := app.ring_lane(&a)
+    first := app.ring_focused(&a).doc
     app.panel_open(&a)
 
     testing.expect_value(t, len(a.panels), 2)
     testing.expect_value(t, a.focus, 1)
-    testing.expect_value(t, app.ring_lane(&a), lane)
-    testing.expect_value(t, app.ring_slot(&a), 0)
-    testing.expect(t, app.ring_focused(&a) == nil, "a fresh panel took a document off another one")
+    s := app.ring_focused(&a)
+    if !testing.expect(t, s != nil, "a new panel stood on nothing") {
+        return
+    }
+    testing.expect_value(t, app.doc_kind(&a, s.doc), app.KIND_HOME)
+    testing.expect(t, s.doc != first, "a fresh panel took a document off another one")
+
+    // The panel itself still stands on nothing until something is put in it: `panel_make` is
+    // the strip's, `panel_open` is the verb, and only the verb has an opinion about what shows.
+    bare := app.panel_make(&a, 2)
+    testing.expect_value(t, app.panel_get(&a, bare).at.slot, 0)
 }
 
 // The two axes do not interfere (§3): walking the strip changes which panel has focus and
@@ -244,7 +252,7 @@ two_panels_never_stand_on_one_slot :: proc(t: ^testing.T) {
     defer close_app(&a)
 
     first := app.ring_focused(&a).doc
-    app.panel_open(&a)
+    panel_beside(&a)
     app.ring_add(&a, listing_doc(&a, dir))
     second := app.ring_focused(&a).doc
 
@@ -265,7 +273,7 @@ closing_a_panel_renumbers_nothing :: proc(t: ^testing.T) {
     defer close_app(&a)
 
     first := app.ring_focused(&a).doc
-    app.panel_open(&a)
+    panel_beside(&a)
     app.ring_add(&a, listing_doc(&a, dir))
     second := app.ring_focused(&a).doc
     lane := app.ring_lane(&a)
@@ -694,8 +702,8 @@ a_panel_moves_along_the_strip :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    app.panel_open(&a)
-    app.panel_open(&a) // three panels, focus on the last
+    panel_beside(&a)
+    panel_beside(&a) // three panels, focus on the last
     app.panel_get(&a, 0).at = {0, 1}
     app.panel_get(&a, 2).at = {0, 3}
     testing.expect_value(t, a.focus, 2)
@@ -713,6 +721,14 @@ a_panel_moves_along_the_strip :: proc(t: ^testing.T) {
     testing.expect_value(t, a.focus, 0)
     testing.expect_value(t, app.panel_get(&a, 0).at.slot, 3)
     testing.expect_value(t, len(a.panels), 3)
+}
+
+// A second panel standing on NOTHING, for the tests that count slots. `panel_open` is the verb
+// and the verb lands a home page in what it makes (panel.odin), which is a slot in the lane and
+// would renumber everything these tests are asserting about.
+@(private = "file")
+panel_beside :: proc(a: ^app.App) {
+    app.panel_focus(a, app.panel_make(a, a.focus + 1))
 }
 
 // The document a panel is standing on, for the two tests that ask where something went rather

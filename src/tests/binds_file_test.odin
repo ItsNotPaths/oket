@@ -21,6 +21,7 @@ fixture :: proc() -> (a: app.App) {
 close :: proc(a: ^app.App) {
     input.binds_destroy(&a.binds)
     app.binds_requests_destroy(a)
+    app.gripes_destroy(a) // a skipped row is remembered for the home page (§13)
     app.message_set(a, "")
     delete(a.home)
 }

@@ -126,14 +126,180 @@ the_home_page_offers_recovered_work :: proc(t: ^testing.T) {
     testing.expect_value(t, row[lo:hi], file)
 
     // The bind the page rests on: narrower than the surface row it shadows, because `:open`
-    // there would open the file and leave the journal beside it.
+    // there would open the file and leave the journal beside it. One row for every section,
+    // because the ROW says which verb it wants (home.odin).
     b, bound := input.bind_find(a.binds[:], chord("RTRN"), .Surface, app.KIND_HOME)
     if !testing.expect(t, bound, "enter is not bound over a home page") {
         return
     }
     liner, is_line := b.target.(input.Bind_Line)
     testing.expect(t, is_line, "enter over a home page is not a command line")
-    testing.expect_value(t, liner.text, ":recover <path>")
+    testing.expect_value(t, liner.text, ":home enter")
+
+    // Which verb that is, is the ROW's: this one carries a path and asks for `:recover`. What
+    // it recovers is journal_test's, because taking work back needs the editor plugin.
+    app.active(&a).view.point.head.line = line
+    testing.expect(t, app.home_enter(&a), a.message)
+    testing.expect(t, !strings.contains(a.message, "not an offer"), a.message)
+
+    // A row that is prose says so rather than running the first verb it can spell.
+    app.active(&a).view.point.head.line = 0
+    testing.expect(t, !app.home_enter(&a), "the version line was taken as an offer")
+    testing.expect(t, strings.contains(a.message, "not an offer"), a.message)
+}
+
+// The page is the DEFAULT DOCUMENT, not a report that only opens after a crash: a quiet start
+// still gets the version, the working directory as a row, and no listing it did not ask for.
+@(test)
+a_quiet_start_still_opens_the_page :: proc(t: ^testing.T) {
+    home, made := scratch(t, "oket-start-default")
+    if !made {
+        return
+    }
+    a, ok := bare_app()
+    if !testing.expect(t, ok, "no App") {
+        return
+    }
+    defer close_plug_app(&a)
+    a.home = strings.clone(home)
+
+    testing.expect(t, !app.home_news(&a), "an untouched home had news")
+    page := app.home_open(&a)
+    app.ring_add(&a, page)
+    testing.expect(t, strings.contains(doc_line_text(&a, page, 0), "oket"), "no version line")
+
+    cwd, _ := os.get_working_directory(context.temp_allocator)
+    d := store.store_descriptor(&a.docs, page)
+    defer desc.release(d)
+    at := -1
+    for f in d.fields {
+        if f.name == "file" {
+            at = f.line
+        }
+    }
+    if !testing.expect(t, at >= 0, "the page offered no file to open") {
+        return
+    }
+    lo, hi, spanned := desc.field_span(d, at, "file")
+    testing.expect(t, spanned, "the row named no file")
+    testing.expect_value(t, doc_line_text(&a, page, at)[lo:hi], cwd)
+}
+
+// How this start came up, which a start cannot answer from the outside: every plugin held back
+// looks exactly like every plugin broken (§13).
+@(test)
+the_page_says_it_is_a_safe_start :: proc(t: ^testing.T) {
+    home, made := scratch(t, "oket-start-safe")
+    if !made {
+        return
+    }
+    a, ok := bare_app()
+    if !testing.expect(t, ok, "no App") {
+        return
+    }
+    defer close_plug_app(&a)
+    a.home = strings.clone(home)
+
+    page := app.home_open(&a)
+    testing.expect(t, !strings.contains(doc_line_text(&a, page, 1), "safe mode"),
+                   "an ordinary start called itself safe")
+
+    a.start = .Safe
+    app.home_refresh(&a)
+    testing.expect(t, strings.contains(doc_line_text(&a, page, 1), "safe mode"),
+                   doc_line_text(&a, page, 1))
+}
+
+// The two ways a chord goes wrong that no other surface reports: a line binds.conf could not be
+// read at all, and a row a plugin asked for that the file answers with something else.
+@(test)
+the_page_lists_what_is_wrong_with_the_binds :: proc(t: ^testing.T) {
+    home, made := scratch(t, "oket-start-binds")
+    if !made {
+        return
+    }
+    a, ok := bare_app()
+    if !testing.expect(t, ok, "no App") {
+        return
+    }
+    defer close_plug_app(&a)
+    a.home = strings.clone(home)
+
+    // A plugin asks; the file already answers that chord with something else, so the row it
+    // asked for is not the row that fires (§8).
+    app.binds_request(&a, "hello", "global", "f9", "exec :note")
+    unmet := app.binds_unmet(&a, context.temp_allocator)
+    testing.expect_value(t, len(unmet), 0) // nothing holds f9 yet, so nothing is refused
+
+    app.binds_parse(&a, "[global]\nctrl+b f = exec :home\nf9 = exec :home\n", app.BINDS_NAME)
+    testing.expect_value(t, len(a.gripes), 1)
+    unmet = app.binds_unmet(&a, context.temp_allocator)
+    if !testing.expect(t, len(unmet) == 1, "a chord the file answers itself went unreported") {
+        return
+    }
+    testing.expect_value(t, unmet[0].owner, "hello")
+    testing.expect_value(t, unmet[0].held, ":home")
+
+    testing.expect(t, app.home_news(&a), "a refused row and a bad line were not news")
+    page := app.home_open(&a)
+    text := doc_text(&a, page)
+    testing.expect(t, strings.contains(text, "f9"), text)
+    testing.expect(t, strings.contains(text, "a sequence is two chords"), text)
+
+    // A second read replaces what the first found rather than saying it twice: binds.conf is
+    // read twice in a sync, and a list that only grew would report one typo as two.
+    app.binds_parse(&a, "[global]\nctrl+b f = exec :home\nf9 = exec :home\n", app.BINDS_NAME)
+    testing.expect_value(t, len(a.gripes), 1)
+}
+
+// What shipped, off notes.md beside the binary. The newest section and no more: the page is a
+// start's report, and the file is one row away.
+@(test)
+the_page_shows_the_newest_notes :: proc(t: ^testing.T) {
+    home, made := scratch(t, "oket-start-notes")
+    if !made {
+        return
+    }
+    a, ok := bare_app()
+    if !testing.expect(t, ok, "no App") {
+        return
+    }
+    defer close_plug_app(&a)
+    a.home = strings.clone(home)
+
+    notes, _ := filepath.join({home, app.NOTES_NAME}, context.temp_allocator)
+    b := strings.builder_make(context.temp_allocator)
+    strings.write_string(&b, "# notes\n\n## v2\n\n- the new thing\n")
+    for i in 1 ..= app.NOTES_LINES { // one past the cap
+        fmt.sbprintfln(&b, "- filler %d", i)
+    }
+    strings.write_string(&b, "\n## v1\n\n- the old thing\n")
+    testing.expect_value(t, os.write_entire_file(notes, b.buf[:]), nil)
+
+    page := app.home_open(&a)
+    text := doc_text(&a, page)
+    testing.expect(t, strings.contains(text, "v2"), text)
+    testing.expect(t, strings.contains(text, "the new thing"), text)
+    testing.expect(t, !strings.contains(text, "the old thing"), "the page listed every release")
+
+    // The cap: the newest section runs one line past NOTES_LINES, and that line stays in the file.
+    last := fmt.tprintf("filler %d", app.NOTES_LINES - 1)
+    over := fmt.tprintf("filler %d", app.NOTES_LINES)
+    testing.expect(t, strings.contains(text, last), text)
+    testing.expect(t, !strings.contains(text, over), "the page showed past the cap")
+
+    // The file itself is a row, so `enter` over it opens what the page could not fit.
+    d := store.store_descriptor(&a.docs, page)
+    defer desc.release(d)
+    offered := false
+    for f in d.fields {
+        if f.name != "file" {
+            continue
+        }
+        row := doc_line_text(&a, page, f.line)
+        offered ||= row[f.lo:f.hi] == notes
+    }
+    testing.expect(t, offered, "the page did not offer notes.md")
 }
 
 // The page's other verb: the work was not wanted, and the file on disk already says so.
@@ -171,9 +337,10 @@ recover_drop_throws_the_work_away :: proc(t: ^testing.T) {
     testing.expect(t, strings.contains(a.message, "nothing was journaled"), a.message)
 }
 
-// A start with nothing to report opens a plain listing, never the page.
+// The page is not a dialog: a `:plug load` or a recover has to show on the page that offered
+// it, without closing it first.
 @(test)
-a_quiet_start_has_no_home_page :: proc(t: ^testing.T) {
+a_recover_rewrites_the_page_that_offered_it :: proc(t: ^testing.T) {
     home, made := scratch(t, "oket-start-quiet")
     if !made {
         return
@@ -184,7 +351,15 @@ a_quiet_start_has_no_home_page :: proc(t: ^testing.T) {
     }
     defer close_plug_app(&a)
     a.home = strings.clone(home)
-    testing.expect(t, !app.home_news(&a), "an untouched home had news")
+
+    append(&a.quarantined, strings.clone("hello"))
+    page := app.home_open(&a)
+    testing.expect(t, strings.contains(doc_text(&a, page), "hello"), doc_text(&a, page))
+
+    app.quarantine_clear(&a, "hello")
+    app.home_refresh(&a)
+    testing.expect(t, !strings.contains(doc_text(&a, page), "hello"),
+                   "the page kept a plugin that had been taken back")
 }
 
 // --- the session ---
