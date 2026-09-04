@@ -445,3 +445,50 @@ a_point_whose_transaction_was_dropped_does_not_land :: proc(t: ^testing.T) {
     store.store_drain(&s)
     testing.expect_value(t, doc.cursors[0].head, txt.Pos{1, 1})
 }
+
+// A LISTING IS N ROWS AND ONE COMMIT (VIEWS.md §11). A rename over every row lands as one
+// transaction past DOC_CHANGE_MAX; a log that drops it tells fields.odin `lost`, which deletes
+// every link in the document — one keystroke, and a browser is a listing you can no longer
+// follow.
+@(test)
+every_field_in_a_listing_survives_a_batch :: proc(t: ^testing.T) {
+    ROWS :: 300 // past DOC_CHANGE_MAX
+
+    s: store.Store
+    defer store.store_destroy(&s)
+    rows := strings.builder_make(context.temp_allocator)
+    for _ in 0 ..< ROWS {
+        strings.write_string(&rows, "name\n")
+    }
+    id := store.store_open(&s, strings.to_string(rows))
+    gen, _ := store.store_gen(&s, id)
+
+    fields := make([]desc.Field, ROWS, context.temp_allocator)
+    for i in 0 ..< ROWS {
+        fields[i] = desc.Field{i, "name", 0, 4, "/tmp/name"}
+    }
+    d := desc.new_from({fields = fields})
+    store.store_submit(&s, id, gen, nil, d)
+    desc.release(d)
+    store.store_drain(&s)
+
+    // One typed character on every row at once, which is what a caret per row does.
+    doc := store.store_doc(&s, id)
+    edits := make([]txt.Edit, ROWS, context.temp_allocator)
+    for i in 0 ..< ROWS {
+        off := txt.doc_off(doc, txt.Pos{i, 4})
+        edits[i] = txt.Edit{lo = off, hi = off, text = "z"}
+    }
+    txt.doc_apply(doc, edits)
+
+    read := store.store_descriptor(&s, id)
+    defer desc.release(read)
+    for i in 0 ..< ROWS {
+        lo, hi, ok := desc.field_span(read, i, "name")
+        if !testing.expectf(t, ok, "row %d lost its link", i) {
+            return
+        }
+        testing.expect_value(t, lo, 0)
+        testing.expect_value(t, hi, 5) // text at the edge of a link belongs to the link
+    }
+}

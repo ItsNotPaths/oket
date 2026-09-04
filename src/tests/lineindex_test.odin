@@ -115,3 +115,65 @@ line_index_survives_compaction :: proc(t: ^testing.T) {
     }
     testing.expect_value(t, txt.doc_line_count(&d), 2501) // 2500 inserted, plus "start"
 }
+
+// The same check with a whole transaction landing at once. A batch cuts in N places, so it
+// cannot use the incremental index — one splice re-bases the segments after it, and N splices
+// would re-base them N times — and flattens instead. This is what says the flat answer and a
+// plain scan agree.
+@(test)
+line_index_matches_a_plain_scan_under_a_batch :: proc(t: ^testing.T) {
+    alphabet := "aaa\n\nbb\ncc"
+    d: txt.Doc
+    txt.doc_init(&d)
+    defer txt.doc_destroy(&d)
+
+    // Long enough that a batch is genuinely several edits: they march forward and never touch,
+    // so how many fit is how much document there is.
+    txt.doc_set_text(&d, strings.repeat("one\ntwo\nthree\nfour\n", 40, context.temp_allocator))
+    want := strings.builder_make(context.allocator)
+    defer strings.builder_destroy(&want)
+    strings.write_string(&want, txt.doc_string(&d, context.temp_allocator))
+
+    seed: u64 = RNG_SEED
+
+    for step in 0 ..< 200 {
+        cur := strings.to_string(want)
+        // Strictly apart and ascending, which is what doc_apply hands the piece table once it
+        // has fused the overlaps a real caret set makes.
+        edits := make([dynamic]txt.Edit, 0, 32, context.temp_allocator)
+        at := 0
+        for _ in 0 ..< rng_next(&seed, 24) + 1 {
+            lo := at + rng_next(&seed, 4)
+            if lo > len(cur) {
+                break
+            }
+            hi := lo + rng_next(&seed, min(5, len(cur) - lo + 1))
+            ins := strings.builder_make(context.temp_allocator)
+            for _ in 0 ..< rng_next(&seed, 5) {
+                strings.write_byte(&ins, alphabet[rng_next(&seed, len(alphabet))])
+            }
+            append(&edits, txt.Edit{lo = lo, hi = hi, text = strings.to_string(ins)})
+            at = hi + 1
+        }
+        if len(edits) == 0 {
+            continue
+        }
+        txt.doc_apply(&d, edits[:])
+
+        // The same edits against a plain string, back to front, so each one's offsets stay true.
+        next := cur
+        for i := len(edits) - 1; i >= 0; i -= 1 {
+            e := edits[i]
+            next = strings.concatenate(
+                {next[:e.lo], e.text, next[e.hi:]},
+                context.temp_allocator,
+            )
+        }
+        strings.builder_reset(&want)
+        strings.write_string(&want, next)
+
+        if !expect_index(t, &d, next, step) {
+            return
+        }
+    }
+}
