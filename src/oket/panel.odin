@@ -92,6 +92,13 @@ panel_showing :: proc(a: ^App, at: Spot) -> ^Panel {
 // verb makes somewhere to throw the file to and steers to it (§6).
 panel_open :: proc(a: ^App) {
     panel_aim(a, panel_make(a, panel_marked(a) + 1))
+    // It stands on the HOME PAGE and not on nothing. An empty panel is a floor with no answer
+    // on it, and the page is what the kernel has to say when there is nothing there yet (§13).
+    // Not while a picker is armed: that gesture makes somewhere to throw a file to, the throw
+    // is one keystroke away, and the aim is a mark rather than the focus ring_add would move.
+    if _, armed := a.pending.(input.Pending_Pick); !armed {
+        ring_add(a, home_open(a))
+    }
 }
 
 // A panel at index `i`, standing on nothing until something opens there. It takes the focused
