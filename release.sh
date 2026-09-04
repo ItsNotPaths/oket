@@ -65,6 +65,11 @@ if [ $DO_LOCAL -eq 1 ]; then
         # release.yml strips too, so a local build matches the download.
         strip --strip-all "$RELEASE_DIR/$BIN_NAME"
     fi
+    # What the home page reads at every start (§13). Beside the binary, like config.conf: the
+    # notes are what SHIPPED, so nothing at runtime has to have an opinion about them.
+    if [ -f "$PROJECT_DIR/notes.md" ]; then
+        cp "$PROJECT_DIR/notes.md" "$RELEASE_DIR/notes.md"
+    fi
     # Themes are data, beside the binary like config.conf. Grammars are NOT: one is fetched
     # and built on the machine that wants it.
     if [ -d "$PROJECT_DIR/themes" ]; then
