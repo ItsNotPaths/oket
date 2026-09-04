@@ -6,6 +6,7 @@ import "core:path/filepath"
 import "core:strconv"
 import "core:strings"
 import "../conf"
+import "../txt"
 
 // `config.conf` (§4): the settings the kernel keeps, in the flat `key = value` format
 // `binds.conf` already uses and through the same parser. Both files are ones the kernel WRITES,
@@ -15,7 +16,7 @@ import "../conf"
 // silently does nothing is the failure the input design exists to prevent (§8), and it is the
 // rule binds.conf follows for a bad row.
 //
-// Four settings today, which is §4's tripwire: if this grows nesting, flat keys start encoding
+// Five settings today, which is §4's tripwire: if this grows nesting, flat keys start encoding
 // structure in their names — `lang.odin.tab_width` — and that is a worse TOML. Revisit there.
 
 CONFIG_NAME :: "config.conf" // beside the binary, next to binds.conf
@@ -25,6 +26,7 @@ Config :: struct {
     gap:     int, // [strip] gap = 4 — pixels between two panels (PANELS.md §5, §7)
     behind:  int, // [strip] behind = 12 — percent the surface behind the panels is darkened
     tau:     int, // [strip] tau = 90 — milliseconds the strip's motion decays by 1/e (§7)
+    split:   txt.Split, // [cursor] split = selections — what cursor.split_lines leaves per line
 }
 
 // The zero value is not the default: a gap of nothing puts two documents against each other.
@@ -59,6 +61,7 @@ SETTINGS := [?]Setting {
     {"strip", "tau", proc(c: ^Config, value: string) {c.tau = conf_int(value, TAU_DEFAULT)}},
     {"strip", "behind",
      proc(c: ^Config, value: string) {c.behind = conf_int(value, BEHIND_DEFAULT)}},
+    {"cursor", "split", proc(c: ^Config, value: string) {c.split = conf_split(value)}},
 }
 
 config_load :: proc(a: ^App) {
@@ -102,6 +105,16 @@ conf_on :: proc(value: string) -> bool {
         return true
     }
     return false
+}
+
+// The two families the editors split into (txt.Split), spelled the way the enum is. The default
+// is the zero value, so a value nobody recognises reads as the one the file did not have to say.
+@(private = "file")
+conf_split :: proc(value: string) -> txt.Split {
+    if strings.to_lower(strings.trim_space(value), context.temp_allocator) == "carets" {
+        return .Carets
+    }
+    return .Selections
 }
 
 // A whole number, and the setting's own default for anything else: a value the parser cannot
