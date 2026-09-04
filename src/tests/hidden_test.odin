@@ -1,6 +1,8 @@
 package tests
 
+import "core:fmt"
 import "core:testing"
+import "core:time"
 import "../txt"
 
 // VIEWS.md stage 5's gate: motion over a document with runs that are not on screen.
@@ -205,4 +207,51 @@ an_empty_list_moves_the_way_it_always_did :: proc(t: ^testing.T) {
     testing.expect_value(t, head(&d), txt.Pos{2, 3})
     txt.doc_move(&d, .Left, hidden = nil)
     testing.expect_value(t, head(&d), txt.Pos{2, 2})
+}
+
+// --- what stage 6 left open, and stage 7's producer made reachable ---
+
+// A caret is PLACED here rather than moved, and the same rule holds: a line no cell stands for
+// is not a line to put one on. Without the list it lands on 2, which is inside the fold.
+@(test)
+a_placed_caret_skips_a_hidden_run :: proc(t: ^testing.T) {
+    d := mk("aaa\nbbb\nccc\nddd\neee\nfff", {1, 0})
+    defer txt.doc_destroy(&d)
+
+    testing.expect(t, txt.doc_add_cursor_line(&d, +1, FOLD_2_TO_4))
+    testing.expect_value(t, head(&d), txt.Pos{5, 0})
+    // And off the bottom there is nowhere left, so nothing is added rather than a caret landing
+    // on the last hidden line.
+    testing.expect(t, !txt.doc_add_cursor_line(&d, +1, FOLD_2_TO_4))
+    testing.expect_value(t, len(d.cursors), 2)
+}
+
+// One step over a fold is one HOP to the run's edge, not one step per line it hides. A walk
+// would be 49,000 line tests, each scanning the whole run list — which is the shape that makes
+// folding a big block unusable rather than slow.
+//
+// The bound is generous on purpose: what it separates is a hop from a walk, and those are four
+// orders of magnitude apart, so no amount of machine contention puts one in the other's range.
+@(test)
+one_step_over_a_big_fold_is_one_hop :: proc(t: ^testing.T) {
+    b := make([dynamic]u8, 0, 10 * 50_000, context.temp_allocator)
+    for i in 0 ..< 50_000 {
+        append(&b, ..transmute([]u8)fmt.tprintf("line%d\n", i))
+    }
+    d := mk(string(b[:]), {0, 0})
+    defer txt.doc_destroy(&d)
+
+    // One fold over 49,000 lines, and 400 more after it — a list a walk has to re-scan per line.
+    folds := make([dynamic]txt.Range, 0, 401, context.temp_allocator)
+    append(&folds, txt.Range{{0, 5}, {49_000, 9}})
+    for line := 49_100; line < 49_900; line += 2 {
+        append(&folds, txt.Range{{line, 9}, {line + 1, 9}})
+    }
+
+    start := time.tick_now()
+    txt.doc_move(&d, .Down, hidden = folds[:])
+    took := time.tick_since(start)
+    testing.expect_value(t, head(&d).line, 49_001)
+    testing.expectf(t, took < 100 * time.Millisecond, "one Down over a 49k-line fold took %v",
+                    took)
 }

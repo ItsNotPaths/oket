@@ -160,15 +160,17 @@ doc_add_cursor :: proc(d: ^Doc, p: Pos) {
 
 // ctrl+alt+down / ctrl+alt+up: a caret one line past the edge of the set, in the column that
 // edge is walking. Nothing to add off either end of the document.
-doc_add_cursor_line :: proc(d: ^Doc, by: int) -> bool {
+doc_add_cursor_line :: proc(d: ^Doc, by: int, hidden: []Range = nil) -> bool {
     edge, goal := d.cursors[0].head, d.cursors[0].goal
     for c in d.cursors[1:] {
         if by > 0 ? c.head.line > edge.line : c.head.line < edge.line {
             edge, goal = c.head, c.goal
         }
     }
-    line := edge.line + by
-    if line < 0 || line >= doc_line_count(d) {
+    // A PLACED caret obeys the same rule a moved one does (§7): a line no cell stands for is not
+    // one to put a caret on, so this steps over a hidden run the way `.Down` does.
+    line := visible_line(d, hidden, edge.line, by, 1)
+    if line == edge.line || line < 0 || line >= doc_line_count(d) {
         return false
     }
     p := Pos{line, doc_byte_col(d, line, goal)}
@@ -572,16 +574,22 @@ line_hidden :: proc(hidden: []Range, line: int) -> bool {
 // at the edge of the document already did.
 @(private = "file")
 visible_line :: proc(d: ^Doc, hidden: []Range, from, by, count: int) -> int {
-    out, line := from, from
+    out, line, n := from, from, doc_line_count(d)
     for _ in 0 ..< count {
-        for {
-            line += by
-            if line < 0 || line >= doc_line_count(d) {
-                return out
+        line += by
+        // STRAIGHT TO THE RUN'S EDGE, never line by line: a fold is one step whatever its size,
+        // and a 50,000-line one must not cost 50,000 iterations. The edge itself can still be
+        // swallowed — a run that ends mid-line leaves that line with no row — so the step past
+        // it is taken only then.
+        for line >= 0 && line < n && line_hidden(hidden, line) {
+            e := hidden_edge(hidden, Pos{line, 0}, by < 0)
+            line = e.line
+            if line_hidden(hidden, line) {
+                line += by
             }
-            if !line_hidden(hidden, line) {
-                break
-            }
+        }
+        if line < 0 || line >= n {
+            return out
         }
         out = line
     }
