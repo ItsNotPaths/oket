@@ -752,6 +752,36 @@ void oket_batch_free(oket_batch *b) {
     memset(b, 0, sizeof *b);
 }
 
+/* --- a view stage (VIEWS §5) --- */
+
+void oket_view_fill(oket_view_out *out, const oket_batch *edits, const oket_spans *spans) {
+    memset(out, 0, sizeof *out);
+    if (edits != NULL && !edits->oom) {
+        out->edits = edits->edits;
+        out->nedits = edits->n;
+    }
+    if (spans != NULL && !spans->oom) {
+        out->spans = spans->spans;
+        out->nspans = spans->n;
+    }
+}
+
+void oket_view_clear(oket_batch *edits, oket_spans *spans) {
+    size_t i;
+
+    if (edits != NULL) {
+        for (i = 0; i < edits->n; i++) {
+            free((char *)edits->edits[i].text);
+        }
+        edits->n = 0;
+        edits->oom = 0;
+    }
+    if (spans != NULL) {
+        spans->n = 0;
+        spans->oom = 0;
+    }
+}
+
 /* --- what every plugin writes first --- */
 
 void oket_say(const oket_api *api, oket_self self, const char *text) {

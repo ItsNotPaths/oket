@@ -30,7 +30,7 @@
 extern "C" {
 #endif
 
-#define OKET_API 6
+#define OKET_API 7
 
 /* A plugin exports exactly this, and hidden visibility keeps everything else in. */
 #define OKET_EXPORT __attribute__((visibility("default")))
@@ -234,6 +234,48 @@ typedef enum {
     OKET_REVEAL_TOP     = 2
 } oket_reveal;
 
+/* --- the view pipeline (§5) ---
+ *
+ * A stage is handed the PREVIOUS stage's output and returns edits in that space. That is why
+ * this is a pipeline and not a fan: a popup positioned against the original would land in the
+ * wrong place the moment a fold above it deleted lines.
+ *
+ * Nothing here reaches the document. A view edit is never submitted, never journalled and never
+ * saved; it derives what is DRAWN, and motion, undo, find and `:w` go on seeing the original.
+ * Text you insert is not enterable either: point never lands in it. */
+
+/* `edits` are against the text you were handed, sorted by `lo` and disjoint. `spans` are over
+ * YOUR OWN OUTPUT — the text after those edits — because what a stage wants to colour is
+ * usually what it just inserted, and that has no original bytes to name.
+ *
+ * Both point into your memory and are copied before the call returns. */
+typedef struct {
+    const oket_edit *edits;
+    size_t           nedits;
+    const oket_span *spans;
+    size_t           nspans;
+} oket_view_out;
+
+/* --- the world (§12) ---
+ *
+ * A stage has to size what it inserts, and a popup that cannot ask how wide the pane is draws
+ * off the edge. Shaped like oket_snapshot: built, flat, taken by a call and read as memory. */
+typedef struct {
+    oket_doc doc;
+    /* The BODY, in cells: the gutter is outside it, and `y` counts from the top of the
+     * surface. */
+    int32_t  x, y, w, h;
+    int32_t  top; /* the first line drawn, in the DERIVED document */
+    uint8_t  focused;
+    char     _pad[3];
+} oket_pane;
+
+typedef struct {
+    const oket_pane *panes;
+    size_t           npanes;
+    int32_t          cols, rows; /* the whole surface, in cells */
+} oket_world;
+
 /* --- kernel -> plugin --- */
 
 typedef enum {
@@ -293,6 +335,12 @@ typedef void (*oket_close_fn)(const struct oket_api *api, oket_self self, oket_d
 typedef int32_t (*oket_command_fn)(const struct oket_api *api, oket_self self, const oket_at *at,
                                    const char *args, size_t args_len);
 
+/* A non-zero return is the latch, the same meaning an event handler's carries for a watcher:
+ * "not finished, call me again next frame". What you emitted this time is still drawn, so a
+ * stage too cold for one frame settles over several with no new convention. */
+typedef int32_t (*oket_view_fn)(const struct oket_api *api, oket_self self, const oket_at *at,
+                                oket_view_out *out);
+
 typedef struct {
     oket_open_fn  open;
     oket_close_fn close;
@@ -329,6 +377,13 @@ typedef struct oket_api {
                          const char *ctx, size_t ctx_len,
                          const char *chord, size_t chord_len,
                          const char *line, size_t line_len);
+    /* The same rule one file over: a setting you need is WRITTEN to config.conf if that
+     * section has no such key, and from then on the file decides. A view stage asks for its own
+     * name in `[<kind>] view` this way, so installing it is copying the `.so` in. */
+    void (*request_config)(const struct oket_api *api, oket_self self,
+                           const char *section, size_t section_len,
+                           const char *key, size_t key_len,
+                           const char *value, size_t value_len);
     /* Interns a style-token name and answers its id, the same id for the same name whoever
      * asks: two plugins naming "keyword" get one colour because the palette maps the name.
      * Falls back to OKET_TOK_FG when the table is full, which draws rather than fails. */
@@ -342,6 +397,11 @@ typedef struct oket_api {
      * document arrives once more. That is how you ask to look again at something the kernel
      * cannot see having changed — a grammar that finished building, a config reloaded. */
     void (*register_watch)(const struct oket_api *api, oket_self self, oket_event_fn fn);
+    /* A view stage (§5). ONE per plugin, because the config line that orders the stages ranks
+     * them by PLUGIN NAME — the same rule spans follow, where the producer is the layer (§8).
+     * Registering again replaces it. A plugin whose name no `view =` line carries is never
+     * called, which is what makes installing one a config decision and not a load order. */
+    void (*register_view)(const struct oket_api *api, oket_self self, oket_view_fn fn);
 
     /* submit. `d` may be NULL to leave the descriptor as it stands. Text is copied here, so
      * your buffer may die the moment this returns. A submit against a document that has moved
@@ -374,6 +434,11 @@ typedef struct oket_api {
      * longer, and release it. */
     const oket_snapshot *(*snapshot)(const struct oket_api *api, oket_self self, oket_doc doc);
     void (*release)(const struct oket_api *api, oket_self self, const oket_snapshot *snap);
+
+    /* The layout, the same way (§12). Cheap, and rebuilt per call: what is on screen changes
+     * every frame, so there is nothing here worth holding. */
+    const oket_world *(*world)(const struct oket_api *api, oket_self self);
+    void (*world_release)(const struct oket_api *api, oket_self self, const oket_world *w);
 
     /* The echo line. Lives until the next keystroke, same as the kernel's own messages. */
     void (*message)(const struct oket_api *api, oket_self self, const char *text, size_t len);
@@ -429,6 +494,9 @@ _Static_assert(sizeof(oket_edit) == 32, "oket_edit");
 _Static_assert(sizeof(oket_span) == 24, "oket_span");
 _Static_assert(sizeof(oket_span_pub) == 32, "oket_span_pub");
 _Static_assert(sizeof(oket_at) == 40, "oket_at");
+_Static_assert(sizeof(oket_view_out) == 32, "oket_view_out");
+_Static_assert(sizeof(oket_pane) == 32, "oket_pane");
+_Static_assert(sizeof(oket_world) == 24, "oket_world");
 _Static_assert(sizeof(oket_kind_spec) == 56, "oket_kind_spec");
 
 #ifdef __cplusplus

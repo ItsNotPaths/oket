@@ -309,6 +309,24 @@ int oket_spans_publish(const oket_api *api, oket_self self, oket_doc doc, uint64
 
 void oket_spans_free(oket_spans *b);
 
+/* --- a view stage (VIEWS §5) ---
+ *
+ * A stage returns EDITS against the document it was handed, plus spans over what it inserted.
+ * Both are the shapes above: the batch builds the edits, the span list builds the runs, and
+ * this hands the kernel a header naming them.
+ *
+ * KEEP THE TWO BUILDERS. The kernel copies inside the call, so a stage's usual shape is one
+ * static pair, cleared at the top of every call and refilled — no allocation churn per frame,
+ * and nothing to free until the plugin unloads. */
+
+/* Points `out` at what the two builders hold. A builder that ran out of memory contributes
+ * nothing rather than half of itself: half a fold is a document with a line missing. */
+void oket_view_fill(oket_view_out *out, const oket_batch *edits, const oket_spans *spans);
+
+/* Empties both WITHOUT giving the memory back, which is what a stage that runs every frame
+ * wants. Either may be NULL. Free them for real with oket_batch_free / oket_spans_free. */
+void oket_view_clear(oket_batch *edits, oket_spans *spans);
+
 /* --- chords --- */
 
 /* Whether a chord handed to OKET_EVENT_CHORD is the one named. The spelling is the PHYSICAL one

@@ -12,7 +12,7 @@ import "../input"
 //
 // Six messages, and no more (§5):
 //
-//     register   plugin -> kernel   kinds, commands, bind requests
+//     register   plugin -> kernel   kinds, commands, view stages, bind requests
 //     submit     plugin -> kernel   one transaction against a generation
 //     reveal     plugin -> kernel   a span, and where to put it in the viewport
 //     event      kernel -> plugin   a routed chord, a generation that moved, or an I/O job
@@ -24,7 +24,7 @@ import "../input"
 // pointer, with no lock and no call back in (§6). Adding a field is a struct field, not a
 // message.
 
-API :: 6
+API :: 7
 
 // A plugin's own identity, handed back on every call so a plugin needs no state of its own.
 // Index plus load generation, packed: a handle kept across a reload resolves to nothing rather
@@ -238,6 +238,54 @@ Reveal :: enum c.int32_t {
     Top,
 }
 
+// --- the view pipeline (VIEWS.md §5) ---
+//
+// A stage is handed the PREVIOUS stage's output and returns edits in that space. That is the
+// whole of why this is a pipeline and not a fan: a popup positioned against the original would
+// land in the wrong place the moment a fold above it deleted lines.
+//
+// Nothing here reaches the document. A view edit is never submitted, never journalled and never
+// saved; it derives what is DRAWN, and motion, undo, find and `:w` go on seeing the original.
+
+// What a stage returns. `edits` are against the text it was handed, sorted by `lo` and disjoint.
+// `spans` are over the stage's OWN OUTPUT — the text after these edits — because what a stage
+// wants to colour is usually what it just inserted, and that has no original bytes to name.
+//
+// Both point into the plugin's memory and are copied before the call returns.
+View_Out :: struct {
+    edits:  [^]Edit,
+    nedits: c.size_t,
+    spans:  [^]Span,
+    nspans: c.size_t,
+}
+
+// A non-zero return is the latch, the same meaning `Event_Fn`'s carries for a watcher (§5):
+// "not finished, call me again next frame". What it emitted this time is still drawn, so a
+// stage too cold for one frame settles over several with no new convention.
+View_Fn :: #type proc "c" (api: ^Api, self: Self, at: ^At, out: ^View_Out) -> c.int32_t
+
+// --- the world (§12) ---
+//
+// A view stage has to size what it inserts, and a popup that cannot ask how wide the pane is
+// draws off the edge. Shaped like `Snapshot`: built, flat, taken by a call and read as memory.
+// The App is NOT what crosses — freezing a layout would be the worse version of that.
+
+Pane :: struct {
+    doc:        Doc,
+    // The BODY, in cells: the gutter is outside it, and `y` counts from the top of the surface.
+    x, y, w, h: c.int32_t,
+    top:        c.int32_t, // the first line drawn, in the DERIVED document
+    focused:    b8,
+    _:          [3]u8,
+}
+
+World :: struct {
+    panes:  [^]Pane,
+    npanes: c.size_t,
+    cols:   c.int32_t, // the whole surface, in cells
+    rows:   c.int32_t,
+}
+
 // --- kernel -> plugin ---
 
 // What a chord or a moved generation carries. `doc` is the FOCUSED document — or, for a
@@ -319,6 +367,12 @@ Api :: struct {
     request_bind:     proc "c" (api: ^Api, self: Self, ctx: [^]u8, ctx_len: c.size_t,
                                 chord: [^]u8, chord_len: c.size_t,
                                 line: [^]u8, line_len: c.size_t),
+    // The same rule one file over: a setting the plugin needs is WRITTEN to config.conf if
+    // that section has no such key, and from then on the file decides. A view stage asks for
+    // its own name in `[<kind>] view` this way, so installing it is copying the `.so` in.
+    request_config:   proc "c" (api: ^Api, self: Self, section: [^]u8, section_len: c.size_t,
+                                key: [^]u8, key_len: c.size_t,
+                                value: [^]u8, value_len: c.size_t),
     // Interns a style-token name and answers its id, the same id for the same name whoever
     // asks: two plugins naming "keyword" get one colour because the palette maps the name.
     // Falls back to Fg's id when the table is full, which draws rather than fails.
@@ -331,6 +385,11 @@ Api :: struct {
     // document arrives once more. That is how a plugin asks to look again at something the
     // kernel cannot see having changed — a grammar that finished building, a config reloaded.
     register_watch:   proc "c" (api: ^Api, self: Self, fn: Event_Fn),
+    // A view stage (§5). ONE per plugin, because the config line that orders the stages ranks
+    // them by PLUGIN NAME — the same rule spans follow, where the producer is the layer (§8).
+    // Registering again replaces it. A plugin whose name no `view =` line carries is never
+    // called, which is what makes installing one a config decision rather than a load order.
+    register_view:    proc "c" (api: ^Api, self: Self, fn: View_Fn),
 
     // submit. One transaction against the generation it was written against; `d` may be nil to
     // leave the descriptor as it stands. Text is copied here, so the plugin's buffer may die
@@ -359,6 +418,11 @@ Api :: struct {
     // takes its own here and releases it.
     snapshot:         proc "c" (api: ^Api, self: Self, doc: Doc) -> ^Snapshot,
     release:          proc "c" (api: ^Api, self: Self, snap: ^Snapshot),
+
+    // The layout, the same way (§12). Cheap, and rebuilt per call: what is on screen changes
+    // every frame, so there is nothing here worth holding.
+    world:            proc "c" (api: ^Api, self: Self) -> ^World,
+    world_release:    proc "c" (api: ^Api, self: Self, w: ^World),
 
     // The echo line. Lives until the next keystroke, same as the kernel's own messages.
     message:          proc "c" (api: ^Api, self: Self, text: [^]u8, text_len: c.size_t),
@@ -410,4 +474,7 @@ Entry_Fn :: #type proc "c" (api: ^Api, self: Self) -> c.int32_t
 #assert(size_of(Span_Pub) == 32)
 #assert(size_of(Edit) == 32)
 #assert(size_of(At) == 40)
+#assert(size_of(View_Out) == 32)
+#assert(size_of(Pane) == 32)
+#assert(size_of(World) == 24)
 #assert(size_of(Kind_Spec) == 56)
