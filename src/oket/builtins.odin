@@ -108,9 +108,8 @@ open_path :: proc(a: ^App, path: string) -> (store.Id, bool) {
         message_set(a, fmt.tprintf(":open: cannot read %s: %v", path, err))
         return {}, false
     }
-    // ONE PATH, ONE DOCUMENT. A second one over the same file is two undo stacks, two journals
-    // under one name and a save from either clobbering the other, and `./x` and `x` are the
-    // same file (path_abs) whatever the line said.
+    // ONE PATH, ONE DOCUMENT (the why is on ring_file), and `./x` and `x` are the same file
+    // (path_abs) whatever the line said.
     if id, open := ring_file(a, path_abs(path)); open {
         return id, true
     }
