@@ -106,6 +106,22 @@ scratch_doc :: proc(a: ^app.App, file, text: string) -> store.Id {
     return id
 }
 
+// --- a seeded generator ---
+
+// The seed every property test starts from. One value, so a failure reproduces from the test
+// name alone.
+RNG_SEED :: 0x5EED
+
+// Not core:math/rand: a failing step has to be reproducible from the seed, and that is only
+// true if the sequence cannot move under the test. Answers 0 ..< n, and 0 when n is not
+// positive.
+rng_next :: proc(seed: ^u64, n: int) -> int {
+    seed^ ~= seed^ << 13
+    seed^ ~= seed^ >> 7
+    seed^ ~= seed^ << 17
+    return n > 0 ? int(seed^ % u64(n)) : 0
+}
+
 // --- the plugin harness ---
 
 REPO :: #directory + "../../"

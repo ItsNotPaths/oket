@@ -68,23 +68,15 @@ line_index_matches_a_plain_scan :: proc(t: ^testing.T) {
     // newline is edit.Buffer's business (final_newline) rather than the document's.
     strings.write_string(&want, txt.doc_string(&d, context.temp_allocator))
 
-    // Its own generator, not core:math/rand: a failing step has to be reproducible from the
-    // seed alone, and that is only true if the sequence cannot move under the test.
-    seed: u64 = 0x5EED
-    next :: proc(s: ^u64, n: int) -> int {
-        s^ ~= s^ << 13
-        s^ ~= s^ >> 7
-        s^ ~= s^ << 17
-        return n > 0 ? int(s^ % u64(n)) : 0
-    }
+    seed: u64 = RNG_SEED
 
     for step in 0 ..< 400 {
         cur := strings.to_string(want)
-        lo := next(&seed, len(cur) + 1)
-        hi := lo + next(&seed, min(8, len(cur) - lo + 1))
+        lo := rng_next(&seed, len(cur) + 1)
+        hi := lo + rng_next(&seed, min(8, len(cur) - lo + 1))
         ins := strings.builder_make(context.temp_allocator)
-        for _ in 0 ..< next(&seed, 6) {
-            strings.write_byte(&ins, alphabet[next(&seed, len(alphabet))])
+        for _ in 0 ..< rng_next(&seed, 6) {
+            strings.write_byte(&ins, alphabet[rng_next(&seed, len(alphabet))])
         }
         text := strings.to_string(ins)
 
