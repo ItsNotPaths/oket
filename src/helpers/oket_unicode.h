@@ -11,12 +11,12 @@
 
 #include <stdint.h>
 
-typedef struct oket_range {
+typedef struct oket_crange {
     uint32_t lo, hi;
-} oket_range;
+} oket_crange;
 
 /* Combining marks and formatting characters: no column of their own. */
-static const oket_range OKET_WIDTH_ZERO[365] = {
+static const oket_crange OKET_WIDTH_ZERO[365] = {
     {0x0300, 0x036F},
     {0x0483, 0x0489},
     {0x0591, 0x05BD},
@@ -385,7 +385,7 @@ static const oket_range OKET_WIDTH_ZERO[365] = {
 };
 
 /* East Asian Wide and Fullwidth: two columns. */
-static const oket_range OKET_WIDTH_WIDE[122] = {
+static const oket_crange OKET_WIDTH_WIDE[122] = {
     {0x1100, 0x115F},
     {0x231A, 0x231B},
     {0x2329, 0x232A},
@@ -511,7 +511,7 @@ static const oket_range OKET_WIDTH_WIDE[122] = {
 };
 
 /* White_Space. */
-static const oket_range OKET_SPACE_RANGES[10] = {
+static const oket_crange OKET_SPACE_RANGES[10] = {
     {0x0009, 0x000D},
     {0x0020, 0x0020},
     {0x0085, 0x0085},
@@ -525,7 +525,7 @@ static const oket_range OKET_SPACE_RANGES[10] = {
 };
 
 /* Letters, decimal digits and '_'. */
-static const oket_range OKET_WORD_RANGES[729] = {
+static const oket_crange OKET_WORD_RANGES[729] = {
     {0x0030, 0x0039},
     {0x0041, 0x005A},
     {0x005F, 0x005F},

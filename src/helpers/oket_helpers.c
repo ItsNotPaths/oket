@@ -94,7 +94,7 @@ size_t oket_utf8_encode(uint32_t r, char *out) {
     return 4;
 }
 
-static int in_ranges(const oket_range *rs, size_t n, uint32_t r) {
+static int in_ranges(const oket_crange *rs, size_t n, uint32_t r) {
     size_t lo = 0, hi = n;
     while (lo < hi) {
         size_t mid = lo + (hi - lo) / 2;

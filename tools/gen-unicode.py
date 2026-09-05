@@ -66,7 +66,7 @@ def ranges(cps):
 
 def emit_c(f, name, rs, note):
     f.write(f"\n/* {note} */\n"
-            f"static const oket_range {name}[{len(rs)}] = {{\n")
+            f"static const oket_crange {name}[{len(rs)}] = {{\n")
     for lo, hi in rs:
         f.write(f"    {{0x{lo:04X}, 0x{hi:04X}}},\n")
     f.write("};\n")
@@ -138,9 +138,9 @@ def main():
                 "#ifndef OKET_UNICODE_H\n"
                 "#define OKET_UNICODE_H\n\n"
                 "#include <stdint.h>\n\n"
-                "typedef struct oket_range {\n"
+                "typedef struct oket_crange {\n"
                 "    uint32_t lo, hi;\n"
-                "} oket_range;\n")
+                "} oket_crange;\n")
         emit_c(f, "OKET_WIDTH_ZERO", zero_r,
                "Combining marks and formatting characters: no column of their own.")
         emit_c(f, "OKET_WIDTH_WIDE", wide_r, "East Asian Wide and Fullwidth: two columns.")
