@@ -92,6 +92,7 @@ close_app :: proc(a: ^app.App) {
     input.pending_set(&a.pending) // an armed picker owns its line, the same as app_destroy
     app.message_set(a, "")
     app.clips_free(a)
+    app.jumps_free(a)
     app.panels_destroy(a)
     app.menubar_destroy(a) // the three menu grids, the same as app_destroy
     gfx.grid_destroy(&a.chrome)

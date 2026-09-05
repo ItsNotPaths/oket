@@ -268,9 +268,26 @@ ring_put :: proc(a: ^App, id: store.Id, slot: int) -> bool {
 
 // --- moving ---
 
-// The one place focus changes, so the two alternates are recorded in one place too. It moves
-// the FOCUSED panel: what `alt+N` addresses is the lane that panel is standing in (§3).
+// The one place focus changes, so the two alternates and the jump ring are recorded in one
+// place too. It moves the FOCUSED panel: what `alt+N` addresses is the lane that panel is
+// standing in (§3). The jump entry is written AFTER the move and from what was read before it:
+// a refused move (`alt+3` while on slot 3) must leave no entry, or the ring cannot be walked.
 ring_move :: proc(a: ^App, to: Spot) -> bool {
+    from := panel_focused(a).at
+    was: view.View
+    if s := ring_focused(a); s != nil {
+        was = s.view
+    }
+    if !ring_return(a, to) {
+        return false
+    }
+    jump_record(a, from, was)
+    return true
+}
+
+// The same move with nothing recorded. Walking the jump ring must not extend it, or `jump.back`
+// would push the place it just came from and never reach the one before.
+ring_return :: proc(a: ^App, to: Spot) -> bool {
     p := panel_focused(a)
     if lane_get(&a.ring, to.lane, to.slot) == nil || to == p.at {
         return false

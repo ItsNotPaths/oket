@@ -322,6 +322,10 @@ bind_dispatch :: proc(a: ^App, chord: input.Chord, b: input.Bind, extend: bool) 
         cl_show(a, ":")
     case .Menu_Open:
         menu_open(a)
+    case .Jump_Back:
+        jump_back(a)
+    case .Jump_Forward:
+        jump_forward(a)
     case .Font_Bigger:
         font_zoom(a, +1)
     case .Font_Smaller:
