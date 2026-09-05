@@ -234,6 +234,11 @@ bind_dispatch :: proc(a: ^App, chord: input.Chord, b: input.Bind, extend: bool) 
         return
     }
     cmd, _ := input.bind_command(b) // the line and slot arms returned, so a Command is all that is left
+    // A cycle only means anything straight after a paste, so every other verb puts the mark
+    // down. That is what keeps ctrl+shift+v config rather than a mode.
+    if cmd != .Paste && cmd != .Paste_Cycle {
+        a.paste.live = false
+    }
     // The line answers four chords for itself; everything else acts on it because `active`
     // says it is the document now.
     if cl_active(a) && cl_take(a, cmd) {
@@ -379,7 +384,7 @@ motion_of :: proc(cmd: input.Command) -> (txt.Motion, bool) {
 writes :: proc(cmd: input.Command) -> bool {
     #partial switch cmd {
     case .Delete_Back, .Delete_Forward, .Delete_Word_Back, .Delete_Word_Forward, .Tab,
-         .Newline, .Undo, .Redo, .Cut, .Paste,
+         .Newline, .Undo, .Redo, .Cut, .Paste, .Paste_Cycle,
          .Kill_Line, .Kill_Whole_Line, .Kill_To_Line_Start:
         return true
     }
@@ -416,7 +421,10 @@ edit_command :: proc(a: ^App, cmd: input.Command) -> bool {
     case .Cut:
         cut_to_clip(a, doc)
     case .Paste:
-        paste_clip(a, doc)
+        clip_sync(a)
+        paste_and_mark(a, doc, 0)
+    case .Paste_Cycle:
+        paste_cycle(a, doc)
     // `doc_select_kill` can select nothing — ctrl+u at column 0, ctrl+k at the end of the last
     // line — and doc_cut reads an empty set as "no selection, take the line", hence the guard.
     case .Kill_Line, .Kill_Whole_Line, .Kill_To_Line_Start:
@@ -512,6 +520,7 @@ writable :: proc(a: ^App) -> ^txt.Doc {
 // typing, and every other document is handed the rune: the terminal writes it to its PTY, a
 // plugin's document gets an `event`, and the descriptor is what says which.
 text_input :: proc(a: ^App, r: rune) {
+    a.paste.live = false // typing is one of the "every other verb" the mark is put down for
     if cl_active(a) {
         doc := store.store_doc(&a.docs, a.cl.doc)
         if doc == nil {
@@ -683,48 +692,137 @@ dump_doc :: proc(a: ^App) -> bool {
 // The system clipboard is the copy path, both ways: what is copied here pastes into a browser,
 // and a browser's copy pastes here. This is the GLFW half of txt's doc_copy/doc_cut/doc_paste.
 //
-// `a.clip` is what oket last put there. GLFW answers with nothing when there is no window, and
-// on X11 when the selection has been dropped — in both cases our own copy is still the truthful
-// answer to "what did I copy", so it is the fallback rather than a cache.
-// `pieces` is the same copy split one per caret. The clipboard carries only the joined text, so
-// a multi-caret paste needs them kept beside it.
+// The ring behind it exists for one verb. `edit.paste` always takes the clipboard, so the ring
+// never stands between ctrl+v and what another program put there; `edit.paste_cycle` is the only
+// reader of anything past the head.
+
+CLIP_RING :: 16
+
+// One entry: what went on the clipboard, and the same copy split one per caret. The clipboard
+// can only carry the joined text, so the pieces are kept here or nowhere.
+Clip :: struct {
+    text:   string,   // owned
+    pieces: []string, // owned; empty unless the copy was multi-caret
+}
+
+// Where the last paste landed, so a cycle can take it back and put the entry before it in its
+// place. Not a mode: any other verb clears it, and the undo step is what a cycle undoes.
+Paste_Mark :: struct {
+    live: bool,
+    at:   int, // the ring entry the text came from
+    doc:  store.Id,
+}
+
+clip_head :: proc(a: ^App) -> Clip {
+    return len(a.clips) > 0 ? a.clips[0] : Clip{}
+}
+
+// `a.clips[0]` is what oket last put on the clipboard. GLFW answers with nothing when there is
+// no window, and on X11 when the selection has been dropped — in both cases our own copy is
+// still the truthful answer to "what did I copy", so it is the fallback rather than a cache.
+clip_get :: proc(a: ^App) -> string {
+    text := glfw.GetClipboardString(a.window)
+    return text != "" ? text : clip_head(a).text
+}
+
 clip_set :: proc(a: ^App, text: string, pieces: []string = nil) {
-    clip_free(a)
-    a.clip = text == "" ? "" : strings.clone(text)
+    clip_push(a, text, pieces)
+    glfw.SetClipboardString(a.window, strings.clone_to_cstring(text, context.temp_allocator))
+}
+
+@(private = "file")
+clip_push :: proc(a: ^App, text: string, pieces: []string) {
+    // Copying the same text twice REPLACES the head rather than making a neighbour of it: two
+    // identical entries would give a cycle a step that changes nothing on screen.
+    if len(a.clips) > 0 && a.clips[0].text == text {
+        clip_destroy(&a.clips[0])
+        ordered_remove(&a.clips, 0)
+    }
+    c := Clip {
+        text = strings.clone(text),
+    }
+    // One piece is the joined string, so it says nothing a whole paste does not already say.
     if len(pieces) > 1 {
         out := make([]string, len(pieces))
         for p, i in pieces {
             out[i] = strings.clone(p)
         }
-        a.clip_pieces = out
+        c.pieces = out
     }
-    glfw.SetClipboardString(a.window, strings.clone_to_cstring(text, context.temp_allocator))
+    inject_at(&a.clips, 0, c)
+    for len(a.clips) > CLIP_RING {
+        clip_destroy(&a.clips[len(a.clips) - 1])
+        pop(&a.clips)
+    }
 }
 
-clip_get :: proc(a: ^App) -> string {
-    text := glfw.GetClipboardString(a.window)
-    return text != "" ? text : a.clip
+// A copy made outside oket becomes the head before it is pasted, so the ring is a superset of
+// what has been on the clipboard and a cycle starts from what was just pasted rather than from
+// something older the user never saw.
+@(private = "file")
+clip_sync :: proc(a: ^App) {
+    text := clip_get(a)
+    if text == "" || text == clip_head(a).text {
+        return // unchanged, and pushing would throw away the head's pieces
+    }
+    clip_push(a, text, nil) // a foreign copy is one string; nobody split it per caret
 }
 
-clip_free :: proc(a: ^App) {
-    delete(a.clip)
-    for p in a.clip_pieces {
+@(private = "file")
+clip_destroy :: proc(c: ^Clip) {
+    delete(c.text)
+    for p in c.pieces {
         delete(p)
     }
-    delete(a.clip_pieces)
-    a.clip, a.clip_pieces = "", nil
+    delete(c.pieces)
 }
 
-// One piece per caret when the clipboard is still oket's copy and the counts agree, the whole
-// string otherwise: a foreign copy has no pieces, and a changed caret count cannot take one each.
+clips_free :: proc(a: ^App) {
+    for &c in a.clips {
+        clip_destroy(&c)
+    }
+    delete(a.clips)
+    a.clips = nil
+}
+
+// One piece per caret when the entry has them and the count fits, the whole string otherwise:
+// a foreign copy has no pieces, and a changed caret count cannot take one each. Returns whether
+// the paste made its own undo step — a one-rune paste can coalesce into the typing before it,
+// and one that did cannot be taken back on its own, which is what a cycle needs.
 @(private = "file")
-paste_clip :: proc(a: ^App, doc: ^txt.Doc) {
-    text := clip_get(a)
-    if text == a.clip && len(a.clip_pieces) == len(doc.cursors) {
-        txt.doc_paste_pieces(doc, a.clip_pieces)
+paste_at :: proc(a: ^App, doc: ^txt.Doc, at: int) -> bool {
+    if at >= len(a.clips) {
+        return false
+    }
+    c := a.clips[at]
+    depth := txt.doc_steps_made(doc)
+    if len(c.pieces) == len(doc.cursors) {
+        txt.doc_paste_pieces(doc, c.pieces)
+    } else {
+        txt.doc_paste(doc, c.text)
+    }
+    return txt.doc_steps_made(doc) > depth
+}
+
+@(private = "file")
+paste_and_mark :: proc(a: ^App, doc: ^txt.Doc, at: int) {
+    a.paste = {live = paste_at(a, doc, at), at = at, doc = active(a).doc}
+}
+
+// The paste is undone and the entry before it put in its place, so repeating the chord walks
+// the ring; undo restores the carets the paste moved.
+@(private = "file")
+paste_cycle :: proc(a: ^App, doc: ^txt.Doc) {
+    if !a.paste.live || a.paste.doc != active(a).doc {
+        message_set(a, "edit.paste_cycle: nothing was just pasted")
         return
     }
-    txt.doc_paste(doc, text)
+    if len(a.clips) < 2 {
+        message_set(a, "edit.paste_cycle: the ring holds one entry")
+        return
+    }
+    txt.doc_undo(doc)
+    paste_and_mark(a, doc, (a.paste.at + 1) % len(a.clips))
 }
 
 // Copy then delete, so a cut or a killed range reaches the clipboard by the path a copied one
