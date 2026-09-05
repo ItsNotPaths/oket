@@ -391,14 +391,17 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     bind_put(&b, "AD01", {.Alt}, .Ring_Close) // alt+q
     bind_put(&b, "AE10", {.Alt}, .Ring_System) // alt+0: at the rotation's edge, not in it (§11)
     // The strip (PANELS.md §3, §5). Alt keeps meaning "move between things": the numbers walk
-    // the ring, and the side arrows walk the panels. `jump.back` and `jump.forward` keep no
-    // default chord until there is a jump ring to walk.
+    // the ring, and the side arrows walk the panels. Ctrl on the same two walks the JUMP ring,
+    // which is the third thing you move between; their vertical twins are already the placement
+    // verbs above, so the whole ctrl+alt cross reads as one family.
     bind_put(&b, "LEFT", {.Alt}, .Panel_Prev)
     bind_put(&b, "RGHT", {.Alt}, .Panel_Next)
     // Shift on the walk MOVES what you are looking at, which is the pairing every strip and
     // tab bar already uses. An exact Shift row, so the Shift fallback cannot reach `panel.prev`.
     bind_put(&b, "LEFT", {.Alt, .Shift}, .Panel_Move_Left)
     bind_put(&b, "RGHT", {.Alt, .Shift}, .Panel_Move_Right)
+    bind_put(&b, "LEFT", {.Ctrl, .Alt}, .Jump_Back)
+    bind_put(&b, "RGHT", {.Ctrl, .Alt}, .Jump_Forward)
     bind_put(&b, "AD10", {.Alt}, .Panel_Open) // alt+p
     bind_put(&b, "AD10", {.Alt, .Shift}, .Panel_Close) // the panel, never the document in it
     // alt+w, for width. A LINE, because the sizing model is the row and not the kernel: rebind
