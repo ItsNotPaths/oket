@@ -195,8 +195,8 @@ enter_is_a_row_and_the_chain_is_the_navigation :: proc(t: ^testing.T) {
     testing.expect_value(t, point(&a).head.line, 1)
     testing.expect_value(t, point(&a).head.col, PREFIX + len("deep.txt"))
 
-    // And back out: `left` goes up a directory and lands on the row you came from.
-    app.handle_chord(&a, chord("LEFT"))
+    // And back out: `ctrl+backspace` goes up a directory and lands on the row you came from.
+    app.handle_chord(&a, chord("BKSP", {.Ctrl}))
     after, ad := reading(&a)
     defer txt.snapshot_release(after)
     defer desc.release(ad)
@@ -259,30 +259,34 @@ the_caret_lands_at_the_end_of_every_name :: proc(t: ^testing.T) {
     testing.expect_value(t, point(&a).head.col, PREFIX + len("sub"))
 }
 
-// The other two arrows are the hierarchy: `right` goes into the directory under point, `left`
-// comes back out to the row it came from. Over a file `right` does nothing, because `enter` is
-// what opens one and a caret arriving somewhere should not.
+// The side arrows are MOTION, not the hierarchy: the browser asks for neither, so they stay the
+// kernel's own `nav.left`/`nav.right` and walk the caret through the name being renamed. The
+// hierarchy is `enter` and `ctrl+backspace`, and neither of those moves a caret sideways.
 @(test)
-the_side_arrows_are_the_hierarchy :: proc(t: ^testing.T) {
+the_side_arrows_move_the_caret_in_the_row :: proc(t: ^testing.T) {
     a, root, ok := tree_app(t, "oket-browser-sides")
     if !ok {
         return
     }
     defer close_plug_app(&a)
 
-    go_row(&a, 2) // top.txt, a file
-    app.handle_chord(&a, chord("RGHT"))
-    testing.expect_value(t, txt.doc_line_count(doc_of(&a)), 3)
+    go_row(&a, 1) // sub, with the caret at the end of its name
+    was := point(&a).head
+    app.handle_chord(&a, chord("LEFT"))
+    testing.expect_value(t, point(&a).head.col, was.col - 1)
+    testing.expect_value(t, point(&a).head.line, was.line)
 
-    go_row(&a, 1) // sub
-    app.handle_chord(&a, chord("RGHT"))
     snap, d := reading(&a)
     defer txt.snapshot_release(snap)
     defer desc.release(d)
-    testing.expect_value(t, d.file, fmt.tprintf("%s/sub", root))
-    testing.expect_value(t, name_of(&a, 1), "deep.txt")
+    testing.expect_value(t, d.file, root) // the listing did not go anywhere
 
-    app.handle_chord(&a, chord("LEFT"))
+    app.handle_chord(&a, chord("RGHT"))
+    testing.expect_value(t, point(&a).head.col, was.col)
+
+    // And the way out is the chord that says so, from any column of the row.
+    app.handle_chord(&a, chord("RTRN")) // into `sub`
+    app.handle_chord(&a, chord("BKSP", {.Ctrl}))
     after, ad := reading(&a)
     defer txt.snapshot_release(after)
     defer desc.release(ad)
