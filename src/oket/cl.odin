@@ -143,7 +143,7 @@ cl_draw :: proc(a: ^App, g: ^gfx.Grid, th: gfx.Theme) {
     d := store.store_descriptor(&a.docs, a.cl.doc)
     defer desc.release(d)
     view.follow_col(&a.cl.view, view.point_col(&snap.text, d, a.cl.view), b.w)
-    view.draw(g, line, &snap.text, d, a.cl.view, b.x, b.y, b.w, 1)
+    view.draw(g, line, &snap.text, d, a.cl.view, b.x, b.y, b.w, 1, select = a.config.select)
 }
 
 // How much darker than a document the bar's row is. Deeper than the chrome between two panels,

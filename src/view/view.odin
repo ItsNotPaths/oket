@@ -80,6 +80,9 @@ draw :: proc(
     // `styles` above is the span store's, measured over original bytes; a fold marker and a
     // popup box have none, so they could not be said that way.
     over: []Style = nil,
+    // How far the selection carries its swap (§3). 100 is the full reverse; less leaves the
+    // cell's own colours showing through, so syntax under a selection is still readable.
+    select := SELECT_FULL,
 ) {
     gut := gutter_width(t, d, dv)
     body := w - gut
@@ -87,7 +90,7 @@ draw :: proc(
         return
     }
     if columnar(d) {
-        draw_columns(g, th, t, d, v, x, y, gut, w, h, point, dv)
+        draw_columns(g, th, t, d, v, x, y, gut, w, h, point, dv, select)
         return
     }
     for r, i in rows(t, d, v.top, body, h, dv) {
@@ -100,7 +103,7 @@ draw :: proc(
         restyle(g, t, d, dv, left, y + i, body - ind, clipped, src, styles)
         overstyle(g, d, left, y + i, body - ind, clipped, src, over)
         if point {
-            mark_point(g, t, d, dv, v, left, y + i, body - ind, clipped, src)
+            mark_point(g, t, d, dv, v, left, y + i, body - ind, clipped, src, select)
         }
     }
 }
@@ -361,6 +364,7 @@ draw_columns :: proc(
     x, y, gut, w, h: int,
     point: bool,
     dv: ^Derived,
+    select: int,
 ) {
     for i in 0 ..< h {
         line := v.top + i
@@ -387,7 +391,9 @@ draw_columns :: proc(
         if point && d.selection != .None && orig >= 0 {
             lo, hi := txt.cursor_range(v.point)
             if orig >= lo.line && orig <= hi.line {
-                mark(g, x + gut, y + i, 0, w - gut)
+                // An empty range on this row is the CARET, and a caret is a full swap wherever
+                // it is drawn — the percent is the selection's alone.
+                mark_select(g, x + gut, y + i, 0, w - gut, lo == hi ? SELECT_FULL : select)
             }
         }
     }
@@ -459,6 +465,29 @@ mark :: proc(g: ^gfx.Grid, x, y, from, to: int, attrs := gfx.Attrs{.Reverse}) {
     }
 }
 
+// A full swap, which is what the caret takes and what a selection takes at 100.
+SELECT_FULL :: 100
+
+// The selection's own swap, carried `pct` of the way (§3). The colours are written here rather
+// than left to the painter's `.Reverse`, because a percent is not a bit: at 100 this is the
+// swap the caret gets, and below it the cell's own colours are still in the mix. Both sides move
+// together, so what is left is a weaker reverse and never a wash.
+@(private)
+mark_select :: proc(g: ^gfx.Grid, x, y, from, to, pct: int) {
+    if pct >= SELECT_FULL {
+        mark(g, x, y, from, to)
+        return
+    }
+    k := clamp(f32(pct), 0, 100) / 100
+    for c in from ..< to {
+        if cell := gfx.grid_at(g, x + c, y); cell != nil {
+            fg, bg := cell.fg, cell.bg
+            cell.fg = fg + (bg - fg) * k
+            cell.bg = bg + (fg - bg) * k
+        }
+    }
+}
+
 // The caret and its selection over one drawn row. An empty selection is one cell, which is the
 // caret; `selection: none` draws neither, which is what a terminal wants.
 @(private)
@@ -471,6 +500,7 @@ mark_point :: proc(
     x, y, width: int,
     r: Row,
     src: []u8,
+    select: int,
 ) {
     if d.selection == .None || r.src < 0 {
         return
@@ -485,7 +515,7 @@ mark_point :: proc(
         return
     }
     if d.selection == .Line {
-        mark(g, x, y, 0, width)
+        mark_select(g, x, y, 0, width, select)
         return
     }
     // The selection as one range of the ORIGINAL, clipped to this row by the map. So a selection
@@ -494,8 +524,8 @@ mark_point :: proc(
     orig := original(dv, t)
     dls := txt.text_line_start(t, r.line)
     for part in parts(dv, r, dls, txt.text_off(orig, lo), txt.text_off(orig, hi)) {
-        mark(g, x, y, cell_of(row, part[0] - r.lo, d.tab_width),
-             min(cell_of(row, part[1] - r.lo, d.tab_width), width))
+        mark_select(g, x, y, cell_of(row, part[0] - r.lo, d.tab_width),
+                    min(cell_of(row, part[1] - r.lo, d.tab_width), width), select)
     }
 }
 

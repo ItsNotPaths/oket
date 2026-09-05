@@ -17,7 +17,7 @@ import "../txt"
 // silently does nothing is the failure the input design exists to prevent (§8), and it is the
 // rule binds.conf follows for a bad row.
 //
-// Five settings today, which is §4's tripwire: if this grows nesting, flat keys start encoding
+// Six settings today, which is §4's tripwire: if this grows nesting, flat keys start encoding
 // structure in their names — `lang.odin.tab_width` — and that is a worse TOML. Revisit there.
 
 CONFIG_NAME :: "config.conf" // beside the binary, next to binds.conf
@@ -27,6 +27,7 @@ Config :: struct {
     gap:     int, // [strip] gap = 4 — pixels between two panels (PANELS.md §5, §7)
     behind:  int, // [strip] behind = 12 — percent the surface behind the panels is darkened
     tau:     int, // [strip] tau = 90 — milliseconds the strip's motion decays by 1/e (§7)
+    select:  int, // [cursor] select = 90 — percent of the swap a selection carries (§3)
     split:   txt.Split, // [cursor] split = selections — what cursor.split_lines leaves per line
     // The two ordered lists, both keyed by KIND and not by document, because both answers are
     // about the vocabulary a kind is written in:
@@ -69,8 +70,13 @@ TAU_DEFAULT :: 90
 // A gap should read as depth and not as a hole, so it is `Bg` darkened rather than black.
 BEHIND_DEFAULT :: 12
 
+// A selection that stops just short of the full swap: the syntax under it still reads, and the
+// caret on top of it is the one thing still drawn at 100.
+SELECT_DEFAULT :: 90
+
 config_default :: proc() -> Config {
-    return {gap = GAP_DEFAULT, tau = TAU_DEFAULT, behind = BEHIND_DEFAULT}
+    return {gap = GAP_DEFAULT, tau = TAU_DEFAULT, behind = BEHIND_DEFAULT,
+            select = SELECT_DEFAULT}
 }
 
 // A setting is where it is written and what reading it does, so adding one is a field above and
@@ -89,6 +95,8 @@ SETTINGS := [?]Setting {
     {"strip", "tau", proc(c: ^Config, value: string) {c.tau = conf_int(value, TAU_DEFAULT)}},
     {"strip", "behind",
      proc(c: ^Config, value: string) {c.behind = conf_int(value, BEHIND_DEFAULT)}},
+    {"cursor", "select",
+     proc(c: ^Config, value: string) {c.select = conf_int(value, SELECT_DEFAULT)}},
     {"cursor", "split", proc(c: ^Config, value: string) {c.split = conf_split(value)}},
 }
 
