@@ -50,6 +50,29 @@ term_text :: proc(a: ^app.App, tm: ^app.Term) -> string {
     return doc == nil ? "" : txt.doc_string(doc, context.temp_allocator)
 }
 
+// Prompts seen so far. sh's prompt ends in "$ ", and a new one means the shell is back at
+// read — the only settle signal it gives after spawn or an interrupt.
+@(private = "file")
+term_prompts :: proc(a: ^app.App, tm: ^app.Term) -> int {
+    return strings.count(term_text(a, tm), "$ ")
+}
+
+// Pump until the shell prints a prompt past `over`.
+@(private = "file")
+term_wait_prompts :: proc(t: ^testing.T, a: ^app.App, tm: ^app.Term, over: int) -> bool {
+    for _ in 0 ..< TERM_WAIT_TRIES {
+        app.term_pump(a)
+        store.store_drain(&a.docs)
+        if term_prompts(a, tm) > over {
+            return true
+        }
+        time.sleep(TERM_WAIT_STEP)
+    }
+    testing.expectf(t, false, "the shell never came back to a prompt past %d; alive=%v text=%q",
+                    over, pty.terminal_alive(&tm.t), term_text(a, tm))
+    return false
+}
+
 // Pump until `want` shows up in the document. Real shells answer on their own clock.
 @(private = "file")
 term_wait_for :: proc(t: ^testing.T, a: ^app.App, tm: ^app.Term, want: string) -> bool {
@@ -61,7 +84,7 @@ term_wait_for :: proc(t: ^testing.T, a: ^app.App, tm: ^app.Term, want: string) -
         }
         time.sleep(TERM_WAIT_STEP)
     }
-    testing.expectf(t, false, "%q never appeared in the session", want)
+    testing.expectf(t, false, "%q never appeared in the session; text=%q", want, term_text(a, tm))
     return false
 }
 
@@ -137,6 +160,51 @@ the_miss_rule_sends_keys_to_the_shell :: proc(t: ^testing.T) {
     // reach vim inside the shell.
     app.handle_chord(&a, chord("ESC"))
     testing.expect(t, !a.quit, "esc in a session must go to the job")
+}
+
+// ctrl+c copies here like everywhere else, and ctrl+shift+c sends what a shell reads as
+// SIGINT. This gates the BYTE — that a control character abandons the line rather than
+// running it.
+//
+// It stops at `terminal_input_ctrl` on purpose. The chord's own step is `term_send`, which asks
+// GLFW what the key TYPES under the live layout, and a test has no window for GLFW to answer
+// from. Which chord arrives here is bind_test's `the_terminal_keeps_the_chords_editing_took`.
+@(test)
+a_control_byte_abandons_the_line :: proc(t: ^testing.T) {
+    a, tm, ok := term_app(t)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    // The interrupt only lands once the line editor holds the whole line: a ^C that beats the
+    // shell to the queued bytes is a tty flush of HALF the line instead, and enter then feeds
+    // the shell an open quote. So wait for the prompt, then for the echo, and after the ^C for
+    // the fresh prompt that is the abandon, seen.
+    if !term_wait_prompts(t, &a, tm, 0) {
+        return
+    }
+    for r in `printf 'gate-%s\n' 'abandoned'` {
+        app.text_input(&a, r)
+    }
+    if !term_wait_for(t, &a, tm, "'abandoned'") {
+        return
+    }
+    at := term_prompts(&a, tm)
+    pty.terminal_input_ctrl(&tm.t, 'c') // what ctrl+shift+c encodes to
+    term_wait_prompts(t, &a, tm, at)
+    app.handle_chord(&a, chord("RTRN")) // runs the line, if it somehow survived
+
+    for r in `printf 'gate-%s\n' 'after'` {
+        app.text_input(&a, r)
+    }
+    app.handle_chord(&a, chord("RTRN"))
+    term_wait_for(t, &a, tm, "gate-after")
+
+    // The printf format keeps the marker out of the echoed line, so its absence means the
+    // command never ran rather than that it was never typed.
+    testing.expect(t, !strings.contains(term_text(&a, tm), "gate-abandoned"),
+                   "a control byte did not interrupt the line")
 }
 
 // Scrollback is document lines, so the KERNEL's viewport scrolls it and there is no terminal
@@ -288,7 +356,9 @@ a_wrapped_line_copies_back_whole :: proc(t: ^testing.T) {
     doc := store.store_doc(&a.docs, tm.doc)
     txt.doc_set_head(doc, {line - 1, 0}, false)
     txt.doc_set_head(doc, {line, 3}, true)
-    app.term_copy(&a)
+    // Through the CHORD, not the proc: ctrl+c means copy in a session the same as anywhere
+    // else, which is the row this gates as well as the unwrap above.
+    app.handle_chord(&a, chord("AB03", {.Ctrl}))
     testing.expect_value(t, a.message, "copied")
 }
 

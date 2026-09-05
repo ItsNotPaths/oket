@@ -127,9 +127,11 @@ terminal_esc_shadows_quit :: proc(t: ^testing.T) {
     testing.expect_value(t, b.target, input.Bind_Target(input.Command.Quit))
 }
 
-// The ctx column is the whole safety argument for putting cut, copy and paste on ctrl+x/c/v:
-// Terminal is not in {.Text, .Surface}, so bind_find misses and the miss rule forwards the
-// chord to the job. Get this wrong and every shell in the ring loses its interrupt.
+// The ctx column is the whole safety argument for putting cut, paste and the kills on ctrl+x/v
+// and ctrl+k/u: Terminal is not in {.Text, .Surface}, so bind_find misses and the miss rule
+// forwards the chord to the job. Get this wrong and every shell in the ring loses ctrl+u.
+//
+// ctrl+c is the ONE that is claimed, and by the terminal's own verb rather than by editing's.
 @(test)
 the_terminal_keeps_the_chords_editing_took :: proc(t: ^testing.T) {
     binds := input.binds_default()
@@ -145,7 +147,6 @@ the_terminal_keeps_the_chords_editing_took :: proc(t: ^testing.T) {
             cmd: input.Command,
         }{
             {"AB02", .Cut},
-            {"AB03", .Copy},
             {"AB04", .Paste},
             {"AC08", .Kill_Line},
             {"AD07", .Kill_To_Line_Start},
@@ -157,6 +158,30 @@ the_terminal_keeps_the_chords_editing_took :: proc(t: ^testing.T) {
         _, _, claimed := input.bind_lookup(binds[:], ctrl(e.key), .Terminal)
         testing.expectf(t, !claimed, "@%s was taken from the terminal", e.key)
     }
+
+    // ctrl+c means copy in every document, the terminal included, so the chord resolves in both
+    // contexts — to editing's verb in a surface and to the terminal's own in a session.
+    surface, _, _ := input.bind_lookup(binds[:], ctrl("AB03"), .Surface)
+    in_surface, _ := input.bind_command(surface)
+    testing.expect_value(t, in_surface, input.Command.Copy)
+
+    session, _, _ := input.bind_lookup(binds[:], ctrl("AB03"), .Terminal)
+    in_term, _ := input.bind_command(session)
+    testing.expect_value(t, in_term, input.Command.Term_Copy)
+
+    // So the interrupt is a row of its own. An EXACT Shift row, or the Shift fallback would
+    // reach term.copy above and a shell would have no way left to say stop.
+    c, _ := input.key_code("AB03")
+    stop, _, _ := input.bind_lookup(binds[:], {c, {.Ctrl, .Shift}, 0}, .Terminal)
+    interrupt, _ := input.bind_command(stop)
+    testing.expect_value(t, interrupt, input.Command.Surface_Send)
+
+    // And narrowed to the terminal. A browser has no job to send to, so it must NOT reach
+    // surface.send and report "this document has no job of its own"; the Shift fallback leaves
+    // it on edit.copy there.
+    outside, _, _ := input.bind_lookup(binds[:], {c, {.Ctrl, .Shift}, 0}, .Surface)
+    fallback, _ := input.bind_command(outside)
+    testing.expect_value(t, fallback, input.Command.Copy)
 
     // ctrl+a and ctrl+e are {.Text}, so they answer in the command line and NOWHERE else: a
     // surface gets them through oket_doc's own table and a terminal through readline, both
