@@ -13,6 +13,9 @@ type.
 - `ctrl+k`, `ctrl+shift+k` and `ctrl+u` kill to the clipboard; `ctrl+shift+v` walks back through
   what you killed.
 - A copy made with several carets pastes one piece per caret.
+- A start writes every setting into `config.conf`, commented out with its default, so the file
+  says what there is to change. `[mouse] wheel` and `[mouse] double` are new; `[menu] palette`
+  was always there and had nowhere to be read about.
 - `:find <text>` selects every match at once, so typing over them replaces them all. `f3` and
   `shift+f3` step through them one at a time instead.
 - `ctrl+alt+left` walks back through where you have been, `ctrl+alt+right` retraces it. It puts
