@@ -88,10 +88,11 @@ escape_cancels_a_primer_rather_than_quitting :: proc(t: ^testing.T) {
     testing.expect(t, !a.quit, "escape fell through to quit")
 }
 
-// The one other hole in the transparency, and the only one: the reserved key lists the children
-// and keeps the primer up, because one bar row does not hold six of them.
+// The one other key a primer reserves, and it carries the PRIMER'S modifier: the bar points at
+// it and the menubar lists what follows (MENU.md §5), while a bare help key just types. The
+// mirror itself is menubar_input_test.odin's.
 @(test)
-the_help_key_lists_the_children :: proc(t: ^testing.T) {
+the_help_chord_lists_the_children_in_the_menu :: proc(t: ^testing.T) {
     a, ok := bare_app()
     if !ok {
         return
@@ -103,13 +104,14 @@ the_help_key_lists_the_children :: proc(t: ^testing.T) {
     testing.expect(t, !strings.contains(app.bar_text(&a), "quit"), app.bar_text(&a))
 
     help, _ := input.key_code(input.PREFIX_HELP)
-    app.handle_chord(&a, {help, {}, 0})
-    p, still := armed(&a)
-    testing.expect(t, still, "the help key dropped the primer")
-    testing.expect(t, p.listing)
-    testing.expect(t, strings.contains(app.bar_text(&a), "quit"), app.bar_text(&a))
+    app.handle_chord(&a, {help, {.Ctrl}, 0})
+    _, still := armed(&a)
+    testing.expect(t, !still, "the primer stayed up under the menu it opened")
+    p, up := a.pending.(input.Pending_Menu)
+    testing.expect(t, up, "the help chord opened no menu")
+    testing.expect_value(t, p.prefix, chord("ctrl+@AB05"))
 
-    // And the child still runs from there: listing is a label, not a mode.
+    // And the child still runs from there: the menu is a rendering of the primer, not a mode.
     app.handle_chord(&a, chord("ctrl+@AC04"))
     testing.expect(t, a.quit)
 }

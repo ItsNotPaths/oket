@@ -72,6 +72,7 @@ listing_app :: proc(t: ^testing.T, name: string) -> (a: app.App, dir: string, ok
 }
 
 close_app :: proc(a: ^app.App) {
+    app.tokens_destroy(a) // the kernel interns the two link tokens itself (routing.odin)
     app.views_destroy(a) // a built view holds a snapshot, the same as app_destroy
     app.config_requests_destroy(a)
     app.config_destroy(&a.config)
@@ -91,6 +92,7 @@ close_app :: proc(a: ^app.App) {
     input.pending_set(&a.pending) // an armed picker owns its line, the same as app_destroy
     app.message_set(a, "")
     app.panels_destroy(a)
+    app.menubar_destroy(a) // the three menu grids, the same as app_destroy
     gfx.grid_destroy(&a.chrome)
 }
 
@@ -166,7 +168,6 @@ plug_app :: proc(t: ^testing.T, name: string, plugins: ..string) -> (a: app.App,
 
 close_plug_app :: proc(a: ^app.App) {
     app.plug_destroy(a)
-    app.tokens_destroy(a) // a plugin interns style-token names, and they are the App's
     delete(a.home)
     a.home = ""
     close_app(a)

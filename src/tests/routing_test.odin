@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:os"
 import "core:strings"
 import "core:testing"
+import "../gfx"
 import "../desc"
 import "../input"
 import "../store"
@@ -38,6 +39,72 @@ a_click_places_point_on_the_row_under_it :: proc(t: ^testing.T) {
     app.point_drag(&a, 6, 1)
     testing.expect_value(t, point(&a).anchor.line, 0)
     testing.expect_value(t, point(&a).head.line, 1)
+}
+
+// A link is drawn like one before anybody points at it, and WITHOUT a mouse row to make it one:
+// the field is a link because a line acts on it, and the lines are the rows reachable here plus
+// the table `:home enter` runs. A field no line names is not a link, whatever else it is.
+@(test)
+a_field_a_line_would_act_on_is_drawn_as_a_link :: proc(t: ^testing.T) {
+    a, ok := bare_app(40, 6)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+    app.ring_add(&a, rows_doc(&a))
+    app.surface_draw(&a)
+
+    // `path` is what `:recover <path>` takes, and nothing had to be bound to a button for it.
+    // The caret starts on row 0, so that row is the LIVE one — the offer enter would take.
+    at, on := linked(&a, 0)
+    testing.expect(t, on, "a row an offer would act on is not drawn as a link")
+    testing.expect_value(t, at.fg, app.token_color(&a, app.token_intern(&a, app.TOKEN_LINK_OVER)))
+
+    other, still := linked(&a, 1)
+    testing.expect(t, still, "only the row under the caret was drawn as a link")
+    testing.expect_value(t, other.fg, app.token_color(&a, app.token_intern(&a, app.TOKEN_LINK)))
+
+    // And the pointer says the same thing from the other end, once a click would act there —
+    // which is hover's own rule and is what puts the hand cursor up.
+    app.binds_parse(&a, "[surface]\nclick = exec :open <path>\n", "binds.conf")
+    app.hover_update(&a, 0, 1, 1)
+    app.surface_draw(&a)
+    at, on = linked(&a, 1)
+    testing.expect(t, on)
+    testing.expect_value(t, at.fg, app.token_color(&a, app.token_intern(&a, app.TOKEN_LINK_OVER)))
+}
+
+// Rows that are fields and nothing else: the browser's shape (no `columns`, so a caret and a
+// style run both reach the text). `path` is a field a line names; `tail` is one nothing does.
+@(private = "file")
+rows_doc :: proc(a: ^app.App) -> store.Id {
+    id := store.store_open(&a.docs, "alpha x\nbeta x")
+    gen, _ := store.store_gen(&a.docs, id)
+    fields := [?]desc.Field {
+        {0, "path", 0, 5, "/tmp/alpha"},
+        {0, "tail", 6, 7, ""},
+        {1, "path", 0, 4, "/tmp/beta"},
+        {1, "tail", 5, 6, ""},
+    }
+    d := desc.new_from({ctx = .Surface, kind = app.KIND_HOME, selection = .Line, tab_width = 4,
+                        fields = fields[:]})
+    store.store_submit(&a.docs, id, gen, nil, d)
+    desc.release(d)
+    store.store_drain(&a.docs)
+    return id
+}
+
+// The first underlined cell of a drawn row, which is where a link starts. A row's `tail` field
+// is never one, so an underline past the name would be a link nothing acts on.
+@(private = "file")
+linked :: proc(a: ^app.App, row: int) -> (gfx.Cell, bool) {
+    g := &app.panel_focused(a).grid
+    for x in 0 ..< g.cols {
+        if c := gfx.grid_at(g, x, row); c != nil && .Underline in c.attrs {
+            return c^, x < 5
+        }
+    }
+    return {}, false
 }
 
 // §8's promise: a document that declares `fields` gets the mouse by adding one row, and never

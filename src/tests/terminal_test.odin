@@ -180,7 +180,7 @@ the_kernel_viewport_scrolls_a_session :: proc(t: ^testing.T) {
 term_all_styles :: proc(a: ^app.App, tm: ^app.Term) -> []view.Style {
     snap := store.store_snapshot(&a.docs, tm.doc)
     defer txt.snapshot_release(snap)
-    return app.doc_styles(a, tm.doc, &snap.text, nil, 0, txt.text_line_count(&snap.text))
+    return app.doc_styles(a, tm.doc, nil, &snap.text, nil, 0, txt.text_line_count(&snap.text))
 }
 
 // Colour is style runs (§5's span layer), not a second renderer. libvterm's colours are already
