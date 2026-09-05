@@ -72,6 +72,24 @@ dropped_anchor_types_once :: proc(t: ^testing.T) {
     testing.expect_value(t, text(&d), "aXb")
 }
 
+// The same rule, with the two carets disagreeing about their GOAL column: vertical motion off a
+// long line leaves a stale one, and a caret placed at that spot computes a fresh one. Only the
+// selection decides whether a pair names one range, so this still types once — which is what
+// pins goal (and id) out of edit_cursors' key.
+@(test)
+a_coincident_pair_with_different_goals_types_once :: proc(t: ^testing.T) {
+    d := mk("abcdef\nab")
+    defer txt.doc_destroy(&d)
+    txt.doc_reset_cursor(&d, {0, 6})
+    txt.doc_move(&d, .Down) // head clamps to {1, 2}; the goal stays 6
+    txt.doc_add_cursor(&d, {1, 2}) // the same spot, goal 2
+    testing.expect_value(t, len(d.cursors), 2)
+    testing.expect(t, d.cursors[0].goal != d.cursors[1].goal, "the fixture left one goal")
+
+    testing.expect(t, txt.doc_insert_rune(&d, 'X'))
+    testing.expect_value(t, text(&d), "abcdef\nabX")
+}
+
 // --- the policies (VIEWS.md §3) ---
 
 // .Shift is what a formatter wants: the carets it did not ask about come through carried, not
