@@ -10,6 +10,32 @@ import "../txt"
 // Stage 2's registry half: ids that go stale rather than dangle, and the single write point
 // that a transaction either lands on whole or is dropped from.
 
+// A step counter, not a depth: the cap trims the log from the bottom, so a full log stays the
+// same LENGTH when a step is added to it. The clipboard reads this across a paste to tell one
+// that opened a step from a one-rune paste that coalesced, and a depth would say "coalesced"
+// for every paste in a document that has been edited UNDO_MAX times.
+@(test)
+steps_made_keeps_counting_past_the_undo_cap :: proc(t: ^testing.T) {
+    d: txt.Doc
+    txt.doc_init(&d)
+    defer txt.doc_destroy(&d)
+
+    txt.doc_insert_text(&d, "a")
+    one := txt.doc_steps_made(&d)
+    testing.expect(t, one > 0, "an insert opens a step")
+
+    // Two runes typed in a row coalesce into the step above, so the count does not move.
+    txt.doc_insert_rune(&d, 'b')
+    txt.doc_insert_rune(&d, 'c')
+    testing.expect_value(t, txt.doc_steps_made(&d), one)
+
+    for _ in 0 ..< txt.UNDO_MAX + 4 {
+        txt.doc_insert_text(&d, "xy") // more than one rune, so each opens its own step
+    }
+    testing.expect_value(t, len(d.undo.steps), txt.UNDO_MAX)
+    testing.expect_value(t, txt.doc_steps_made(&d), one + txt.UNDO_MAX + 4)
+}
+
 @(private = "file")
 content :: proc(s: ^store.Store, id: store.Id) -> string {
     return txt.doc_string(store.store_doc(s, id), context.temp_allocator)
