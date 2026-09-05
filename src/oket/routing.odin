@@ -416,7 +416,7 @@ edit_command :: proc(a: ^App, cmd: input.Command) -> bool {
     case .Cut:
         cut_to_clip(a, doc)
     case .Paste:
-        txt.doc_paste(doc, clip_get(a))
+        paste_clip(a, doc)
     // `doc_select_kill` can select nothing — ctrl+u at column 0, ctrl+k at the end of the last
     // line — and doc_cut reads an empty set as "no selection, take the line", hence the guard.
     case .Kill_Line, .Kill_Whole_Line, .Kill_To_Line_Start:
@@ -686,9 +686,18 @@ dump_doc :: proc(a: ^App) -> bool {
 // `a.clip` is what oket last put there. GLFW answers with nothing when there is no window, and
 // on X11 when the selection has been dropped — in both cases our own copy is still the truthful
 // answer to "what did I copy", so it is the fallback rather than a cache.
-clip_set :: proc(a: ^App, text: string) {
-    delete(a.clip)
+// `pieces` is the same copy split one per caret. The clipboard carries only the joined text, so
+// a multi-caret paste needs them kept beside it.
+clip_set :: proc(a: ^App, text: string, pieces: []string = nil) {
+    clip_free(a)
     a.clip = text == "" ? "" : strings.clone(text)
+    if len(pieces) > 1 {
+        out := make([]string, len(pieces))
+        for p, i in pieces {
+            out[i] = strings.clone(p)
+        }
+        a.clip_pieces = out
+    }
     glfw.SetClipboardString(a.window, strings.clone_to_cstring(text, context.temp_allocator))
 }
 
@@ -697,12 +706,33 @@ clip_get :: proc(a: ^App) -> string {
     return text != "" ? text : a.clip
 }
 
+clip_free :: proc(a: ^App) {
+    delete(a.clip)
+    for p in a.clip_pieces {
+        delete(p)
+    }
+    delete(a.clip_pieces)
+    a.clip, a.clip_pieces = "", nil
+}
+
+// One piece per caret when the clipboard is still oket's copy and the counts agree, the whole
+// string otherwise: a foreign copy has no pieces, and a changed caret count cannot take one each.
+@(private = "file")
+paste_clip :: proc(a: ^App, doc: ^txt.Doc) {
+    text := clip_get(a)
+    if text == a.clip && len(a.clip_pieces) == len(doc.cursors) {
+        txt.doc_paste_pieces(doc, a.clip_pieces)
+        return
+    }
+    txt.doc_paste(doc, text)
+}
+
 // Copy then delete, so a cut or a killed range reaches the clipboard by the path a copied one
 // does — the pairing txt/doc.odin describes.
 @(private = "file")
 cut_to_clip :: proc(a: ^App, doc: ^txt.Doc) {
-    joined, _ := txt.doc_copy(doc, context.temp_allocator)
-    clip_set(a, joined)
+    joined, pieces := txt.doc_copy(doc, context.temp_allocator)
+    clip_set(a, joined, pieces)
     txt.doc_cut(doc)
 }
 
@@ -714,8 +744,8 @@ copy_doc :: proc(a: ^App) {
     if doc == nil {
         return
     }
-    joined, _ := txt.doc_copy(doc, context.temp_allocator)
-    clip_set(a, joined)
+    joined, pieces := txt.doc_copy(doc, context.temp_allocator)
+    clip_set(a, joined, pieces)
     message_set(a, "copied")
 }
 

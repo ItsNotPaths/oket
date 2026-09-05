@@ -110,6 +110,7 @@ App :: struct {
     bar:          Rect,
     message:      string, // owned; lives until the next keystroke
     clip:         string, // owned; what oket last put on the system clipboard
+    clip_pieces:  []string, // owned; that copy split per caret, for a multi-caret paste
     home:         string, // owned; where binds.conf lives, empty in a test
     quit:         bool,
 }
@@ -164,7 +165,7 @@ app_destroy :: proc(a: ^App) {
     binds_requests_destroy(a)
     input.pending_set(&a.pending) // an armed picker owns the line it captured
     message_set(a, "")
-    delete(a.clip) // the string, not the selection: exiting must not empty the user's clipboard
+    clip_free(a) // the strings, not the selection: exiting must not empty the user's clipboard
     delete(a.home)
     glfw.DestroyCursor(a.hand)
     panels_destroy(a)
