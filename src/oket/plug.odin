@@ -946,7 +946,7 @@ api_snapshot :: proc "c" (api: ^plug.Api, self: plug.Self, doc: plug.Doc) -> ^pl
         return nil
     }
     context = a.api.ctx
-    v := view_make(a, store_id(doc))
+    v := view_hold(a, store_id(doc))
     return v != nil ? &v.snap : nil
 }
 

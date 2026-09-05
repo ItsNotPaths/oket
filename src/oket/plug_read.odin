@@ -33,7 +33,7 @@ Plug_View :: struct {
     cols: []plug.Column,
     flds: []plug.Field,
     dpth: []c.int32_t,
-    curs: []plug.Cursor,
+    curs: []plug.Cursor, // empty when the snapshot borrows the document's own array
 }
 
 // One reference to the text and one to the descriptor, taken together so the two name the same
@@ -46,6 +46,18 @@ view_make :: proc(a: ^App, id: store.Id) -> ^Plug_View {
     v := new(Plug_View)
     v.src = src
     view_fill(a, v, id, &src.text, src.gen, nil)
+    return v
+}
+
+// A snapshot a plugin keeps past the call (api_snapshot). The borrowed cursor array is only
+// good for the call — an append moves it — so this one owns a copy.
+view_hold :: proc(a: ^App, id: store.Id) -> ^Plug_View {
+    v := view_make(a, id)
+    if v == nil {
+        return nil
+    }
+    v.curs = slice.clone(v.snap.cursors[:v.snap.ncursors])
+    v.snap.cursors = raw_data(v.curs)
     return v
 }
 
@@ -72,15 +84,25 @@ view_fill :: proc(a: ^App, v: ^Plug_View, id: store.Id, t: ^txt.Text, gen: u64,
     // Cursors come off the live document, not the snapshot: the caret a plugin should read is
     // the one the renderer is drawing (§5). MAPPED into the space this call hands over, or a
     // popup positioning itself under the caret lands where the text used to be.
+    //
+    // With no map to apply the document's own array is the answer (CURSORS.md §7): nothing a
+    // plugin can call writes it before the drain — submit and cursors both queue — so the
+    // borrow is good for the call, like the text and the line index beside it.
     primary: uint
+    curs: []plug.Cursor
     if doc := store.store_doc(&a.docs, id); doc != nil {
-        curs := slice.clone(doc.cursors[:], context.temp_allocator)
-        for &c in curs {
-            c.anchor, _ = view.view_pos(dv, t, c.anchor)
-            c.head, _ = view.view_pos(dv, t, c.head)
-        }
-        v.curs = slice.clone(transmute([]plug.Cursor)curs)
         primary = uint(doc.primary)
+        if dv == nil {
+            curs = transmute([]plug.Cursor)doc.cursors[:]
+        } else {
+            mapped := slice.clone(doc.cursors[:])
+            for &c in mapped {
+                c.anchor, _ = view.view_pos(dv, t, c.anchor)
+                c.head, _ = view.view_pos(dv, t, c.head)
+            }
+            v.curs = transmute([]plug.Cursor)mapped
+            curs = v.curs
+        }
     }
     v.snap = {
         desc     = view_desc(v),
@@ -88,12 +110,12 @@ view_fill :: proc(a: ^App, v: ^Plug_View, id: store.Id, t: ^txt.Text, gen: u64,
         starts   = ([^]c.ptrdiff_t)(raw_data(t.starts)),
         pieces   = ([^]plug.Piece)(raw_data(t.pieces[:])),
         segs     = ([^]plug.Seg)(raw_data(t.segs[:])),
-        cursors  = raw_data(v.curs),
+        cursors  = raw_data(curs),
         nblocks  = len(t.blocks),
         nstarts  = len(t.starts),
         npieces  = len(t.pieces),
         nsegs    = len(t.segs),
-        ncursors = len(v.curs),
+        ncursors = len(curs),
         primary  = primary,
         size     = uint(t.size),
         lines    = uint(t.lines),
