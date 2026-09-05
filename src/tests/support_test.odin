@@ -93,6 +93,7 @@ close_app :: proc(a: ^app.App) {
     app.message_set(a, "")
     app.clips_free(a)
     app.jumps_free(a)
+    app.find_free(a)
     app.panels_destroy(a)
     app.menubar_destroy(a) // the three menu grids, the same as app_destroy
     gfx.grid_destroy(&a.chrome)

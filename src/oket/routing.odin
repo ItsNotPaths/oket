@@ -322,6 +322,10 @@ bind_dispatch :: proc(a: ^App, chord: input.Chord, b: input.Bind, extend: bool) 
         cl_show(a, ":")
     case .Menu_Open:
         menu_open(a)
+    case .Search_Next:
+        search_step(a, .Forward)
+    case .Search_Prev:
+        search_step(a, .Back)
     case .Jump_Back:
         jump_back(a)
     case .Jump_Forward:
@@ -335,6 +339,9 @@ bind_dispatch :: proc(a: ^App, chord: input.Chord, b: input.Bind, extend: bool) 
     case:
         // A bound chord that does nothing at all is the one thing §8 exists to prevent, so a
         // verb whose stage has not landed says so rather than going quiet.
+        //
+        // Nothing reaches this today — every name in COMMANDS dispatches above. The arm stays
+        // as the net for the next verb named before it is built.
         message_set(a, fmt.tprintf("%s is not built yet", input.COMMANDS[cmd].name))
     }
 }

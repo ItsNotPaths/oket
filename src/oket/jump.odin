@@ -42,6 +42,14 @@ jump_record :: proc(a: ^App, at: Spot, v: view.View) {
     a.jump_at = len(a.jumps)
 }
 
+// Record where you are without going anywhere: a verb that MOVES point inside one document is
+// a jump too, and it does not go through ring_move to say so.
+jump_here :: proc(a: ^App) {
+    if s := ring_focused(a); s != nil {
+        jump_record(a, panel_focused(a).at, s.view)
+    }
+}
+
 jump_back :: proc(a: ^App) {
     if a.jump_at == 0 {
         jump_stuck(a, -1)
@@ -73,8 +81,10 @@ jump_forward :: proc(a: ^App) {
 //   - the slot has CLOSED. The ring outlives the documents in it, so the entry is dropped for
 //     good. Walking back removes the entry under us, which shifts the rest left — hence the
 //     extra step; walking on lands the shifted entry at the same index and needs none.
-//   - the entry is where you already STAND. Nothing was closed, so the entry keeps its place,
-//     but a jump that does not move is one the user reads as broken.
+//   - the entry is where you already STAND, POINT INCLUDED. Nothing was closed, so the entry
+//     keeps its place, but a jump that does not move is one the user reads as broken. The point
+//     has to be in that test: a search jumps WITHIN one document, so a spot-only test would
+//     skip every entry `:find` records and jump.back would never come home.
 @(private = "file")
 jump_take :: proc(a: ^App, step: int) {
     for a.jump_at >= 0 && a.jump_at < len(a.jumps) {
@@ -86,7 +96,7 @@ jump_take :: proc(a: ^App, step: int) {
             }
             continue
         }
-        if j.at == panel_focused(a).at {
+        if j.at == panel_focused(a).at && jump_standing(a, j) {
             a.jump_at += step
             continue
         }
@@ -96,6 +106,13 @@ jump_take :: proc(a: ^App, step: int) {
     }
     a.jump_at = clamp(a.jump_at, 0, len(a.jumps))
     jump_stuck(a, step)
+}
+
+// Is that entry the place the caret is in right now, and not just the same slot.
+@(private = "file")
+jump_standing :: proc(a: ^App, j: Jump) -> bool {
+    s := ring_focused(a)
+    return s != nil && s.view.point.head == j.view.point.head
 }
 
 @(private = "file")

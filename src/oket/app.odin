@@ -117,6 +117,7 @@ App :: struct {
     // Where you have been, and where you are standing in that list (jump.odin).
     jumps:        [dynamic]Jump,
     jump_at:      int,
+    find:         string, // owned; the last search term, which is what F3 steps through
     paste:        Paste_Mark,
     home:         string, // owned; where binds.conf lives, empty in a test
     quit:         bool,
@@ -174,6 +175,7 @@ app_destroy :: proc(a: ^App) {
     message_set(a, "")
     clips_free(a) // the ring, not the selection: exiting must not empty the user's clipboard
     jumps_free(a)
+    find_free(a)
     delete(a.home)
     glfw.DestroyCursor(a.hand)
     panels_destroy(a)
