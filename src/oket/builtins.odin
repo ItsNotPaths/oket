@@ -12,59 +12,128 @@ import "../txt"
 // The kernel's curated core set (§12). Everything past it arrives with plugins, and the sigil
 // promised a builtin, so an unknown name stops the chain and says so rather than falling
 // through to the shell — a `:` that silently ran something else would be the worst of both.
+//
+// A builtin is one ROW: its name, its definition, and what running it does. The same shape a
+// setting has (config.odin) and a verb has (COMMANDS), and for the same reason — the menubar
+// reads the definition (MENU.md §3) and a bad parse reports the usage, so one row is what keeps
+// the two from drifting apart.
+
+Builtin :: struct {
+    name:  string,
+    also:  string, // a second spelling, empty for most
+    // The namespace it sits in, which is the menu it is listed under (MENU.md §2). Written down
+    // rather than read off the name, because `:open` has no dot to read one from.
+    menu:  string,
+    usage: string,
+    doc:   string,
+    // `args` is the line past the name. `step` is the whole step, for the one builtin that
+    // reads what was piped into it.
+    run:   proc(a: ^App, args: string, step: CL_Step) -> bool,
+}
+
+@(rodata)
+BUILTINS := [?]Builtin {
+    {"open", "", "file", USAGE_OPEN,
+     "open a file or a directory; one already in the ring is moved to, not opened twice",
+     builtin_open},
+    {"ring", "", "ring", ":ring [<kind>]",
+     "go to that kind's lane; with no kind, list the lanes",
+     builtin_ring},
+    {"ls", "", "ring", ":ls",
+     "print every live slot of every lane into the system session",
+     builtin_ls},
+    {"close", "", "ring", ":close",
+     "close the focused slot; its number is never reused while others live",
+     builtin_close},
+    {"sel", "", "edit", ":sel",
+     "put the selection, or the line point is on, on the next step's stdin",
+     builtin_sel},
+    {"put", "", "edit", ":put",
+     "replace the selection with what was piped into it",
+     builtin_put},
+    {"recover", "", "file", USAGE_RECOVER,
+     "take back the work a crash left on that file, or throw it away",
+     builtin_recover},
+    {"width", "", "panel", USAGE_WIDTH,
+     "size the panel; a list of percents is a cycle, and one is a set",
+     builtin_width},
+    {"np", "new-panel", "panel", ":np",
+     "a panel to the right of this one, standing on nothing",
+     builtin_np},
+    {"home", "", "file", ":home [enter]",
+     "open the home page; `enter` takes the offer the row point is on",
+     builtin_home},
+    {"plug", "", "plug", USAGE_PLUG,
+     "load, unload or reload a plugin; with no verb, list what is in",
+     builtin_plug},
+    {"pluginify", "", "plug", USAGE_PLUGINIFY,
+     "build a plugin directory and load what came out",
+     builtin_pluginify},
+    {"q", "", "file", ":q",
+     "close the window",
+     builtin_quit},
+}
+
+// The row a name reaches, either spelling. Walked and not hashed: the set is small and this
+// runs once per typed line, never once per keystroke.
+builtin_named :: proc(name: string) -> (Builtin, bool) {
+    for b in BUILTINS {
+        if b.name == name || b.also != "" && b.also == name {
+            return b, true
+        }
+    }
+    return {}, false
+}
 
 cl_builtin :: proc(a: ^App, step: CL_Step) -> bool {
     name := first_field(step.text)
     args := strings.trim_space(step.text[len(name):])
-    switch name {
-    case "open":
-        return builtin_open(a, args)
-    case "ring":
-        return builtin_ring(a, args)
-    case "ls":
-        return builtin_ls(a)
-    case "sel":
-        return builtin_sel(a)
-    case "put":
-        return builtin_put(a, step)
-    case "close":
-        // ring.close as a command line. alt+q already does exactly this, and a plugin that
-        // opened a document will have no other way to end it (stage 7).
-        if ring_focused(a) == nil {
-            message_set(a, ":close: nothing is focused")
-            return false
-        }
-        ring_close(a, ring_slot(a))
-    case "recover":
-        return builtin_recover(a, args)
-    case "width":
-        return builtin_width(a, args)
-    case "np", "new-panel":
-        // `panel.open` as a command line, which is what the picker's second `tab+enter` runs:
-        // a panel to the right of the one the keys are aimed at, and the aim goes with it.
-        panel_open(a)
-    case "home":
-        // `:home enter` is the page's own row acting on itself; a bare `:home` asks for the
-        // page. Both are lines you could type, which is what keeps the page a document.
-        if _, verb := first_arg(args); verb == "enter" {
-            return home_enter(a)
-        }
-        ring_add(a, home_open(a))
-    case "plug":
-        return builtin_plug(a, args)
-    case "pluginify":
-        return builtin_pluginify(a, args)
-    case "q":
-        a.quit = true
-    case:
-        // Past the core set the registry answers, so a plugin's command is typed exactly the
-        // way a builtin is and nothing downstream can tell which it was (§12).
-        if slot, registered := plug_cmd_named(a, name); registered {
-            return plug_command(a, slot, args)
-        }
-        message_set(a, fmt.tprintf("%s: not a builtin (drop the : to run it in the shell)", name))
+    if b, is_builtin := builtin_named(name); is_builtin {
+        return b.run(a, args, step)
+    }
+    // Past the core set the registry answers, so a plugin's command is typed exactly the way a
+    // builtin is and nothing downstream can tell which it was (§12).
+    if slot, registered := plug_cmd_named(a, name); registered {
+        return plug_command(a, slot, args)
+    }
+    message_set(a, fmt.tprintf("%s: not a builtin (drop the : to run it in the shell)", name))
+    return false
+}
+
+// ring.close as a command line. alt+q already does exactly this, and a plugin that opened a
+// document will have no other way to end it (stage 7).
+@(private = "file")
+builtin_close :: proc(a: ^App, _: string, _: CL_Step) -> bool {
+    if ring_focused(a) == nil {
+        message_set(a, ":close: nothing is focused")
         return false
     }
+    ring_close(a, ring_slot(a))
+    return true
+}
+
+// `panel.open` as a command line, which is what the picker's second `tab+enter` runs: a panel
+// to the right of the one the keys are aimed at, and the aim goes with it.
+@(private = "file")
+builtin_np :: proc(a: ^App, _: string, _: CL_Step) -> bool {
+    panel_open(a)
+    return true
+}
+
+// `:home enter` is the page's own row acting on itself; a bare `:home` asks for the page. Both
+// are lines you could type, which is what keeps the page a document.
+@(private = "file")
+builtin_home :: proc(a: ^App, args: string, _: CL_Step) -> bool {
+    if _, verb := first_arg(args); verb == "enter" {
+        return home_enter(a)
+    }
+    ring_add(a, home_open(a))
+    return true
+}
+
+@(private = "file")
+builtin_quit :: proc(a: ^App, _: string, _: CL_Step) -> bool {
+    a.quit = true
     return true
 }
 
@@ -76,7 +145,7 @@ cl_builtin :: proc(a: ^App, step: CL_Step) -> bool {
 // there: what `@N` does is aim the keys, and the ring then answers the way it does for any
 // other panel. Which is also why the open takes focus with it — you always see where it went.
 @(private = "file")
-builtin_open :: proc(a: ^App, args: string) -> bool {
+builtin_open :: proc(a: ^App, args: string, _: CL_Step) -> bool {
     raw, path := first_arg(args)
     rest := strings.trim_space(args[len(raw):])
     if path == "" {
@@ -112,7 +181,7 @@ USAGE_OPEN :: ":open <path> [#slot] [@panel]"
 //
 // A bare number is a percent here and never a `#slot`, because a panel has no slot to name.
 @(private = "file")
-builtin_width :: proc(a: ^App, args: string) -> bool {
+builtin_width :: proc(a: ^App, args: string, _: CL_Step) -> bool {
     pcts := make([dynamic]int, 0, 4, context.temp_allocator)
     target: Target
     rest := strings.trim_space(args)
@@ -199,7 +268,7 @@ open_path :: proc(a: ^App, path: string) -> (store.Id, bool) {
 // runs, and the reason it is a row rather than a case in the dispatch — the kind is named in
 // the config and never in kernel source.
 @(private = "file")
-builtin_ring :: proc(a: ^App, args: string) -> bool {
+builtin_ring :: proc(a: ^App, args: string, _: CL_Step) -> bool {
     _, name := first_arg(args)
     if name == "" {
         for l, i in a.ring.lanes {
@@ -224,7 +293,7 @@ builtin_ring :: proc(a: ^App, args: string) -> bool {
 
 // The ring, printed into N#, which surfaces to show it.
 @(private = "file")
-builtin_ls :: proc(a: ^App) -> bool {
+builtin_ls :: proc(a: ^App, _: string, _: CL_Step) -> bool {
     n := 0
     for l, lane in a.ring.lanes {
         for s, i in l.slots {
@@ -250,7 +319,7 @@ builtin_ls :: proc(a: ^App) -> bool {
 // under point and SELECTS it, so what a following `:put` replaces is what you were shown —
 // same rule as `edit.copy`, which takes the selection or the line.
 @(private = "file")
-builtin_sel :: proc(a: ^App) -> bool {
+builtin_sel :: proc(a: ^App, _: string, _: CL_Step) -> bool {
     s := ring_focused(a)
     if s == nil {
         message_set(a, ":sel: nothing is focused")
@@ -275,7 +344,7 @@ builtin_sel :: proc(a: ^App) -> bool {
 // `:put` takes what was piped into it and replaces the selection with it, at point. Emacs's
 // shell-command-on-region, as a chain step: `:sel | sort -u | :put`.
 @(private = "file")
-builtin_put :: proc(a: ^App, step: CL_Step) -> bool {
+builtin_put :: proc(a: ^App, _: string, step: CL_Step) -> bool {
     if !step.piped || !a.chain.fed {
         message_set(a, ":put: nothing was piped into it")
         return false
@@ -302,7 +371,7 @@ builtin_put :: proc(a: ^App, step: CL_Step) -> bool {
 // the document it shadows (journal.odin), so the visible half of a home-page row is the whole
 // of what the row acts on and hover underlines what `enter` would take (§14).
 @(private = "file")
-builtin_recover :: proc(a: ^App, args: string) -> bool {
+builtin_recover :: proc(a: ^App, args: string, _: CL_Step) -> bool {
     raw, first := first_arg(args)
     drop := first == "drop"
     path := first
@@ -310,7 +379,7 @@ builtin_recover :: proc(a: ^App, args: string) -> bool {
         _, path = first_arg(strings.trim_space(args[len(raw):]))
     }
     if path == "" {
-        message_set(a, ":recover [drop] <path>")
+        message_set(a, USAGE_RECOVER)
         return false
     }
     journal := journal_path(a, path)
@@ -323,17 +392,19 @@ builtin_recover :: proc(a: ^App, args: string) -> bool {
     return ok
 }
 
+USAGE_RECOVER :: ":recover [drop] <path>"
+
 // --- the plugin seam (§7) ---
 
 // `:plug [load|unload|reload] <name>`, and bare `:plug` lists what is in. A plugin is one `.so`
 // under `plugins/` beside the binary; the name is its file's stem, and it is also the section
 // header its bind requests land under in binds.conf.
 @(private = "file")
-builtin_plug :: proc(a: ^App, args: string) -> bool {
+builtin_plug :: proc(a: ^App, args: string, _: CL_Step) -> bool {
     raw, verb := first_arg(args)
     _, name := first_arg(strings.trim_space(args[len(raw):]))
     if verb != "" && name == "" {
-        message_set(a, ":plug [load|unload|reload] <name>")
+        message_set(a, USAGE_PLUG)
         return false
     }
     switch verb {
@@ -352,9 +423,11 @@ builtin_plug :: proc(a: ^App, args: string) -> bool {
     case "reload":
         return plug_reload(a, name)
     }
-    message_set(a, ":plug [load|unload|reload] <name>")
+    message_set(a, USAGE_PLUG)
     return false
 }
+
+USAGE_PLUG :: ":plug [load|unload|reload] <name>"
 
 @(private = "file")
 plug_list :: proc(a: ^App) -> bool {
@@ -390,11 +463,11 @@ plug_list :: proc(a: ^App) -> bool {
 // over a `file:line` opens the file. The recipe is plugins/stage.sh and nothing else:
 // release.sh and the gate tests run the same script, so this build is the shipped build.
 @(private = "file")
-builtin_pluginify :: proc(a: ^App, args: string) -> bool {
+builtin_pluginify :: proc(a: ^App, args: string, _: CL_Step) -> bool {
     raw, dir := first_arg(args)
     flags := strings.trim_space(args[len(raw):])
     if dir == "" {
-        message_set(a, ":pluginify <dir> [--asan]")
+        message_set(a, USAGE_PLUGINIFY)
         return false
     }
     if flags != "" && flags != "--asan" {
@@ -427,4 +500,5 @@ builtin_pluginify :: proc(a: ^App, args: string) -> bool {
     return true
 }
 
+USAGE_PLUGINIFY :: ":pluginify <dir> [--asan]"
 PLUGINIFY_SCRIPT :: "stage.sh"

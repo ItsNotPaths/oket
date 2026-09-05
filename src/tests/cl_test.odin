@@ -232,3 +232,55 @@ a_line_without_a_hole_needs_no_document :: proc(t: ^testing.T) {
     _, holed := app.bind_expand(&a, ":open <path>") // a hole still needs a document
     testing.expect(t, !holed)
 }
+
+// The table is the definition of the core set (MENU.md §3), so a row with a hole in it is a
+// builtin the menubar would list with nothing under it — or a usage a complaint cannot quote.
+// Enumerated arrays make Odin refuse that for a verb; a table of rows needs this instead.
+@(test)
+every_builtin_row_is_complete :: proc(t: ^testing.T) {
+    for b in app.BUILTINS {
+        testing.expect(t, b.name != "", "a builtin with no name")
+        testing.expectf(t, b.menu != "", "%s is in no menu", b.name)
+        testing.expectf(t, b.doc != "", "%s has no definition", b.name)
+        testing.expectf(t, b.run != nil, "%s runs nothing", b.name)
+        testing.expectf(t, b.usage == fmt.tprintf(":%s", b.name) ||
+                           strings.has_prefix(b.usage, fmt.tprintf(":%s ", b.name)),
+                        "%s: the usage does not start with the name (%s)", b.name, b.usage)
+    }
+}
+
+// Two rows answering to one name is the drift the table exists to prevent: which of them the
+// walk reaches would be the order they happen to be written in.
+@(test)
+no_two_builtins_share_a_spelling :: proc(t: ^testing.T) {
+    for b, i in app.BUILTINS {
+        for other, j in app.BUILTINS {
+            if i == j {
+                continue
+            }
+            testing.expectf(t, b.name != other.name, "%s is written twice", b.name)
+            testing.expectf(t, b.name != other.also, "%s is a name and an alias", b.name)
+            if b.also != "" {
+                testing.expectf(t, b.also != other.also, "%s is an alias twice", b.also)
+            }
+        }
+        found, is_builtin := app.builtin_named(b.name)
+        testing.expectf(t, is_builtin && found.name == b.name, "%s does not answer to itself",
+                        b.name)
+        if b.also != "" {
+            alias, aliased := app.builtin_named(b.also)
+            testing.expectf(t, aliased && alias.name == b.name, "%s does not answer to %s",
+                            b.name, b.also)
+        }
+    }
+}
+
+// The one name the table must NOT answer to. `:` promised a builtin, so an unknown one stops
+// the chain and says so rather than falling through to the shell.
+@(test)
+a_name_no_row_holds_is_not_a_builtin :: proc(t: ^testing.T) {
+    _, is_builtin := app.builtin_named("nope")
+    testing.expect(t, !is_builtin)
+    _, empty := app.builtin_named("")
+    testing.expect(t, !empty, "an empty name reached a row")
+}
