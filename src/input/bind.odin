@@ -189,7 +189,7 @@ Command_Info :: struct {
 @(rodata)
 COMMANDS := [Command]Command_Info {
     .None                = {"none", "the unbind value; no chord resolves to it", {}},
-    .Quit                = {"quit", "close the window", {.Global}},
+    .Quit                = {"file.quit", "close the window", {.Global}},
     .Describe_Key        = {"describe.key", "wait for one chord and say what it does", {.Global}},
     .Nav_Up              = {"nav.up", "move the caret up a line", {.Text, .Surface}},
     .Nav_Down            = {"nav.down", "move the caret down a line", {.Text, .Surface}},
@@ -266,6 +266,11 @@ command_named :: proc(name: string) -> (Command, bool) {
         if info.name == name && cmd != .None {
             return cmd, true
         }
+    }
+    // `quit` is an accepted spelling of `file.quit` (MENU.md §3): every name is `group.verb`,
+    // which is what a menu groups by, and a binds.conf that says `quit` still works.
+    if name == "quit" {
+        return .Quit, true
     }
     return .None, false
 }

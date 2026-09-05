@@ -165,7 +165,7 @@ a_chord_that_is_both_is_reported :: proc(t: ^testing.T) {
 
     hits := input.bind_collisions(a.binds[:], nil, {}, context.temp_allocator)
     testing.expect_value(t, len(hits), 1)
-    testing.expect_value(t, hits[0].runs, "quit")
+    testing.expect_value(t, hits[0].runs, "file.quit")
     testing.expect_value(t, hits[0].kids, 1)
 
     // No priority: the scan answers with whichever row it reaches, and here that is the plain

@@ -48,7 +48,7 @@ describe_names_the_command :: proc(t: ^testing.T) {
 
     s := input.describe_chord(binds[:], {esc, {}, 0}, .Global, nil)
     defer delete(s)
-    testing.expect_value(t, s, "esc (@ESC) runs quit: close the window [global, kernel default]")
+    testing.expect_value(t, s, "esc (@ESC) runs file.quit: close the window [global, kernel default]")
 
     // The same key with a modifier is a different chord, and says so.
     s2 := input.describe_chord(binds[:], {esc, {.Ctrl}, 0}, .Global, nil)
@@ -83,6 +83,19 @@ every_command_has_a_doc :: proc(t: ^testing.T) {
     for info, cmd in input.COMMANDS {
         testing.expectf(t, info.name != "" && info.doc != "", "%v is undocumented", cmd)
     }
+}
+
+// `quit` is an accepted spelling of `file.quit` (MENU.md §3), so no binds.conf breaks on the
+// rename. Both reach the same verb.
+@(test)
+the_old_quit_spelling_still_resolves :: proc(t: ^testing.T) {
+    cmd, found := input.command_named("quit")
+    testing.expect(t, found)
+    testing.expect_value(t, cmd, input.Command.Quit)
+
+    cmd, found = input.command_named("file.quit")
+    testing.expect(t, found)
+    testing.expect_value(t, cmd, input.Command.Quit)
 }
 
 @(test)
