@@ -6,6 +6,13 @@ type.
 
 ## unreleased
 
+- `ctrl+c`, `ctrl+x` and `ctrl+v` are the system clipboard, so a copy crosses between oket and
+  anything else you have open.
+- In a session `ctrl+c` copies too, and the interrupt moved to `ctrl+shift+c`. Both are rows:
+  swap them back in `binds.conf` under `[terminal]`.
+- `ctrl+k`, `ctrl+shift+k` and `ctrl+u` kill to the clipboard; `ctrl+shift+v` walks back through
+  what you killed.
+- A copy made with several carets pastes one piece per caret.
 - The editor moves its own caret: `left` and `right` are `ed.left` and `ed.right` rows in
   `binds.conf`, and `nav.left` still answers everywhere else.
 - The home page is the default document. A start with no session opens it, not a listing.
