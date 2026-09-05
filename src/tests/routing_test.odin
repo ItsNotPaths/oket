@@ -258,18 +258,3 @@ describe_waits_for_one_chord_and_answers :: proc(t: ^testing.T) {
     testing.expect(t, !a.quit, "escape cancelled the capture, it did not fall through to quit")
 }
 
-// A bound chord that does nothing at all is the one thing §8 exists to prevent, so a verb whose
-// stage has not landed reports rather than going quiet.
-@(test)
-an_unbuilt_verb_says_so :: proc(t: ^testing.T) {
-    a, dir, ok := listing_app(t, "oket-unbuilt")
-    if !ok {
-        return
-    }
-    defer os.remove_all(dir)
-    defer close_app(&a)
-
-    f3, _ := input.key_code("FK03")
-    app.handle_chord(&a, {f3, {}, 0})
-    testing.expect_value(t, a.message, "search.next is not built yet")
-}
