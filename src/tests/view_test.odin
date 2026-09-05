@@ -227,6 +227,34 @@ a_selected_row_is_marked_over_its_own_text :: proc(t: ^testing.T) {
     testing.expect_value(t, dark, 0) // and only the row point is on
 }
 
+// The columnar arm walks the whole caret set too: each caret lights its own row.
+@(test)
+every_caret_lights_its_listing_row :: proc(t: ^testing.T) {
+    s: store.Store
+    defer store.store_destroy(&s)
+    columns := LISTING_COLUMNS
+    fields := LISTING_FIELDS
+    snap, dp := opened(&s, LISTING, {columns = columns[:], fields = fields[:], selection = .Line})
+    defer txt.snapshot_release(snap)
+    defer desc.release(dp)
+
+    g: gfx.Grid
+    testing.expect(t, gfx.grid_init(&g, 30, 3))
+    defer gfx.grid_destroy(&g)
+    carets := [2]txt.Cursor{{anchor = {0, 0}, head = {0, 0}}, {anchor = {2, 0}, head = {2, 0}}}
+    view.draw(&g, gfx.DEFAULT_THEME, &snap.text, dp, {}, 0, 0, 30, 3, carets = carets[:])
+
+    for y in 0 ..< 3 {
+        lit := 0
+        for x in 0 ..< 30 {
+            if .Reverse in gfx.grid_at(&g, x, y).attrs {
+                lit += 1
+            }
+        }
+        testing.expect_value(t, lit, y == 1 ? 0 : 30)
+    }
+}
+
 // `[cursor] select` is how far the selection carries its swap. At 100 it is the reverse the
 // caret gets; below it both sides move together, so the cell's own colours are still in the mix
 // and a weaker reverse is what is left. The caret is never in it.

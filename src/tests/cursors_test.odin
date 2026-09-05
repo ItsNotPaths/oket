@@ -4,6 +4,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import "core:testing"
+import "../gfx"
 import "../input"
 import "../store"
 import "../txt"
@@ -409,4 +410,77 @@ describe_answers_the_cursor_rows :: proc(t: ^testing.T) {
         testing.expectf(t, !strings.contains(answer, "moves point, then"),
                         "%s: the press skips the kernel's point move: %s", info.name, answer)
     }
+}
+
+// --- every caret is on screen ---
+
+// The whole SET draws, not `View.point`: a trail the bar can only count is not on screen.
+@(private = "file")
+reversed_in_row :: proc(g: ^gfx.Grid, y: int) -> (n: int) {
+    for x in 0 ..< g.cols {
+        if c := gfx.grid_at(g, x, y); c != nil && .Reverse in c.attrs {
+            n += 1
+        }
+    }
+    return
+}
+
+@(test)
+every_caret_is_drawn :: proc(t: ^testing.T) {
+    a, ok := bare_app(40, 8)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    id := scratch_doc(&a, "note.txt", "aaa\nbbb\nccc\nddd")
+    app.ring_add(&a, id)
+    doc := store.store_doc(&a.docs, id)
+
+    txt.doc_reset_cursor(doc, {0, 1})
+    txt.doc_add_cursor(doc, {1, 1})
+    txt.doc_add_cursor(doc, {2, 1})
+    app.point_sync(&a)
+    app.surface_draw(&a)
+
+    g := panel_grid(&a)
+    for line in 0 ..< 3 {
+        testing.expectf(t, reversed_in_row(g, line) == 1,
+                        "line %d drew %d carets", line, reversed_in_row(g, line))
+    }
+    // And nothing is lit where no caret stands.
+    testing.expect_value(t, reversed_in_row(g, 3), 0)
+}
+
+// A mixed set draws both shapes: a caret is the `.Reverse` bit, a selection below 100 carries
+// its swap as colours, because a percent is not a bit (mark_select).
+@(private = "file")
+swapped_in_row :: proc(g: ^gfx.Grid, th: gfx.Theme, y: int) -> (n: int) {
+    for x in 0 ..< g.cols {
+        if c := gfx.grid_at(g, x, y); c != nil && c.bg != th[.Bg] {
+            n += 1
+        }
+    }
+    return
+}
+
+@(test)
+a_mixed_set_draws_both_shapes :: proc(t: ^testing.T) {
+    a, ok := bare_app(40, 8)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    id := scratch_doc(&a, "note.txt", "aaaa\nbbbb")
+    app.ring_add(&a, id)
+    doc := store.store_doc(&a.docs, id)
+
+    txt.doc_set_spans(doc, [][2]txt.Pos{{{0, 0}, {0, 3}}, {{1, 2}, {1, 2}}})
+    app.point_sync(&a)
+    app.surface_draw(&a)
+
+    g := panel_grid(&a)
+    testing.expect_value(t, swapped_in_row(g, a.theme, 0), 3) // the selection, three cells of it
+    testing.expect_value(t, reversed_in_row(g, 1), 1) // the caret, one cell
 }
