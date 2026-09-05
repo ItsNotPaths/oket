@@ -279,6 +279,8 @@ bind_dispatch :: proc(a: ^App, chord: input.Chord, b: input.Bind, extend: bool) 
         select_expand(a)
     case .Select_All:
         select_all(a)
+    case .Copy:
+        copy_doc(a)
     case .Ring_Goto:
         // One bind covers alt+1..9: the offset past the row's own code is the slot (§8).
         ring_open(a, int(chord.code - b.chord.code) + 1)
@@ -363,7 +365,7 @@ motion_of :: proc(cmd: input.Command) -> (txt.Motion, bool) {
 writes :: proc(cmd: input.Command) -> bool {
     #partial switch cmd {
     case .Delete_Back, .Delete_Forward, .Delete_Word_Back, .Delete_Word_Forward, .Tab,
-         .Newline, .Undo, .Redo:
+         .Newline, .Undo, .Redo, .Cut, .Paste:
         return true
     }
     return false
@@ -395,6 +397,14 @@ edit_command :: proc(a: ^App, cmd: input.Command) -> bool {
         txt.doc_insert_text(doc, "\t")
     case .Newline:
         txt.doc_newline(doc)
+    // Cut is copy then delete, so a cut range reaches the clipboard by the copy path.
+    // Paste reads the SYSTEM clipboard, which is what lets a browser's copy land here.
+    case .Cut:
+        joined, _ := txt.doc_copy(doc, context.temp_allocator)
+        clip_set(a, joined)
+        txt.doc_cut(doc)
+    case .Paste:
+        txt.doc_paste(doc, clip_get(a))
     // Undo is the kernel's, so ctrl+z reaches a formatter's splice and a plugin writes no undo
     // code (§7). `editable` is the gate until the descriptor grows `undo: kernel | none` (§5):
     // a document that takes no typing has nothing of the user's in it to take back.
@@ -646,6 +656,38 @@ dump_doc :: proc(a: ^App) -> bool {
     }
     message_set(a, fmt.tprintf("dumped %d bytes to %s", len(text), path))
     return true
+}
+
+// --- the clipboard ---
+
+// The system clipboard is the copy path, both ways: what is copied here pastes into a browser,
+// and a browser's copy pastes here. This is the GLFW half of txt's doc_copy/doc_cut/doc_paste.
+//
+// `a.clip` is what oket last put there. GLFW answers with nothing when there is no window, and
+// on X11 when the selection has been dropped — in both cases our own copy is still the truthful
+// answer to "what did I copy", so it is the fallback rather than a cache.
+clip_set :: proc(a: ^App, text: string) {
+    delete(a.clip)
+    a.clip = text == "" ? "" : strings.clone(text)
+    glfw.SetClipboardString(a.window, strings.clone_to_cstring(text, context.temp_allocator))
+}
+
+clip_get :: proc(a: ^App) -> string {
+    text := glfw.GetClipboardString(a.window)
+    return text != "" ? text : a.clip
+}
+
+// A read, so no `editable` gate, the same way select.all reaches a listing: copying a row out
+// of a browser is not editing it.
+@(private = "file")
+copy_doc :: proc(a: ^App) {
+    doc := active_doc(a)
+    if doc == nil {
+        return
+    }
+    joined, _ := txt.doc_copy(doc, context.temp_allocator)
+    clip_set(a, joined)
+    message_set(a, "copied")
 }
 
 // --- point and the viewport ---

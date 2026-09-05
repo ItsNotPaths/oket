@@ -2,7 +2,6 @@ package main
 
 import "core:strings"
 import "core:unicode/utf8"
-import "vendor:glfw"
 import "../desc"
 import "../input"
 import vt "../libvterm"
@@ -499,7 +498,7 @@ term_copy :: proc(a: ^App) -> bool {
     lo, hi := txt.cursor_range(c)
     text := term_unwrap(tm, txt.doc_text(doc, lo, hi, context.temp_allocator), lo.line)
     if text != "" {
-        glfw.SetClipboardString(a.window, strings.clone_to_cstring(text, context.temp_allocator))
+        clip_set(a, text)
         message_set(a, "copied")
     }
     return true
@@ -530,6 +529,6 @@ term_paste :: proc(a: ^App) -> bool {
     if tm == nil {
         return false
     }
-    pty.terminal_paste(&tm.t, glfw.GetClipboardString(a.window))
+    pty.terminal_paste(&tm.t, clip_get(a))
     return true
 }

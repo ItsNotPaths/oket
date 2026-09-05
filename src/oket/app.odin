@@ -109,6 +109,7 @@ App :: struct {
     // own rectangle is its panel's (panel.odin), because a cell number counts from one grid.
     bar:          Rect,
     message:      string, // owned; lives until the next keystroke
+    clip:         string, // owned; what oket last put on the system clipboard
     home:         string, // owned; where binds.conf lives, empty in a test
     quit:         bool,
 }
@@ -163,6 +164,7 @@ app_destroy :: proc(a: ^App) {
     binds_requests_destroy(a)
     input.pending_set(&a.pending) // an armed picker owns the line it captured
     message_set(a, "")
+    delete(a.clip) // the string, not the selection: exiting must not empty the user's clipboard
     delete(a.home)
     glfw.DestroyCursor(a.hand)
     panels_destroy(a)
