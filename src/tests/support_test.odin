@@ -41,6 +41,10 @@ scratch :: proc(t: ^testing.T, name: string) -> (dir: string, ok: bool) {
 // the test binary, which races the parallel runner and is not this App's file to write.
 bare_app :: proc(cols := 50, rows := 4) -> (a: app.App, ok: bool) {
     a.theme = gfx.DEFAULT_THEME
+    // The real defaults, less the two a test cannot have: a strip that animates makes every
+    // geometry assertion a race, and a gap puts every panel width off its arithmetic.
+    a.config = app.config_default()
+    a.config.tau, a.config.gap = 0, 0
     a.binds = app.binds_base()
     if !gfx.grid_init(&a.chrome, cols, rows) {
         return {}, false
