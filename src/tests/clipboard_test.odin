@@ -227,3 +227,114 @@ a_kill_of_nothing_leaves_the_line_alone :: proc(t: ^testing.T) {
     testing.expect_value(t, doc_text(&a, id), "one\ntwo")
     testing.expect_value(t, a.clip, "kept")
 }
+
+// --- one piece per caret ---
+//
+// The clipboard carries only the joined text, so the split copy is kept beside it and the caret
+// count is what decides whether it can be handed out.
+
+@(test)
+a_multi_caret_copy_pastes_one_piece_per_caret :: proc(t: ^testing.T) {
+    a, ok := bare_app(60, 8)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    id := scratch_doc(&a, "note", "one\ntwo\n.\n.")
+    app.ring_add(&a, id)
+    doc := store.store_doc(&a.docs, id)
+
+    txt.doc_set_spans(doc, [][2]txt.Pos{{{0, 0}, {0, 3}}, {{1, 0}, {1, 3}}})
+    app.handle_chord(&a, chord("AB03", {.Ctrl}))
+    testing.expect_value(t, a.clip, "one\ntwo") // the clipboard still gets one string
+
+    txt.doc_set_spans(doc, [][2]txt.Pos{{{2, 1}, {2, 1}}, {{3, 1}, {3, 1}}})
+    app.handle_chord(&a, chord("AB04", {.Ctrl}))
+    testing.expect_value(t, doc_text(&a, id), "one\ntwo\n.one\n.two")
+}
+
+// The pieces are only good for the caret count that made them. Fewer carets take the joined
+// string, which is what another program would have received.
+@(test)
+pieces_that_do_not_fit_the_carets_paste_whole :: proc(t: ^testing.T) {
+    a, ok := bare_app(60, 8)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    id := scratch_doc(&a, "note", "one\ntwo\n.")
+    app.ring_add(&a, id)
+    doc := store.store_doc(&a.docs, id)
+
+    txt.doc_set_spans(doc, [][2]txt.Pos{{{0, 0}, {0, 3}}, {{1, 0}, {1, 3}}})
+    app.handle_chord(&a, chord("AB03", {.Ctrl}))
+
+    txt.doc_reset_cursor(doc, {2, 1})
+    app.handle_chord(&a, chord("AB04", {.Ctrl}))
+    testing.expect_value(t, doc_text(&a, id), "one\ntwo\n.one\ntwo")
+}
+
+// A copy from outside oket has no pieces, so every caret takes the whole of it.
+@(test)
+a_foreign_copy_lands_whole_at_every_caret :: proc(t: ^testing.T) {
+    a, ok := bare_app(60, 8)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    id := scratch_doc(&a, "note", ".\n.")
+    app.ring_add(&a, id)
+    doc := store.store_doc(&a.docs, id)
+
+    app.clip_set(&a, "X")
+    txt.doc_set_spans(doc, [][2]txt.Pos{{{0, 1}, {0, 1}}, {{1, 1}, {1, 1}}})
+    app.handle_chord(&a, chord("AB04", {.Ctrl}))
+    testing.expect_value(t, doc_text(&a, id), ".X\n.X")
+}
+
+// With nothing selected each caret copies its own line, so the pieces are lines and they go
+// back one per caret the same way.
+@(test)
+bare_carets_copy_a_line_each :: proc(t: ^testing.T) {
+    a, ok := bare_app(60, 8)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    id := scratch_doc(&a, "note", "one\ntwo")
+    app.ring_add(&a, id)
+    doc := store.store_doc(&a.docs, id)
+
+    txt.doc_set_spans(doc, [][2]txt.Pos{{{0, 0}, {0, 0}}, {{1, 0}, {1, 0}}})
+    app.handle_chord(&a, chord("AB03", {.Ctrl}))
+    testing.expect_value(t, a.clip, "one\ntwo\n")
+
+    app.handle_chord(&a, chord("AB04", {.Ctrl}))
+    testing.expect_value(t, doc_text(&a, id), "one\none\ntwo\ntwo")
+}
+
+// Cut feeds the clipboard by the copy path, so its pieces paste one per caret the same way.
+@(test)
+a_multi_caret_cut_pastes_one_piece_per_caret :: proc(t: ^testing.T) {
+    a, ok := bare_app(60, 8)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    id := scratch_doc(&a, "note", "one\ntwo\n.\n.")
+    app.ring_add(&a, id)
+    doc := store.store_doc(&a.docs, id)
+
+    txt.doc_set_spans(doc, [][2]txt.Pos{{{0, 0}, {0, 3}}, {{1, 0}, {1, 3}}})
+    app.handle_chord(&a, chord("AB02", {.Ctrl}))
+    testing.expect_value(t, doc_text(&a, id), "\n\n.\n.")
+
+    txt.doc_set_spans(doc, [][2]txt.Pos{{{2, 1}, {2, 1}}, {{3, 1}, {3, 1}}})
+    app.handle_chord(&a, chord("AB04", {.Ctrl}))
+    testing.expect_value(t, doc_text(&a, id), "\n\n.one\n.two")
+}
