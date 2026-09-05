@@ -20,9 +20,8 @@
  * is a row in binds.conf:
  *
  *     [files]
- *     enter = exec :br.enter <path> && :open <path>
- *     left  = br.up
- *     right = br.into
+ *     enter          = exec :br.enter <path> && :open <path>
+ *     ctrl+backspace = br.up
  *
  * `br.enter` VISITS a directory — the buffer becomes that directory, the way dired's RET does —
  * and STOPS the chain; over a file it does nothing and lets the chain reach the kernel's own
@@ -728,8 +727,8 @@ static int32_t enter_cmd(const oket_api *api, oket_self self, const oket_at *at,
 }
 
 /* `br.up` — out of whatever you are inside of: an open subtree closes, and otherwise the
- * listing goes up a directory and lands on the row it came from. `left`, and one of the two
- * things an arrow does in a document whose caret does not move sideways. */
+ * listing goes up a directory and lands on the row it came from. `ctrl+backspace`, and the
+ * same place the `..` row takes you. */
 static int32_t up_cmd(const oket_api *api, oket_self self, const oket_at *at,
                       const char *args, size_t args_len) {
     browser *b = at->inst;
@@ -759,8 +758,9 @@ static int32_t up_cmd(const oket_api *api, oket_self self, const oket_at *at,
     return 0;
 }
 
-/* `br.into` — the directory under point, visited. `right`, and the mirror of `br.up`: over a
- * file it does nothing, because `enter` is what opens one. */
+/* `br.into` — the directory under point, visited. The mirror of `br.up`, and UNBOUND by
+ * default: `enter` already visits a directory, so this is one binds.conf line away for anyone
+ * who wants the pair on two chords. Over a file it does nothing. */
 static int32_t into_cmd(const oket_api *api, oket_self self, const oket_at *at,
                         const char *args, size_t args_len) {
     browser *b = at->inst;
@@ -1084,13 +1084,20 @@ OKET_MAIN {
     api->register_command(api, self, LIT("br.root"), LIT("move the listing to another directory"),
                           root_cmd);
     /* ASKED FOR, never claimed (§8). Every one shadows something wider — `enter` the
-     * surface-tier `:open <path>`, the arrows the kernel's own motion — and the writeback says
-     * so above each row, so what the browser took is readable in the file rather than known.
+     * surface-tier `:open <path>`, the vertical arrows the kernel's own motion — and the
+     * writeback says so above each row, so what the browser took is readable in the file rather
+     * than known.
      *
-     * ALL FOUR ARROWS, which is what a pinned caret costs: up and down land on a name, left and
-     * right are the hierarchy, and none of them moves a caret inside a row. */
+     * TWO ARROWS, not four: up and down land on a name, and LEFT AND RIGHT ARE NOT ASKED FOR,
+     * so they stay the kernel's `nav.left`/`nav.right` and move the caret inside the row being
+     * renamed. The hierarchy is on `enter` (a directory is visited) and on `ctrl+backspace` (out
+     * of one), with the `..` row as the way up that needs no chord at all. */
     api->request_bind(api, self, LIT("files"), LIT("enter"),
                       LIT("exec :br.enter <path> && :open <path>"));
+    /* Out, and it shadows nothing: `edit.delete_word_back` is written for the `text` context and
+     * a listing is a surface. Backspace erases inside a name, so the modified one leaving the
+     * directory reads the same way round. */
+    api->request_bind(api, self, LIT("files"), LIT("ctrl+backspace"), LIT("br.up"));
     /* DOUBLE click, not single: a single one moves point and `br.snap` lands it on the name, so
      * clicking into a row to rename it does not also take you somewhere. */
     api->request_bind(api, self, LIT("files"), LIT("double-click"),
@@ -1098,8 +1105,6 @@ OKET_MAIN {
     api->request_bind(api, self, LIT("files"), LIT("click"), LIT("br.snap"));
     api->request_bind(api, self, LIT("files"), LIT("up"), LIT("br.up.row"));
     api->request_bind(api, self, LIT("files"), LIT("down"), LIT("br.down.row"));
-    api->request_bind(api, self, LIT("files"), LIT("left"), LIT("br.up"));
-    api->request_bind(api, self, LIT("files"), LIT("right"), LIT("br.into"));
     api->request_bind(api, self, LIT("files"), LIT("backspace"), LIT("br.erase"));
     api->request_bind(api, self, LIT("files"), LIT("del"), LIT("br.erase.fwd"));
     api->request_bind(api, self, LIT("files"), LIT("ctrl+@AC02"), LIT("exec :br.commit"));
