@@ -322,6 +322,12 @@ bind_dispatch :: proc(a: ^App, chord: input.Chord, b: input.Bind, extend: bool) 
         cl_show(a, ":")
     case .Menu_Open:
         menu_open(a)
+    case .Font_Bigger:
+        font_zoom(a, +1)
+    case .Font_Smaller:
+        font_zoom(a, -1)
+    case .Font_Reset:
+        font_reset(a)
     case:
         // A bound chord that does nothing at all is the one thing §8 exists to prevent, so a
         // verb whose stage has not landed says so rather than going quiet.

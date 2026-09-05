@@ -68,7 +68,8 @@ main :: proc() {
     sx, _ := glfw.GetWindowContentScale(a.window)
 
     // An empty stack is not an error: the kernel draws with the bitmap and says so on screen.
-    faces, _ := font_stack_load(sx)
+    faces, used := font_stack_load(sx)
+    font_init(&a, used)
     atlas, atlas_ok := gfx.atlas_make(faces)
     if !atlas_ok {
         fmt.eprintln("the built-in fallback atlas failed to parse; this build is broken")
@@ -85,6 +86,13 @@ main :: proc() {
     input_init(&a)
     app_init(&a)
     defer app_destroy(&a)
+
+    // A configured size is the baseline `font.reset` returns to: it is what this user asked
+    // for, where the display's number is only what nobody overrode. A 0, or one the atlas
+    // refuses, leaves both alone.
+    if font_apply(&a, a.config.font_px) {
+        a.font_system = a.font_px
+    }
 
     // A session's reader thread, and the I/O worker, both have to reach the frame loop, which
     // is parked in WaitEvents. Before autoload: a plugin may start a job in its entry point,

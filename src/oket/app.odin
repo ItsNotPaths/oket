@@ -110,6 +110,10 @@ App :: struct {
     bar:          Rect,
     message:      string, // owned; lives until the next keystroke
     clips:        [dynamic]Clip, // owned; the kill ring, newest first
+    // The face size the atlas is baked at, and the one the system asked for. `font.reset` goes
+    // back to the second; a zoom step counts from the first.
+    font_px:      int,
+    font_system:  int,
     paste:        Paste_Mark,
     home:         string, // owned; where binds.conf lives, empty in a test
     quit:         bool,
