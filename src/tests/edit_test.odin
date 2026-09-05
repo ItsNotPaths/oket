@@ -389,6 +389,42 @@ an_edited_buffer_is_not_overwritten :: proc(t: ^testing.T) {
     testing.expect(t, strings.contains(a.message, "changed on disk"), a.message)
 }
 
+// The watch refuses a buffer holding edits the file does not (above). `ed.reload` is the user
+// overruling that, and it is the ONLY thing the verb is for.
+//
+// It lives here rather than in the kernel for the reason PLAN.md §14 gives for `watch`: the
+// kernel reads no file into a document, so it cannot re-read one either.
+@(test)
+reload_takes_the_file_over_our_own_edits :: proc(t: ^testing.T) {
+    a, path, ok := edit_app(t, "oket-edit-reload", "alpha\n")
+    if !ok {
+        return
+    }
+    defer close_plug_app(&a)
+
+    app.plug_type(&a, focused(&a), 'x')
+    mine := doc_text(&a, focused(&a))
+    _ = os.write_entire_file(path, transmute([]u8)string("theirs\n"))
+    for _ in 0 ..< 200 {
+        app.io_pump(&a)
+        time.sleep(5 * time.Millisecond)
+    }
+    testing.expect_value(t, doc_text(&a, focused(&a)), mine) // refused, as it should be
+
+    app.cl_exec(&a, ":ed.reload")
+    testing.expect_value(t, doc_text(&a, focused(&a)), "theirs\n")
+    testing.expect(t, strings.contains(a.message, "reloaded"), a.message)
+
+    // And the baseline moved with it: the same bytes arriving again report nothing, where a
+    // reload that only spliced the text would call its own work a foreign change.
+    _ = os.write_entire_file(path, transmute([]u8)string("theirs\n"))
+    for _ in 0 ..< 200 {
+        app.io_pump(&a)
+        time.sleep(5 * time.Millisecond)
+    }
+    testing.expect(t, !strings.contains(a.message, "changed on disk"), a.message)
+}
+
 // Our own `:w` comes back through the same watch, and it must not land as a reload: the
 // baseline moved when we wrote, so there is nothing to take back and the caret does not move.
 @(test)

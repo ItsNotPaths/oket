@@ -269,7 +269,7 @@ an_unbuilt_verb_says_so :: proc(t: ^testing.T) {
     defer os.remove_all(dir)
     defer close_app(&a)
 
-    f5, _ := input.key_code("FK05")
-    app.handle_chord(&a, {f5, {}, 0})
-    testing.expect_value(t, a.message, "file.reload is not built yet")
+    plus, _ := input.key_code("AE12")
+    app.handle_chord(&a, {plus, {.Ctrl}, 0}) // ctrl+=
+    testing.expect_value(t, a.message, "font.bigger is not built yet")
 }

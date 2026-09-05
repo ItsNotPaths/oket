@@ -41,12 +41,12 @@ binds_file_lays_over_the_defaults :: proc(t: ^testing.T) {
     a := fixture()
     defer close(&a)
 
-    before, _ := find(&a, "f5", .Text)
-    testing.expect_value(t, before.target, input.Bind_Target(input.Command.Reload))
+    before, _ := find(&a, "f3", .Text)
+    testing.expect_value(t, before.target, input.Bind_Target(input.Command.Search_Next))
 
-    app.binds_parse(&a, "[text]\nf5 = file.dump\nclick = exec :open <path>\n", "binds.conf")
+    app.binds_parse(&a, "[text]\nf3 = file.dump\nclick = exec :open <path>\n", "binds.conf")
 
-    after, found := find(&a, "f5", .Text)
+    after, found := find(&a, "f3", .Text)
     testing.expect(t, found)
     testing.expect_value(t, after.target, input.Bind_Target(input.Command.Save))
     testing.expect_value(t, after.origin.src, input.Origin_Src.Config)
@@ -69,11 +69,11 @@ binds_file_skips_what_it_cannot_read :: proc(t: ^testing.T) {
 
     app.binds_parse(
         &a,
-        "[nowhere]\nf5 = file.dump\n[text]\nnotachord = file.dump\nf6 = not.a.verb\nf7 = file.dump\n",
+        "[nowhere]\nf3 = file.dump\n[text]\nnotachord = file.dump\nf6 = not.a.verb\nf7 = file.dump\n",
         "binds.conf",
     )
-    still, _ := find(&a, "f5", .Text)
-    testing.expect_value(t, still.target, input.Bind_Target(input.Command.Reload))
+    still, _ := find(&a, "f3", .Text)
+    testing.expect_value(t, still.target, input.Bind_Target(input.Command.Search_Next))
 
     b, found := find(&a, "f7", .Text)
     testing.expect(t, found, "a good row after three bad ones was dropped")
