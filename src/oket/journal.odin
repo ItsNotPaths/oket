@@ -40,6 +40,11 @@ Journal :: struct {
     file:   ^os.File,
     path:   string, // owned; the journal file, not the document
     synced: time.Tick,
+    // A write that did not land, whole. The sink cannot report — it has the Journal and not the
+    // App — so it raises this and journal_sync says it once and stops writing. A journal that
+    // keeps taking records after one went missing is the worst of the three outcomes: it looks
+    // whole and recovers a document that never existed.
+    broken: bool,
 }
 
 // Every frame, after the drain. Starting and stopping both live here rather than at the sites
@@ -52,6 +57,10 @@ journal_sync :: proc(a: ^App) {
     for id in journal_ids(a) {
         if dir == "" || !journal_wanted(a, id) {
             journal_end(a, id)
+            continue
+        }
+        if j := a.journals[id]; j.broken {
+            journal_retire(a, id, j)
             continue
         }
         journal_pump(a.journals[id])
@@ -76,6 +85,23 @@ journal_end :: proc(a: ^App, id: store.Id) {
     path := strings.clone(j.path, context.temp_allocator)
     journal_detach(a, id)
     os.remove(path)
+}
+
+// A journal that cannot write is retired, not ended: the ENTRY stays, because journal_sync's
+// start loop would otherwise open a fresh one and TRUNCATE the file over the work already in
+// it. What comes off is the sink, which is also what says it once — the document still holding
+// ours is a report nobody has made yet.
+@(private = "file")
+journal_retire :: proc(a: ^App, id: store.Id, j: ^Journal) {
+    doc := store.store_doc(&a.docs, id)
+    if doc == nil || doc.sink.user != j {
+        return
+    }
+    doc.sink = {}
+    d := store.store_descriptor(&a.docs, id)
+    defer desc.release(d)
+    file := d != nil ? d.file : j.path
+    message_set(a, fmt.tprintf("the journal for %s stopped taking records; edits from here on are not recoverable", file))
 }
 
 // What a crash leaves behind: the descriptor goes and the bytes stay. journal_end adds the
@@ -302,7 +328,7 @@ journal_begin :: proc(a: ^App, id: store.Id, dir: string) {
         return
     }
     j := new(Journal)
-    j^ = Journal{f, path, time.tick_now()}
+    j^ = Journal{file = f, path = path, synced = time.tick_now()}
     a.journals[id] = j
     fault_journal_add(os.fd(f))
     doc.sink = txt.Doc_Sink {
@@ -329,10 +355,23 @@ journal_write :: proc(user: rawptr, at, old_len: int, text: string) {
     endian.put_u64(head[0:8], .Little, u64(at))
     endian.put_u64(head[8:16], .Little, u64(old_len))
     endian.put_u64(head[16:24], .Little, u64(len(text)))
-    os.write(j.file, head[:])
-    if len(text) > 0 {
-        os.write(j.file, transmute([]u8)text)
+    if !wrote(j, head[:]) || len(text) == 0 {
+        return
     }
+    _ = wrote(j, transmute([]u8)text)
+}
+
+// A short write is a failure like any other here: half a record is a torn tail, which the
+// replay already ends at, so what is lost is this record and every one after it. Broken is
+// checked BEFORE the write: bytes appended after a torn record would replay as its text.
+@(private = "file")
+wrote :: proc(j: ^Journal, buf: []u8) -> bool {
+    if j.broken {
+        return false
+    }
+    n, err := os.write(j.file, buf)
+    j.broken = err != nil || n != len(buf)
+    return !j.broken
 }
 
 @(private = "file")
