@@ -6,6 +6,8 @@ type.
 
 ## unreleased
 
+- The editor moves its own caret: `left` and `right` are `ed.left` and `ed.right` rows in
+  `binds.conf`, and `nav.left` still answers everywhere else.
 - The home page is the default document. A start with no session opens it, not a listing.
 - `enter` on a home row takes the offer: recovered work, a held-back plugin, a file to open.
 - Two-chord binds: `ctrl+b ctrl+f`, where both chords carry a modifier.

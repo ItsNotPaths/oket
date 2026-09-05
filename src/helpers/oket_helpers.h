@@ -170,6 +170,46 @@ size_t oket_pos_off(const oket_snapshot *s, oket_pos p);
 /* Cursor `i`'s range in bytes, low to high. lo == hi is a bare caret. */
 void oket_cursor_span(const oket_snapshot *s, size_t i, size_t *lo, size_t *hi);
 
+/* --- motion (CURSORS.md §8) ---
+ *
+ * The kernel keeps the cursor array and a plugin NAMES what goes in it, so motion is the one
+ * thing an editor can take over a verb at a time. The kernel's own `nav.left` and the rest stay
+ * registered and answer for every kind that has not taken them: that is what a document with no
+ * plugin behind it, and a quarantined build, navigate with.
+ *
+ * Positions are the document's OWN — the ones the snapshot carries and the ones the seam takes.
+ * A run no cell stands for (`snapshot.hidden`) is stepped OVER and never into, so a caret
+ * cannot come to rest inside a fold. */
+
+typedef enum oket_motion {
+    OKET_MOTION_LEFT,
+    OKET_MOTION_RIGHT,
+} oket_motion;
+
+/* Moves EVERY caret, because a motion is what the set does, and hands the answer back through
+ * `cursors`. `select` extends from each anchor; a plain move over a selection collapses onto the
+ * edge it goes toward, which is what a GUI editor does and what an arrow key after a drag means.
+ *
+ * The set is merged at the drain like any other, so two carets moving into each other fuse, and
+ * it carries no edits — the generation does not move and no watcher wakes. */
+void oket_move(const oket_api *api, oket_self self, const oket_snapshot *s,
+               oket_motion m, int select);
+
+/* What oket_move is built out of, for the verb it does not have. Each takes and returns a
+ * document position, and each clamps rather than failing. */
+
+/* One rune left / right, wrapping across the line break. Either end of the document is itself. */
+oket_pos oket_pos_left(const oket_snapshot *s, oket_pos p);
+oket_pos oket_pos_right(const oket_snapshot *s, oket_pos p);
+
+/* The visible edge of the hidden run `p` fell into, or `p` when it fell into none. Both edges
+ * draw at the same cell, so the direction of travel is what picks between them: `toward_lo` is
+ * a caret arriving from the right. */
+oket_pos oket_visible(const oket_snapshot *s, oket_pos p, int toward_lo);
+
+/* Reading order over positions: line first, then byte column. */
+int oket_pos_less(oket_pos a, oket_pos b);
+
 /* --- the descriptor builder ---
  *
  * A listing is text plus the spans that name its parts, and the two have to be built together
