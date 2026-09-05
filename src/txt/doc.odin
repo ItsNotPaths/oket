@@ -406,10 +406,16 @@ doc_select_kill :: proc(d: ^Doc, k: Kill) {
     doc_set_spans(d, spans[:])
 }
 
-// Each cursor's selection, or its whole line when nothing is selected. Pair with doc_copy.
+// Each cursor's selection, or its whole line when nothing is selected. Pair with doc_copy, and
+// the pairing is the reason for `any_sel`: a mixed set copies only the selections, so cutting a
+// bare caret's line beside them would delete text that never reached the clipboard.
 doc_cut :: proc(d: ^Doc) -> bool {
+    any_sel := doc_any_selection(d)
     edits := make([dynamic]Edit, 0, len(d.cursors), context.temp_allocator)
     for c in edit_cursors(d) {
+        if any_sel && !cursor_has_selection(c) {
+            continue
+        }
         lo, hi := cursor_range(c)
         if !cursor_has_selection(c) {
             line := c.head.line
