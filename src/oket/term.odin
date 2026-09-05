@@ -406,7 +406,11 @@ term_send :: proc(a: ^App, tm: ^Term, chord: input.Chord) {
     case "PGDN":
         key = .PageDown
     case:
-        if chord.mods == {.Ctrl} {
+        // Shift does not change a control character: ctrl+shift+c is the 0x03 ctrl+c is, which
+        // is what every other terminal encodes and what lets `ctrl+shift+c = surface.send` be
+        // the interrupt row. Written out rather than `.Ctrl in mods`, so ctrl+alt stays unsent
+        // until something asks it to mean the ESC prefix.
+        if chord.mods == {.Ctrl} || chord.mods == {.Ctrl, .Shift} {
             if l := key_layout_name(chord.code); len(l) == 1 && l[0] >= 'a' && l[0] <= 'z' {
                 pty.terminal_input_ctrl(&tm.t, rune(l[0]))
             }
