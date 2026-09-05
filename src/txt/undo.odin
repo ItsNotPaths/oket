@@ -32,6 +32,9 @@ Undo_Step :: struct {
 Undo :: struct {
     steps: [dynamic]Undo_Step,
     redo:  [dynamic]Undo_Step,
+    // Steps ever opened, which `len(steps)` is not: the cap trims from the bottom, so a full
+    // log stays the same length when a step is added to it.
+    made:  int,
 }
 
 UNDO_MAX :: 1000 // step cap; oldest steps drop off the bottom
@@ -90,9 +93,15 @@ doc_commit :: proc(d: ^Doc, edits: []Edit, cur := Commit{}) -> bool {
         }
         append(&step.batches, batch)
         append(&u.steps, step)
+        u.made += 1
     }
     undo_cap(d)
     return true
+}
+
+// Read across an edit, it says whether that edit opened a step or coalesced into the one before.
+doc_steps_made :: proc(d: ^Doc) -> int {
+    return d.undo.made
 }
 
 // Replays each batch's inverse last-to-first, restores the pre-edit cursors, and moves the step
