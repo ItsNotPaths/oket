@@ -191,7 +191,7 @@ a_registered_command_runs_from_the_command_line :: proc(t: ^testing.T) {
     }
     app.ring_add(&a, scratch_doc(&a, "note", "alpha\nbeta\ngamma"))
     doc := store.store_doc(&a.docs, app.ring_focused(&a).doc)
-    doc.cursors[doc.primary] = {{1, 0}, {1, 0}, 0}
+    doc.cursors[doc.primary] = {anchor = {1, 0}, head = {1, 0}}
 
     app.cl_exec(&a, ":hello")
     testing.expect_value(t, a.message, "beta")

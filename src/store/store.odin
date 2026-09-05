@@ -43,11 +43,12 @@ Slot :: struct {
     desc:  ^desc.Descriptor,
     seen:  u64, // the highest generation store_check has seen; it may never go backwards
     spans: [dynamic]Bucket, // one bucket per publisher (spans.odin)
-    // Where the document's owner asked point to be, applied at the drain so it lands WITH the
-    // transaction it belongs to (store_point). -1 is nobody asking, and `point_tag` is the
-    // transaction it rides on, or 0 for a bare move with no write behind it.
-    point:     int,
-    point_tag: u64,
+    // The cursor set the document's owner asked for, applied at the drain so it lands WITH
+    // the transaction it belongs to (store_cursors). Empty is nobody asking, and `curs_tag`
+    // is the transaction it rides on, or 0 for a bare move with no write behind it.
+    curs:         [dynamic]txt.Cursor,
+    curs_primary: int,
+    curs_tag:     u64,
 }
 
 // One transaction against the generation its author read. Owns its edits and their text, the
@@ -78,6 +79,7 @@ store_destroy :: proc(s: ^Store) {
             delete(b.list)
         }
         delete(slot.spans)
+        delete(slot.curs)
     }
     for t in s.pending {
         txn_destroy(t)
@@ -105,8 +107,8 @@ store_open :: proc(s: ^Store, text := "") -> Id {
     s.slots[slot].doc = d
     s.slots[slot].desc = desc.new_from(desc.DEFAULT)
     s.slots[slot].seen = 0 // a new document, so store_check's high-water mark starts again
-    s.slots[slot].point = -1
-    s.slots[slot].point_tag = 0
+    clear(&s.slots[slot].curs)
+    s.slots[slot].curs_tag = 0
     for &b in s.slots[slot].spans {
         clear(&b.list) // the slot may be a reused one, and its colours were somebody else's
     }
@@ -216,24 +218,26 @@ store_submit :: proc(s: ^Store, id: Id, gen: u64, edits: []txt.Edit,
     return s.tag
 }
 
-// Where point goes when this drain is done (§5). The kernel owns the cursors, so this is not
-// how a document is navigated: it is for the owner whose submit is about to delete the row
-// point is standing on, and the two have to land together.
+// Where the cursors go when this drain is done (§5, CURSORS.md §4). The set is copied, so the
+// caller's buffer may die the moment this returns.
 //
-// TOGETHER MEANS BOTH WAYS. The offset was measured against text a pending transaction is about
+// TOGETHER MEANS BOTH WAYS. The set was measured against text a pending transaction is about
 // to write, so it rides that transaction's tag: if the write is dropped at the drain for having
-// lost the race, the caret it was measured for is dropped with it rather than jumping into text
-// that never arrived. A point asked for with nothing pending is a bare move and always lands.
-store_point :: proc(s: ^Store, id: Id, off: int) {
+// lost the race, the carets measured for it are dropped with it rather than jumping into text
+// that never arrived. A set asked for with nothing pending is a bare move and always lands —
+// and never moves the generation, so no watcher wakes and nothing is journalled.
+store_cursors :: proc(s: ^Store, id: Id, curs: []txt.Cursor, primary: int) {
     slot, ok := resolve(s, id)
-    if !ok {
+    if !ok || len(curs) == 0 {
         return
     }
-    slot.point = max(off, 0)
-    slot.point_tag = 0
+    clear(&slot.curs)
+    append(&slot.curs, ..curs)
+    slot.curs_primary = clamp(primary, 0, len(curs) - 1)
+    slot.curs_tag = 0
     #reverse for t in s.pending {
         if t.id == id {
-            slot.point_tag = t.tag
+            slot.curs_tag = t.tag
             break
         }
     }
@@ -279,22 +283,23 @@ store_drain :: proc(s: ^Store) -> (applied, stale: int) {
     }
     clear(&s.pending)
 
-    // After the splices, because the offset was written against the text they land: an owner
-    // that rewrites its rows and says where point goes is describing the document it just made.
-    // It counts as APPLIED, which is what makes the caller re-read the caret and keep it on
-    // screen — a point that moved with no splice behind it still moved.
+    // After the splices, because the set was written against the text they land: an owner
+    // that rewrites its rows and says where the carets go is describing the document it just
+    // made. It counts as APPLIED, which is what makes the caller re-read the caret and keep it
+    // on screen — a caret that moved with no splice behind it still moved. The generation does
+    // not: an empty edit list never bumps (doc_apply), so no watcher hears about a bare move.
     for &slot in s.slots {
-        if slot.doc == nil || slot.point < 0 {
+        if slot.doc == nil || len(slot.curs) == 0 {
             continue
         }
-        want := slot.point
-        tag := slot.point_tag
-        slot.point, slot.point_tag = -1, 0
-        if tag != 0 && !slice.contains(s.landed[:], tag) {
-            continue // its transaction was dropped, so the offset describes text nobody wrote
-        }
-        txt.doc_reset_cursor(slot.doc, txt.doc_pos(slot.doc, min(want, txt.doc_len(slot.doc))))
-        applied += 1
+        tag := slot.curs_tag
+        slot.curs_tag = 0
+        if tag == 0 || slice.contains(s.landed[:], tag) {
+            txt.doc_commit(slot.doc, nil, {policy = .Set, set = slot.curs[:],
+                                           primary = slot.curs_primary})
+            applied += 1
+        } // else its transaction was dropped, so the set describes text nobody wrote
+        clear(&slot.curs)
     }
 
     // Amortised housekeeping, off the edit path and after the generation has settled. Anyone

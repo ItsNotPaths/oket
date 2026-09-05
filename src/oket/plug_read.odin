@@ -21,6 +21,7 @@ import "../view"
 #assert(size_of(txt.Line_Seg) == size_of(plug.Seg))
 #assert(size_of([]u8) == size_of(plug.Block))
 #assert(size_of(txt.Cursor) == size_of(plug.Cursor))
+#assert(size_of(txt.Range) == size_of(plug.Range))
 
 // The header, plus everything allocated to build it. `snap` is FIRST, so the pointer a plugin
 // holds casts straight back to this.
@@ -98,6 +99,14 @@ view_fill :: proc(a: ^App, v: ^Plug_View, id: store.Id, t: ^txt.Text, gen: u64,
         lines    = uint(t.lines),
         gen      = gen,
         doc      = plug_doc(id),
+    }
+    // The runs no cell stands for, so a plugin computing motion does not land inside a fold
+    // (CURSORS.md §6). Original coordinates, which is the text this call hands over — a view
+    // stage's input is already derived, so there the list stays empty.
+    if dv == nil {
+        h := views_hidden(a, id)
+        v.snap.hidden = ([^]plug.Range)(raw_data(h))
+        v.snap.nhidden = len(h)
     }
 }
 

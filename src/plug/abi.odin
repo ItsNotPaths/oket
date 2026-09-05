@@ -24,7 +24,7 @@ import "../input"
 // pointer, with no lock and no call back in (§6). Adding a field is a struct field, not a
 // message.
 
-API :: 7
+API :: 8
 
 // A plugin's own identity, handed back on every call so a plugin needs no state of its own.
 // Index plus load generation, packed: a handle kept across a reload resolves to nothing rather
@@ -73,6 +73,14 @@ Cursor :: struct {
     anchor: Pos,
     head:   Pos,
     goal:   c.ptrdiff_t,
+    id:     u32,
+    _pad:   [4]u8,
+}
+
+// A run no cell on screen stands for (a fold), in the document's own coordinates.
+Range :: struct {
+    lo: Pos,
+    hi: Pos,
 }
 
 Snapshot :: struct {
@@ -92,6 +100,8 @@ Snapshot :: struct {
     lines:    c.size_t,
     gen:      u64,
     doc:      Doc,
+    hidden:   [^]Range,
+    nhidden:  c.size_t,
 }
 
 // --- the descriptor, read and written through one struct (§5) ---
@@ -407,11 +417,11 @@ Api :: struct {
     reveal:           proc "c" (api: ^Api, self: Self, doc: Doc,
                                 lo: c.size_t, hi: c.size_t, at: Reveal),
 
-    // Point, put somewhere. Not how a document is navigated — every motion verb is the
-    // kernel's — but for the case where the row point was on STOPS EXISTING because of what
-    // was just submitted: a tree collapsing a subtree has to leave point on the parent. It
-    // lands WITH the transaction, so writes still happen at one point in the frame.
-    point:            proc "c" (api: ^Api, self: Self, doc: Doc, off: c.size_t),
+    // The cursor set, named exactly (CURSORS.md §4). Copied at the call. It lands WITH the
+    // caller's pending transaction, so writes still happen at one point in the frame; a set
+    // with nothing pending is a bare move and never bumps the generation.
+    cursors:          proc "c" (api: ^Api, self: Self, doc: Doc,
+                                curs: [^]Cursor, n: c.size_t, primary: c.size_t),
 
     // Not a message: taking a REFERENCE is a call, reading through it is memory (§6). A
     // snapshot handed with a message is good for that call; a plugin that needs one for longer
@@ -465,8 +475,9 @@ Entry_Fn :: #type proc "c" (api: ^Api, self: Self) -> c.int32_t
 #assert(size_of(Block) == 16)
 #assert(size_of(Piece) == 32)
 #assert(size_of(Seg) == 32)
-#assert(size_of(Cursor) == 40)
-#assert(size_of(Snapshot) == 128)
+#assert(size_of(Cursor) == 48)
+#assert(size_of(Range) == 32)
+#assert(size_of(Snapshot) == 144)
 #assert(size_of(Column) == 24)
 #assert(size_of(Field) == 48)
 #assert(size_of(Descriptor) == 80)

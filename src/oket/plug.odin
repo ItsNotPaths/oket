@@ -127,7 +127,7 @@ plug_init :: proc(a: ^App) {
             request_config = api_request_config,
             submit = api_submit,
             reveal = api_reveal,
-            point = api_point,
+            cursors = api_cursors,
             snapshot = api_snapshot,
             release = api_release,
             world = api_world,
@@ -282,6 +282,10 @@ plug_unload :: proc(a: ^App, i: int) -> bool {
     }
     p.lib = {}
     p.live = false
+    // A shadowing row must fall through to the kernel's, not resolve to the dead slot: the
+    // re-read drops every row whose name no longer answers, and the row underneath takes over
+    // (CURSORS.md §8). The row stays in the user's file, the way Bind_Request.dead keeps it.
+    binds_sync(a)
     views_dirty(a) // a `view =` line naming it resolves to nothing now
     return true
 }
@@ -920,16 +924,18 @@ api_reveal :: proc "c" (api: ^plug.Api, self: plug.Self, doc: plug.Doc,
 }
 
 // Queued on the slot rather than written now: the submit it belongs to has not landed yet, and
-// the drain rebuilds the cursors after every splice it applies (store_point).
+// the drain rebuilds the cursors after every splice it applies (store_cursors).
 @(private = "file")
-api_point :: proc "c" (api: ^plug.Api, self: plug.Self, doc: plug.Doc, off: uint) {
+api_cursors :: proc "c" (api: ^plug.Api, self: plug.Self, doc: plug.Doc,
+                         curs: [^]plug.Cursor, n: uint, primary: uint) {
     a, _, ok := api_app(api, self)
     defer api_done()
-    if !ok {
+    if !ok || curs == nil || n == 0 {
         return
     }
     context = a.api.ctx
-    store.store_point(&a.docs, store_id(doc), int(min(off, uint(max(int)))))
+    set := transmute([]txt.Cursor)curs[:n]
+    store.store_cursors(&a.docs, store_id(doc), set, int(min(primary, n - 1)))
 }
 
 @(private = "file")

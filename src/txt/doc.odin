@@ -550,6 +550,11 @@ edit_is_noop :: proc(e: Edit) -> bool {
 // reversible patches for the undo journal. `edits_in` is read only.
 doc_apply :: proc(d: ^Doc, edits_in: []Edit, rec: ^Batch = nil, cur := Commit{}) -> bool {
     if len(edits_in) == 0 {
+        // A cursor-only commit (CURSORS.md §3): the set lands, the generation does not move.
+        if cur.policy == .Set {
+            doc_set_cursors(d, cur.set, cur.primary)
+            doc_merge_cursors(d)
+        }
         return false
     }
     edits := slice.clone(edits_in, context.temp_allocator)
@@ -670,7 +675,8 @@ doc_apply :: proc(d: ^Doc, edits_in: []Edit, rec: ^Batch = nil, cur := Commit{})
             c.anchor, c.head = doc_clamp_pos(d, c.anchor), doc_clamp_pos(d, c.head)
         }
     case .Set:
-        doc_set_cursors(d, cur.set, d.primary)
+        doc_set_cursors(d, cur.set, cur.primary)
+        doc_merge_cursors(d) // normalization, not policy: one rule for every placed caret
     }
     if changed {
         doc_bump(d)

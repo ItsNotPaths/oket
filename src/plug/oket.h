@@ -30,7 +30,7 @@
 extern "C" {
 #endif
 
-#define OKET_API 7
+#define OKET_API 8
 
 /* A plugin exports exactly this, and hidden visibility keeps everything else in. */
 #define OKET_EXPORT __attribute__((visibility("default")))
@@ -79,11 +79,22 @@ typedef struct {
     ptrdiff_t col; /* BYTES into the line */
 } oket_pos;
 
-/* anchor == head means no selection; head is the moving caret. */
+/* anchor == head means no selection; head is the moving caret. `goal` is the sticky column
+ * for vertical motion, in cells; negative asks the kernel to compute it from head. `id` is
+ * carried from the cursor that produced an edit onto the one that replaces it; 0 means "no
+ * identity", not "cursor zero". */
 typedef struct {
     oket_pos  anchor, head;
     ptrdiff_t goal;
+    uint32_t  id;
+    uint8_t   _pad[4];
 } oket_cursor;
+
+/* A run of the document no cell on screen stands for (a fold). lo and hi draw at the same
+ * cell; motion that crosses one steps over it. */
+typedef struct {
+    oket_pos lo, hi;
+} oket_range;
 
 struct oket_descriptor;
 
@@ -99,6 +110,11 @@ typedef struct {
     size_t   lines;
     uint64_t gen;
     oket_doc doc;
+    /* The hidden runs, in the document's own coordinates, sorted. Empty inside a view stage:
+     * the text handed to one is already the derived text. Good for the call, like everything
+     * else here. */
+    const oket_range *hidden;
+    size_t nhidden;
 } oket_snapshot;
 
 /* --- the descriptor, read and written through one struct (§5) ---
@@ -419,15 +435,18 @@ typedef struct oket_api {
     void (*reveal)(const struct oket_api *api, oket_self self, oket_doc doc,
                    size_t lo, size_t hi, oket_reveal at);
 
-    /* Point, put somewhere. The kernel owns the cursors and every motion verb writes them, so
-     * this is not how a document is navigated — it is for the case where the row point was on
-     * STOPS EXISTING because of what you just submitted. A tree collapsing a subtree has to
-     * leave point on the parent, and the line it was standing on is gone.
+    /* The cursor set, named exactly (CURSORS.md §4). The kernel keeps the array — the
+     * renderer draws it, the viewport follows it, undo restores it — and this call says what
+     * goes in it. `curs` is copied before the call returns. n == 0 is nobody asking.
      *
-     * A byte offset, and it collapses every cursor to one caret there. It lands with the
-     * transaction, not before it: writes still happen at one point in the frame, so a submit
-     * and the point that goes with it arrive at the same generation. */
-    void (*point)(const struct oket_api *api, oket_self self, oket_doc doc, size_t off);
+     * It lands with your pending transaction, not before it: a set measured against text a
+     * submit is about to write is dropped with that submit if it loses the race. A set with
+     * nothing pending is a bare move — it lands, and the generation does not move, so no
+     * watcher wakes and nothing is journalled.
+     *
+     * The set is merged by the same rule as every other cursor: overlapping selections fuse. */
+    void (*cursors)(const struct oket_api *api, oket_self self, oket_doc doc,
+                    const oket_cursor *curs, size_t n, size_t primary);
 
     /* Not a message: taking a REFERENCE is a call, reading through it is memory (§6). The
      * snapshot handed with a message is good for that call; take your own here to hold one
@@ -485,8 +504,9 @@ typedef int32_t (*oket_entry_fn)(const oket_api *api, oket_self self);
 _Static_assert(sizeof(oket_block) == 16, "oket_block");
 _Static_assert(sizeof(oket_piece) == 32, "oket_piece");
 _Static_assert(sizeof(oket_seg) == 32, "oket_seg");
-_Static_assert(sizeof(oket_cursor) == 40, "oket_cursor");
-_Static_assert(sizeof(oket_snapshot) == 128, "oket_snapshot");
+_Static_assert(sizeof(oket_cursor) == 48, "oket_cursor");
+_Static_assert(sizeof(oket_range) == 32, "oket_range");
+_Static_assert(sizeof(oket_snapshot) == 144, "oket_snapshot");
 _Static_assert(sizeof(oket_column) == 24, "oket_column");
 _Static_assert(sizeof(oket_field) == 48, "oket_field");
 _Static_assert(sizeof(oket_descriptor) == 80, "oket_descriptor");

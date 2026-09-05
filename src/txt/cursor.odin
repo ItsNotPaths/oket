@@ -13,11 +13,13 @@ import "core:unicode/utf8"
 // the same range twice.
 
 // anchor == head means no selection; head is the moving caret. goal is the sticky column for
-// vertical motion, in CELLS — a byte column would drift through multi-byte lines.
+// vertical motion, in CELLS — a byte column would drift through multi-byte lines. id is
+// carried, never invented: 0 means "no identity", not "cursor zero" (CURSORS.md §5).
 Cursor :: struct {
     anchor: Pos,
     head:   Pos,
     goal:   int,
+    id:     u32,
 }
 
 // Where an edit leaves the carets. A parameter of the COMMIT, not a property of the document:
@@ -30,10 +32,11 @@ Cursor_Policy :: enum {
     Set,    // the author says exactly                  — computed motion
 }
 
-// The cursor half of a commit. `set` is read by .Set and ignored by the rest.
+// The cursor half of a commit. `set` and `primary` are read by .Set and ignored by the rest.
 Commit :: struct {
-    policy: Cursor_Policy,
-    set:    []Cursor,
+    policy:  Cursor_Policy,
+    set:     []Cursor,
+    primary: int,
 }
 
 doc_reset_cursor :: proc(d: ^Doc, p: Pos) {
@@ -55,6 +58,9 @@ doc_set_cursors :: proc(d: ^Doc, src: []Cursor, primary: int) {
     for c in src {
         k := c
         k.anchor, k.head = doc_clamp_pos(d, c.anchor), doc_clamp_pos(d, c.head)
+        if k.goal < 0 {
+            k.goal = doc_cell_col(d, k.head) // negative asks for it (oket.h)
+        }
         append(&d.cursors, k)
     }
     d.primary = clamp(primary, 0, len(d.cursors) - 1)

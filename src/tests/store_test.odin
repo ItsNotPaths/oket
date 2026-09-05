@@ -419,11 +419,12 @@ a_field_the_log_no_longer_reaches_is_dropped :: proc(t: ^testing.T) {
     testing.expect(t, !ok, "a link outlived the log that could have placed it")
 }
 
-// A point rides the transaction it was measured against. The offset describes text a pending
-// write is about to make, so a write that loses the race takes its caret with it — otherwise the
-// caret lands in a document that write never reached, which is a jump nothing on screen explains.
+// A cursor set rides the transaction it was measured against. The positions describe text a
+// pending write is about to make, so a write that loses the race takes its carets with it —
+// otherwise they land in a document that write never reached, which is a jump nothing on
+// screen explains.
 @(test)
-a_point_whose_transaction_was_dropped_does_not_land :: proc(t: ^testing.T) {
+a_cursor_set_whose_transaction_was_dropped_does_not_land :: proc(t: ^testing.T) {
     s: store.Store
     defer store.store_destroy(&s)
     id := store.store_open(&s, "one\ntwo")
@@ -433,16 +434,51 @@ a_point_whose_transaction_was_dropped_does_not_land :: proc(t: ^testing.T) {
 
     // Written against `gen`, and then somebody else moves the document first.
     store.store_submit(&s, id, gen, {txt.Edit{lo = 0, hi = 0, text = "sub\n"}})
-    store.store_point(&s, id, 6)
+    store.store_cursors(&s, id, {{anchor = {1, 1}, head = {1, 1}}}, 0)
     txt.doc_apply(doc, {txt.Edit{lo = 3, hi = 3, text = "!"}})
     store.store_drain(&s)
-    // Where the foreign splice left it, and NOT the {1, 1} the dropped point asked for.
+    // Where the foreign splice left it, and NOT the {1, 1} the dropped set asked for.
     testing.expect_value(t, doc.cursors[0].head, txt.Pos{0, 4})
 
-    // And a bare move, with nothing pending behind it, still lands. "one!\n" is five bytes, so
-    // six is one into the line below it.
-    store.store_point(&s, id, 6)
+    // And a bare move, with nothing pending behind it, still lands.
+    store.store_cursors(&s, id, {{anchor = {1, 1}, head = {1, 1}}}, 0)
     store.store_drain(&s)
+    testing.expect_value(t, doc.cursors[0].head, txt.Pos{1, 1})
+}
+
+// CURSORS.md stage 1's gate: a plugin names a two-caret set with nothing pending. It lands and
+// counts as applied, the generation does not move — no watcher wakes, no snapshot drops — and
+// there is nothing to undo, because navigation is not an edit.
+@(test)
+a_cursor_set_is_not_a_transaction :: proc(t: ^testing.T) {
+    s: store.Store
+    defer store.store_destroy(&s)
+    id := store.store_open(&s, "one\ntwo\nthree")
+    doc := store.store_doc(&s, id)
+    gen, _ := store.store_gen(&s, id)
+
+    store.store_cursors(&s, id, {
+        {anchor = {0, 0}, head = {0, 3}, goal = -1},
+        {anchor = {2, 0}, head = {2, 5}, goal = -1},
+    }, 1)
+    applied, _ := store.store_drain(&s)
+
+    testing.expect_value(t, applied, 1) // the caller re-reads the caret and keeps it on screen
+    now, _ := store.store_gen(&s, id)
+    testing.expect_value(t, now, gen)
+    testing.expect_value(t, len(doc.cursors), 2)
+    testing.expect_value(t, doc.primary, 1)
+    testing.expect_value(t, doc.cursors[1].head, txt.Pos{2, 5})
+    testing.expect_value(t, doc.cursors[1].goal, 5) // negative asked the kernel to compute it
+    testing.expect_value(t, len(doc.undo.steps), 0)
+
+    // The set is normalized by the same rule as every other caret: overlap fuses.
+    store.store_cursors(&s, id, {
+        {anchor = {0, 0}, head = {0, 3}},
+        {anchor = {0, 2}, head = {1, 1}},
+    }, 0)
+    store.store_drain(&s)
+    testing.expect_value(t, len(doc.cursors), 1)
     testing.expect_value(t, doc.cursors[0].head, txt.Pos{1, 1})
 }
 

@@ -268,8 +268,9 @@ static void put_row(oket_build *out, int idx) {
     oket_build_row(out);
 }
 
-/* The list as it stands, and the byte the first ROW starts at — which is where point goes
- * whenever the filter moved, because the row it was on may not be in the list any more.
+/* The list as it stands, and the LINE of the first row — which is where point goes whenever
+ * the filter moved, because the row it was on may not be in the list any more. The head is
+ * line 0, so the first shown row is always line 1.
  *
  * A REGENERATION: these carets were put where they are by navigation, so they stay on their
  * rows rather than collapsing onto the splice, and the undo log goes with the text (§5). */
@@ -301,9 +302,7 @@ static size_t publish(const oket_api *api, oket_self self, list *l) {
         if (!matches(&OKET_GRAMMARS[i], l->filter, l->nfilter)) {
             continue;
         }
-        if (first == 0) {
-            first = out.len;
-        }
+        first = 1;
         put_row(&out, i);
     }
 
@@ -340,11 +339,17 @@ static void repaint(const oket_api *api, oket_self self) {
  * to browsing is also what takes `done` off the row it was left on — the word answered the
  * keystroke that asked for the build, and this is the next one. */
 static void refilter(const oket_api *api, oket_self self, list *l) {
+    oket_cursor c;
+
     if (build.state == BUILD_DONE || build.state == BUILD_FAILED) {
         build.state = BUILD_OFF;
         build.at = -1;
     }
-    api->point(api, self, l->doc, publish(api, self, l));
+    memset(&c, 0, sizeof c);
+    c.head.line = (ptrdiff_t)publish(api, self, l);
+    c.anchor = c.head;
+    c.goal = -1; /* the kernel computes the cell column */
+    api->cursors(api, self, l->doc, &c, 1, 0);
 }
 
 void grammars_refresh(const oket_api *api, oket_self self) {

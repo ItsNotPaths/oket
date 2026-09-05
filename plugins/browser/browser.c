@@ -357,27 +357,20 @@ static void rows_read(browser *b, int keep) {
 
 /* --- reading the document back --- */
 
-/* The line a row draws: the fixed prefix, the indent, the name, and a directory's slash, which
- * is exactly what put_row writes. */
-static size_t line_len(const row *r) {
-    return (size_t)r->name_off + strlen(r->shown) + (r->dir ? 1u : 0u);
-}
+/* THE ONE PLACE A CARET GOES: the end of the name of row `at`, before a directory's slash.
+ * One row is one line, so the row index is the line. */
+static void point_name(const oket_api *api, oket_self self, oket_doc doc,
+                       const browser *b, size_t at) {
+    oket_cursor c;
 
-static size_t row_offset(const browser *b, size_t at) {
-    size_t off = 0, i;
-
-    for (i = 0; i < at && i < b->nrows; i++) {
-        off += line_len(&b->rows[i]) + 1; /* the newline after it */
+    memset(&c, 0, sizeof c);
+    if (at < b->nrows) {
+        c.head.line = (ptrdiff_t)at;
+        c.head.col = b->rows[at].name_off + (ptrdiff_t)strlen(b->rows[at].shown);
     }
-    return off;
-}
-
-/* THE ONE PLACE A CARET GOES: the end of the name of row `at`, before a directory's slash. */
-static size_t name_end(const browser *b, size_t at) {
-    if (at >= b->nrows) {
-        return 0;
-    }
-    return row_offset(b, at) + (size_t)b->rows[at].name_off + strlen(b->rows[at].shown);
+    c.anchor = c.head;
+    c.goal = -1; /* the kernel computes the cell column */
+    api->cursors(api, self, doc, &c, 1, 0);
 }
 
 static size_t row_of(const browser *b, const char *path) {
@@ -551,8 +544,8 @@ static void reroot(const oket_api *api, oket_self self, const oket_at *at, brows
     rows_read(b, 0); /* another directory, so nothing typed in this one carries over */
     publish(api, self, at->snap->doc, b);
     /* The first real entry, not `..`: you arrive somewhere to look at what is in it. */
-    api->point(api, self, at->snap->doc,
-               name_end(b, kept[0] == '\0' ? (b->nrows > 1 ? 1 : 0) : row_of(b, kept)));
+    point_name(api, self, at->snap->doc, b,
+               kept[0] == '\0' ? (b->nrows > 1 ? 1 : 0) : row_of(b, kept));
     if (dropped > 0) {
         snprintf(report, sizeof report, "%d name(s) typed and not committed were dropped",
                  dropped);
@@ -623,7 +616,7 @@ static void *open_browser(const oket_api *api, oket_self self, oket_doc doc,
     }
     rows_read(b, 0);
     publish(api, self, doc, b);
-    api->point(api, self, doc, name_end(b, b->nrows > 1 ? 1 : 0));
+    point_name(api, self, doc, b, b->nrows > 1 ? 1 : 0);
     return b;
 }
 
@@ -746,7 +739,7 @@ static int32_t up_cmd(const oket_api *api, oket_self self, const oket_at *at,
         && expanded(b, b->rows[line].path)) {
         toggle_open(b, b->rows[line].path);
         rebuild(api, self, at, b, 1);
-        api->point(api, self, at->snap->doc, name_end(b, line));
+        point_name(api, self, at->snap->doc, b, line);
         return 0;
     }
     snprintf(here, sizeof here, "%s", b->root);
@@ -795,7 +788,7 @@ static int32_t step(const oket_api *api, oket_self self, const oket_at *at, int 
     } else {
         want = line + 1 >= b->nrows ? b->nrows - 1 : line + 1;
     }
-    api->point(api, self, at->snap->doc, name_end(b, want));
+    point_name(api, self, at->snap->doc, b, want);
     return 0;
 }
 
@@ -831,7 +824,7 @@ static int32_t snap_cmd(const oket_api *api, oket_self self, const oket_at *at,
     if (!oket_mine(at)) {
         return refuse(api, self, "br.snap: this document is not the browser's");
     }
-    api->point(api, self, at->snap->doc, name_end(b, point_row(at->snap)));
+    point_name(api, self, at->snap->doc, b, point_row(at->snap));
     return 0;
 }
 
@@ -852,7 +845,7 @@ static int32_t toggle_cmd(const oket_api *api, oket_self self, const oket_at *at
     line = point_row(at->snap);
     toggle_open(b, path);
     rebuild(api, self, at, b, 1);
-    api->point(api, self, at->snap->doc, name_end(b, line < b->nrows ? line : 0));
+    point_name(api, self, at->snap->doc, b, line < b->nrows ? line : 0);
     return 1;
 }
 
@@ -985,7 +978,7 @@ static int32_t commit_cmd(const oket_api *api, oket_self self, const oket_at *at
      * a name that failed has to come back saying so rather than looking committed. */
     rows_read(b, 0);
     publish(api, self, s->doc, b);
-    api->point(api, self, s->doc, name_end(b, line < b->nrows ? line : 0));
+    point_name(api, self, s->doc, b, line < b->nrows ? line : 0);
     snprintf(report, sizeof report, "br.commit: %d renamed, %d refused", done, failed);
     oket_say(api, self, report);
     return failed == 0 ? 0 : 1;
@@ -1005,7 +998,7 @@ static int32_t reload_cmd(const oket_api *api, oket_self self, const oket_at *at
     }
     line = point_row(at->snap);
     rebuild(api, self, at, b, 0);
-    api->point(api, self, at->snap->doc, name_end(b, line < b->nrows ? line : 0));
+    point_name(api, self, at->snap->doc, b, line < b->nrows ? line : 0);
     return 0;
 }
 
@@ -1022,7 +1015,7 @@ static int32_t hidden_cmd(const oket_api *api, oket_self self, const oket_at *at
     }
     b->hidden = !b->hidden;
     rebuild(api, self, at, b, 1);
-    api->point(api, self, at->snap->doc, name_end(b, 0));
+    point_name(api, self, at->snap->doc, b, 0);
     return 0;
 }
 
