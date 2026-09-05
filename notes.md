@@ -13,6 +13,8 @@ type.
 - `ctrl+k`, `ctrl+shift+k` and `ctrl+u` kill to the clipboard; `ctrl+shift+v` walks back through
   what you killed.
 - A copy made with several carets pastes one piece per caret.
+- `:find <text>` selects every match at once, so typing over them replaces them all. `f3` and
+  `shift+f3` step through them one at a time instead.
 - `ctrl+alt+left` walks back through where you have been, `ctrl+alt+right` retraces it. It puts
   the whole screen back, not just the caret.
 - `ctrl+=` and `ctrl+-` resize the text, `ctrl+0` goes back. `[font] size` in `config.conf`
