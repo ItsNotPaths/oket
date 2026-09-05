@@ -28,6 +28,7 @@ Config :: struct {
     behind:  int, // [strip] behind = 12 — percent the surface behind the panels is darkened
     tau:     int, // [strip] tau = 90 — milliseconds the strip's motion decays by 1/e (§7)
     select:  int, // [cursor] select = 90 — percent of the swap a selection carries (§3)
+    font_px: int, // [font] size = 18 — the face size to bake at; 0 is the display's own
     split:   txt.Split, // [cursor] split = selections — what cursor.split_lines leaves per line
     // The two ordered lists, both keyed by KIND and not by document, because both answers are
     // about the vocabulary a kind is written in:
@@ -98,6 +99,9 @@ SETTINGS := [?]Setting {
     {"cursor", "select",
      proc(c: ^Config, value: string) {c.select = conf_int(value, SELECT_DEFAULT)}},
     {"cursor", "split", proc(c: ^Config, value: string) {c.split = conf_split(value)}},
+    // 0 is what an absent row means and what `font.reset` goes back to; the range guard is
+    // face_px_ok's, at the read site.
+    {"font", "size", proc(c: ^Config, value: string) {c.font_px = conf_int(value, 0)}},
 }
 
 config_load :: proc(a: ^App) {
