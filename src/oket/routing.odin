@@ -327,6 +327,20 @@ bind_dispatch :: proc(a: ^App, chord: input.Chord, b: input.Bind, extend: bool) 
 // One wheel notch. A config value once config.conf lands (§4).
 WHEEL_LINES :: 3
 
+// Which range a kill verb takes, in the shape motion_of already answers.
+@(private = "file")
+kill_of :: proc(cmd: input.Command) -> (txt.Kill, bool) {
+    #partial switch cmd {
+    case .Kill_Line:
+        return .To_Line_End, true
+    case .Kill_Whole_Line:
+        return .Whole_Line, true
+    case .Kill_To_Line_Start:
+        return .To_Line_Start, true
+    }
+    return {}, false
+}
+
 @(private = "file")
 motion_of :: proc(cmd: input.Command) -> (txt.Motion, bool) {
     #partial switch cmd {
@@ -365,7 +379,8 @@ motion_of :: proc(cmd: input.Command) -> (txt.Motion, bool) {
 writes :: proc(cmd: input.Command) -> bool {
     #partial switch cmd {
     case .Delete_Back, .Delete_Forward, .Delete_Word_Back, .Delete_Word_Forward, .Tab,
-         .Newline, .Undo, .Redo, .Cut, .Paste:
+         .Newline, .Undo, .Redo, .Cut, .Paste,
+         .Kill_Line, .Kill_Whole_Line, .Kill_To_Line_Start:
         return true
     }
     return false
@@ -397,14 +412,19 @@ edit_command :: proc(a: ^App, cmd: input.Command) -> bool {
         txt.doc_insert_text(doc, "\t")
     case .Newline:
         txt.doc_newline(doc)
-    // Cut is copy then delete, so a cut range reaches the clipboard by the copy path.
     // Paste reads the SYSTEM clipboard, which is what lets a browser's copy land here.
     case .Cut:
-        joined, _ := txt.doc_copy(doc, context.temp_allocator)
-        clip_set(a, joined)
-        txt.doc_cut(doc)
+        cut_to_clip(a, doc)
     case .Paste:
         txt.doc_paste(doc, clip_get(a))
+    // `doc_select_kill` can select nothing — ctrl+u at column 0, ctrl+k at the end of the last
+    // line — and doc_cut reads an empty set as "no selection, take the line", hence the guard.
+    case .Kill_Line, .Kill_Whole_Line, .Kill_To_Line_Start:
+        k, _ := kill_of(cmd)
+        txt.doc_select_kill(doc, k)
+        if txt.doc_any_selection(doc) {
+            cut_to_clip(a, doc)
+        }
     // Undo is the kernel's, so ctrl+z reaches a formatter's splice and a plugin writes no undo
     // code (§7). `editable` is the gate until the descriptor grows `undo: kernel | none` (§5):
     // a document that takes no typing has nothing of the user's in it to take back.
@@ -675,6 +695,15 @@ clip_set :: proc(a: ^App, text: string) {
 clip_get :: proc(a: ^App) -> string {
     text := glfw.GetClipboardString(a.window)
     return text != "" ? text : a.clip
+}
+
+// Copy then delete, so a cut or a killed range reaches the clipboard by the path a copied one
+// does — the pairing txt/doc.odin describes.
+@(private = "file")
+cut_to_clip :: proc(a: ^App, doc: ^txt.Doc) {
+    joined, _ := txt.doc_copy(doc, context.temp_allocator)
+    clip_set(a, joined)
+    txt.doc_cut(doc)
 }
 
 // A read, so no `editable` gate, the same way select.all reaches a listing: copying a row out
