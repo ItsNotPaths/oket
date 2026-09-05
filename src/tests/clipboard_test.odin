@@ -133,3 +133,97 @@ a_mixed_set_cuts_only_what_it_copied :: proc(t: ^testing.T) {
     testing.expect_value(t, a.clip, "one")
     testing.expect_value(t, doc_text(&a, id), "\ntwo")
 }
+
+// --- the kill verbs ---
+//
+// These gate the three spans and the empty-kill guard.
+
+@(test)
+kill_line_takes_the_rest_of_the_line :: proc(t: ^testing.T) {
+    a, ok := bare_app(60, 6)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    id := scratch_doc(&a, "note", "hello world\nnext")
+    app.ring_add(&a, id)
+    txt.doc_set_head(store.store_doc(&a.docs, id), {0, 5}, false)
+
+    app.handle_chord(&a, chord("AC08", {.Ctrl})) // ctrl+k
+    testing.expect_value(t, doc_text(&a, id), "hello\nnext")
+    testing.expect_value(t, a.clip, " world")
+}
+
+// At the end of a line the span takes the break instead, so a second ctrl+k joins the line below
+// rather than stopping on an empty selection.
+@(test)
+kill_line_at_the_end_joins_the_next :: proc(t: ^testing.T) {
+    a, ok := bare_app(60, 6)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    id := scratch_doc(&a, "note", "one\ntwo")
+    app.ring_add(&a, id)
+    txt.doc_set_head(store.store_doc(&a.docs, id), {0, 3}, false)
+
+    app.handle_chord(&a, chord("AC08", {.Ctrl}))
+    testing.expect_value(t, doc_text(&a, id), "onetwo")
+    testing.expect_value(t, a.clip, "\n")
+}
+
+@(test)
+kill_whole_line_and_kill_to_line_start :: proc(t: ^testing.T) {
+    a, ok := bare_app(60, 6)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    id := scratch_doc(&a, "note", "one\ntwo\nthree")
+    app.ring_add(&a, id)
+    doc := store.store_doc(&a.docs, id)
+
+    txt.doc_set_head(doc, {1, 1}, false)
+    app.handle_chord(&a, chord("AC08", {.Ctrl, .Shift})) // ctrl+shift+k
+    testing.expect_value(t, doc_text(&a, id), "one\nthree")
+    testing.expect_value(t, a.clip, "two\n")
+
+    txt.doc_set_head(doc, {1, 3}, false)
+    app.handle_chord(&a, chord("AD07", {.Ctrl})) // ctrl+u
+    testing.expect_value(t, doc_text(&a, id), "one\nee")
+    testing.expect_value(t, a.clip, "thr")
+
+    // The LAST line has no break to take, so the whole-line span stops at its end.
+    app.handle_chord(&a, chord("AC08", {.Ctrl, .Shift}))
+    testing.expect_value(t, doc_text(&a, id), "one\n")
+    testing.expect_value(t, a.clip, "ee")
+}
+
+// A kill that selects nothing must do nothing: doc_cut reads an empty set as "take the line",
+// and a skipped kill must not clobber the clipboard either.
+@(test)
+a_kill_of_nothing_leaves_the_line_alone :: proc(t: ^testing.T) {
+    a, ok := bare_app(60, 6)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    id := scratch_doc(&a, "note", "one\ntwo")
+    app.ring_add(&a, id)
+    doc := store.store_doc(&a.docs, id)
+    app.clip_set(&a, "kept")
+
+    txt.doc_set_head(doc, {1, 0}, false)
+    app.handle_chord(&a, chord("AD07", {.Ctrl})) // ctrl+u at column 0
+    testing.expect_value(t, doc_text(&a, id), "one\ntwo")
+
+    // And ctrl+k at the end of the LAST line, where there is no break left to take.
+    txt.doc_set_head(doc, {1, 3}, false)
+    app.handle_chord(&a, chord("AC08", {.Ctrl}))
+    testing.expect_value(t, doc_text(&a, id), "one\ntwo")
+    testing.expect_value(t, a.clip, "kept")
+}
