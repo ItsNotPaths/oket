@@ -841,7 +841,7 @@ api_submit :: proc "c" (api: ^plug.Api, self: plug.Self, doc: plug.Doc, gen: u64
     id := store_id(doc)
     own := make([]txt.Edit, nedits, context.temp_allocator)
     for e, n in edits[:nedits] {
-        own[n] = {int(e.lo), int(e.hi), string(e.text[:e.text_len]), 0}
+        own[n] = {int(e.lo), int(e.hi), string(e.text[:e.text_len]), 0, e.id}
     }
     nd := d != nil ? plug_desc_take(a, id, d) : nil
     defer desc.release(nd)

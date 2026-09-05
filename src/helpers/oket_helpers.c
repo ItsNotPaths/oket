@@ -629,6 +629,7 @@ void oket_replace(const oket_api *api, oket_self self, oket_doc doc,
     if (s == NULL) {
         return;
     }
+    memset(&e, 0, sizeof e);
     e.lo = lo;
     e.hi = hi;
     e.text = text;
@@ -658,6 +659,7 @@ static void set(const oket_api *api, oket_self self, oket_doc doc,
     if (s == NULL) {
         return;
     }
+    memset(&e, 0, sizeof e);
     e.lo = 0;
     e.hi = s->size;
     e.text = text;
@@ -669,6 +671,11 @@ static void set(const oket_api *api, oket_self self, oket_doc doc,
 /* --- writing several places at once --- */
 
 void oket_batch_edit(oket_batch *b, size_t lo, size_t hi, const char *text, size_t len) {
+    oket_batch_edit_for(b, 0, lo, hi, text, len);
+}
+
+void oket_batch_edit_for(oket_batch *b, uint32_t cur, size_t lo, size_t hi,
+                         const char *text, size_t len) {
     oket_edit *e;
     char *own = NULL;
 
@@ -686,10 +693,12 @@ void oket_batch_edit(oket_batch *b, size_t lo, size_t hi, const char *text, size
         memcpy(own, text, len);
     }
     e = &b->edits[b->n++];
+    memset(e, 0, sizeof *e);
     e->lo = lo;
     e->hi = hi;
     e->text = own;
     e->text_len = len;
+    e->id = cur;
 }
 
 int oket_batch_submit(const oket_api *api, oket_self self, oket_doc doc, uint64_t gen,

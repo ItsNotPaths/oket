@@ -24,7 +24,7 @@ import "../input"
 // pointer, with no lock and no call back in (§6). Adding a field is a struct field, not a
 // message.
 
-API :: 8
+API :: 9
 
 // A plugin's own identity, handed back on every call so a plugin needs no state of its own.
 // Index plus load generation, packed: a handle kept across a reload resolves to nothing rather
@@ -164,6 +164,9 @@ Edit :: struct {
     hi:       c.size_t,
     text:     [^]u8,
     text_len: c.size_t,
+    // The cursor that asked for it (Cursor.id), carried onto the caret that replaces its range.
+    id:       u32,
+    _pad:     [4]u8,
 }
 
 // --- the style layer (§5) ---
@@ -483,7 +486,7 @@ Entry_Fn :: #type proc "c" (api: ^Api, self: Self) -> c.int32_t
 #assert(size_of(Descriptor) == 80)
 #assert(size_of(Span) == 24)
 #assert(size_of(Span_Pub) == 32)
-#assert(size_of(Edit) == 32)
+#assert(size_of(Edit) == 40)
 #assert(size_of(At) == 40)
 #assert(size_of(View_Out) == 32)
 #assert(size_of(Pane) == 32)

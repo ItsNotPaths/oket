@@ -106,7 +106,7 @@ doc_undo :: proc(d: ^Doc) -> bool {
     for i := len(step.batches) - 1; i >= 0; i -= 1 {
         edits := make([dynamic]Edit, 0, len(step.batches[i].ops), context.temp_allocator)
         for op in step.batches[i].ops {
-            append(&edits, Edit{op.inv_at, op.inv_at + len(op.inserted), op.removed, 0})
+            append(&edits, Edit{op.inv_at, op.inv_at + len(op.inserted), op.removed, 0, 0})
         }
         doc_apply(d, edits[:])
     }
@@ -125,7 +125,7 @@ doc_redo :: proc(d: ^Doc) -> bool {
     for batch in step.batches {
         edits := make([dynamic]Edit, 0, len(batch.ops), context.temp_allocator)
         for op in batch.ops {
-            append(&edits, Edit{op.at, op.at + len(op.removed), op.inserted, 0})
+            append(&edits, Edit{op.at, op.at + len(op.removed), op.inserted, 0, 0})
         }
         doc_apply(d, edits[:])
     }

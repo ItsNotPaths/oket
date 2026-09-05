@@ -137,7 +137,7 @@ term_trim :: proc(a: ^App, tm: ^Term, doc: ^txt.Doc) {
         return
     }
     cut := txt.doc_off(doc, {min(drop, txt.doc_line_count(doc)), 0})
-    txt.doc_apply(doc, {{0, cut, "", 0}})
+    txt.doc_apply(doc, {{0, cut, "", 0, 0}})
     tm.base += drop
     tm.fixed = max(tm.fixed - drop, 0)
     kept := 0
@@ -185,7 +185,7 @@ term_rewrite :: proc(a: ^App, tm: ^Term, doc: ^txt.Doc) {
         }
         term_line(a, tm, n, &b, lo, n == cursor ? ccol + 1 : 0)
     }
-    txt.doc_apply(doc, {{lo, txt.doc_len(doc), strings.to_string(b), 0}})
+    txt.doc_apply(doc, {{lo, txt.doc_len(doc), strings.to_string(b), 0, 0}})
     tm.fixed = len(tm.t.scrollback)
     // To the END and not to the new length: a screen that shrank must not leave the runs that
     // were under what it dropped.

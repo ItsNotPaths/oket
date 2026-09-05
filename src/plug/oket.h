@@ -30,7 +30,7 @@
 extern "C" {
 #endif
 
-#define OKET_API 8
+#define OKET_API 9
 
 /* A plugin exports exactly this, and hidden visibility keeps everything else in. */
 #define OKET_EXPORT __attribute__((visibility("default")))
@@ -177,11 +177,17 @@ enum {
 };
 
 /* One replacement, in bytes. A batch is the transaction and one undo entry. The kernel copies
- * the text at submit, so your buffer may die the moment the call returns. */
+ * the text at submit, so your buffer may die the moment the call returns.
+ *
+ * `id` is the cursor that asked for this edit (oket_cursor.id), carried onto the caret that
+ * replaces its range, which is what keeps the primary — and so scroll-follow — on the caret you
+ * are typing at rather than the topmost. 0 leaves the kernel to name the result. */
 typedef struct {
     size_t      lo, hi;
     const char *text;
     size_t      text_len;
+    uint32_t    id;
+    uint8_t     _pad[4];
 } oket_edit;
 
 /* --- style runs (§5, VIEWS §8) ---
@@ -510,7 +516,7 @@ _Static_assert(sizeof(oket_snapshot) == 144, "oket_snapshot");
 _Static_assert(sizeof(oket_column) == 24, "oket_column");
 _Static_assert(sizeof(oket_field) == 48, "oket_field");
 _Static_assert(sizeof(oket_descriptor) == 80, "oket_descriptor");
-_Static_assert(sizeof(oket_edit) == 32, "oket_edit");
+_Static_assert(sizeof(oket_edit) == 40, "oket_edit");
 _Static_assert(sizeof(oket_span) == 24, "oket_span");
 _Static_assert(sizeof(oket_span_pub) == 32, "oket_span_pub");
 _Static_assert(sizeof(oket_at) == 40, "oket_at");

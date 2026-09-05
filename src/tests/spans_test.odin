@@ -404,7 +404,7 @@ a_stale_span_publish_is_dropped_with_its_transaction :: proc(t: ^testing.T) {
     list := [?]store.Span{fg(0, 3, RED)}
     // Both were written against `gen`, in one frame. The edit lands and moves it, so the
     // publish behind it is measured against bytes that are gone and goes whole.
-    store.store_submit(&a.docs, id, gen, {{0, 0, "x", 0}})
+    store.store_submit(&a.docs, id, gen, {{0, 0, "x", 0, 0}})
     store.store_submit(&a.docs, id, gen, nil, nil,
                        store.Spans{who = who, lo = 0, hi = 9, list = list[:]})
     store.store_drain(&a.docs)

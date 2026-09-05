@@ -81,7 +81,7 @@ shift_policy_carries_carets :: proc(t: ^testing.T) {
     d := mk2("abc\ndef", {0, 1}, {1, 2})
     defer txt.doc_destroy(&d)
 
-    edits := []txt.Edit{{0, 0, "    ", 0}, {4, 4, "    ", 0}}
+    edits := []txt.Edit{{0, 0, "    ", 0, 0}, {4, 4, "    ", 0, 0}}
     testing.expect(t, txt.doc_commit(&d, edits, {policy = .Shift}))
     testing.expect_value(t, text(&d), "    abc\n    def")
     testing.expect_value(t, len(d.cursors), 2)
@@ -96,7 +96,7 @@ shift_policy_dedent :: proc(t: ^testing.T) {
     d := mk2("    abc", {0, 2}, {0, 6})
     defer txt.doc_destroy(&d)
 
-    testing.expect(t, txt.doc_commit(&d, {txt.Edit{0, 4, "", 0}}, {policy = .Shift}))
+    testing.expect(t, txt.doc_commit(&d, {txt.Edit{0, 4, "", 0, 0}}, {policy = .Shift}))
     testing.expect_value(t, text(&d), "abc")
     testing.expect_value(t, len(d.cursors), 2)
     testing.expect_value(t, d.cursors[0].head, txt.Pos{0, 0})
@@ -110,7 +110,7 @@ shift_policy_across_lines :: proc(t: ^testing.T) {
     d := mk2("abc\ndef", {1, 2}, {0, 1})
     defer txt.doc_destroy(&d)
 
-    testing.expect(t, txt.doc_commit(&d, {txt.Edit{0, 0, "x\ny\n", 0}}, {policy = .Shift}))
+    testing.expect(t, txt.doc_commit(&d, {txt.Edit{0, 0, "x\ny\n", 0, 0}}, {policy = .Shift}))
     testing.expect_value(t, text(&d), "x\ny\nabc\ndef")
     testing.expect_value(t, d.cursors[0].head, txt.Pos{3, 2})
     testing.expect_value(t, d.cursors[1].head, txt.Pos{2, 1})
@@ -124,7 +124,7 @@ pin_policy_keeps_the_row :: proc(t: ^testing.T) {
     defer txt.doc_destroy(&d)
     txt.doc_reset_cursor(&d, {2, 3})
 
-    edits := []txt.Edit{{0, txt.doc_len(&d), "AAA\nBBB\nCCCCC", 0}}
+    edits := []txt.Edit{{0, txt.doc_len(&d), "AAA\nBBB\nCCCCC", 0, 0}}
     testing.expect(t, txt.doc_commit(&d, edits, {policy = .Pin}))
     testing.expect_value(t, len(d.cursors), 1)
     testing.expect_value(t, d.cursors[0].head, txt.Pos{2, 3})
@@ -137,7 +137,7 @@ set_policy_takes_the_authors_set :: proc(t: ^testing.T) {
     defer txt.doc_destroy(&d)
 
     want := []txt.Cursor{{head = {0, 1}, anchor = {0, 1}}, {head = {1, 99}, anchor = {1, 0}}}
-    edits := []txt.Edit{{0, txt.doc_len(&d), "xy\nzw", 0}}
+    edits := []txt.Edit{{0, txt.doc_len(&d), "xy\nzw", 0, 0}}
     testing.expect(t, txt.doc_commit(&d, edits, {policy = .Set, set = want}))
     testing.expect_value(t, len(d.cursors), 2)
     testing.expect_value(t, d.cursors[0].head, txt.Pos{0, 1})

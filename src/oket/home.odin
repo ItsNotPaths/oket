@@ -203,7 +203,7 @@ home_fill :: proc(a: ^App, id: store.Id) {
             fields = p.fields[:],
         },
     )
-    whole := txt.Edit{0, txt.doc_len(doc), strings.to_string(p.text), 0}
+    whole := txt.Edit{0, txt.doc_len(doc), strings.to_string(p.text), 0, 0}
     store.store_submit(&a.docs, id, gen, {whole}, d)
     desc.release(d)
     store.store_drain(&a.docs)

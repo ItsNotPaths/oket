@@ -13,8 +13,10 @@ import "core:unicode/utf8"
 // the same range twice.
 
 // anchor == head means no selection; head is the moving caret. goal is the sticky column for
-// vertical motion, in CELLS — a byte column would drift through multi-byte lines. id is
-// carried, never invented: 0 means "no identity", not "cursor zero" (CURSORS.md §5).
+// vertical motion, in CELLS — a byte column would drift through multi-byte lines. id NAMES the
+// caret: every cursor in a Doc has one, because an index cannot survive the sort a merge does
+// and `primary` has to (VIEWS.md §12). 0 is "unnamed" and only ever arrives from outside —
+// a plugin that does not care writes it, and new_cursor hands out a name (CURSORS.md §5).
 Cursor :: struct {
     anchor: Pos,
     head:   Pos,
@@ -39,10 +41,45 @@ Commit :: struct {
     primary: int,
 }
 
+// The one place a name is handed out. A negative `goal` asks for the cell column of `head`,
+// the rule the seam states (oket.h); a zero `id` asks for a name, and one that arrives named
+// keeps it and pushes the counter past it, so nothing the kernel mints later collides.
+@(private)
+new_cursor :: proc(d: ^Doc, anchor, head: Pos, goal := -1, id := u32(0)) -> Cursor {
+    name := id
+    if name == 0 {
+        d.next_id += 1
+        if d.next_id == 0 {
+            d.next_id = 1 // wrapped past a name that arrived: 0 is not one
+        }
+        name = d.next_id
+    } else {
+        d.next_id = max(d.next_id, name)
+    }
+    return {
+        anchor = anchor,
+        head = head,
+        goal = goal < 0 ? doc_cell_col(d, head) : goal,
+        id = name,
+    }
+}
+
+// Where a named caret sits now, 0 when the name is gone. Everything reading the set wants an
+// index; only the name survives a sort or an edit that rebuilds the set.
+@(private)
+cursor_index :: proc(d: ^Doc, id: u32) -> int {
+    for c, i in d.cursors {
+        if c.id == id {
+            return i
+        }
+    }
+    return 0
+}
+
 doc_reset_cursor :: proc(d: ^Doc, p: Pos) {
     q := doc_clamp_pos(d, p)
     clear(&d.cursors)
-    append(&d.cursors, Cursor{anchor = q, head = q, goal = doc_cell_col(d, q)})
+    append(&d.cursors, new_cursor(d, q, q))
     d.primary = 0
 }
 
@@ -56,12 +93,8 @@ doc_set_cursors :: proc(d: ^Doc, src: []Cursor, primary: int) {
     }
     clear(&d.cursors)
     for c in src {
-        k := c
-        k.anchor, k.head = doc_clamp_pos(d, c.anchor), doc_clamp_pos(d, c.head)
-        if k.goal < 0 {
-            k.goal = doc_cell_col(d, k.head) // negative asks for it (oket.h)
-        }
-        append(&d.cursors, k)
+        anchor, head := doc_clamp_pos(d, c.anchor), doc_clamp_pos(d, c.head)
+        append(&d.cursors, new_cursor(d, anchor, head, c.goal, c.id))
     }
     d.primary = clamp(primary, 0, len(d.cursors) - 1)
 }
@@ -78,7 +111,7 @@ doc_collapse_to_primary :: proc(d: ^Doc) {
 // collapses to one at the next edit.
 doc_drop_anchor :: proc(d: ^Doc) {
     c := d.cursors[d.primary]
-    append(&d.cursors, Cursor{anchor = c.head, head = c.head, goal = c.goal})
+    append(&d.cursors, new_cursor(d, c.head, c.head, c.goal))
 }
 
 // The cursors an edit fans out over. Alt+A leaves a fixed cursor exactly under the free caret,
@@ -154,7 +187,7 @@ doc_set_head :: proc(d: ^Doc, p: Pos, select: bool) {
 // coincident drop stays a pair, collapsing at the next edit.
 doc_add_cursor :: proc(d: ^Doc, p: Pos) {
     q := doc_clamp_pos(d, p)
-    append(&d.cursors, Cursor{anchor = q, head = q, goal = doc_cell_col(d, q)})
+    append(&d.cursors, new_cursor(d, q, q))
     d.primary = len(d.cursors) - 1
 }
 
@@ -180,7 +213,7 @@ doc_add_cursor_line :: proc(d: ^Doc, by: int, hidden: []Range = nil) -> bool {
         return false
     }
     p := Pos{line, doc_byte_col(d, line, goal)}
-    append(&d.cursors, Cursor{anchor = p, head = p, goal = goal})
+    append(&d.cursors, new_cursor(d, p, p, goal))
     d.primary = len(d.cursors) - 1
     return true
 }
@@ -209,7 +242,7 @@ doc_add_next_match :: proc(d: ^Doc) -> bool {
             return false
         }
     }
-    append(&d.cursors, Cursor{anchor = at, head = head, goal = doc_cell_col(d, head)})
+    append(&d.cursors, new_cursor(d, at, head))
     d.primary = len(d.cursors) - 1
     return true
 }
@@ -254,7 +287,7 @@ doc_split_lines :: proc(d: ^Doc, into := Split.Selections) -> bool {
         for line in lo.line ..= sel_last_line(lo, hi) {
             head := Pos{line, line == hi.line ? hi.col : doc_line_len(d, line)}
             anchor := into == .Carets ? head : Pos{line, line == lo.line ? lo.col : 0}
-            append(&out, Cursor{anchor = anchor, head = head, goal = doc_cell_col(d, head)})
+            append(&out, new_cursor(d, anchor, head))
         }
     }
     if !split {
@@ -315,7 +348,7 @@ doc_select_span :: proc(d: ^Doc, anchor, head: Pos) {
     a := doc_clamp_pos(d, anchor)
     h := doc_clamp_pos(d, head)
     clear(&d.cursors)
-    append(&d.cursors, Cursor{anchor = a, head = h, goal = doc_cell_col(d, h)})
+    append(&d.cursors, new_cursor(d, a, h))
     d.primary = 0
 }
 
@@ -329,7 +362,7 @@ doc_set_spans :: proc(d: ^Doc, spans: [][2]Pos) {
     clear(&d.cursors)
     for s in spans {
         a, h := doc_clamp_pos(d, s[0]), doc_clamp_pos(d, s[1])
-        append(&d.cursors, Cursor{anchor = a, head = h, goal = doc_cell_col(d, h)})
+        append(&d.cursors, new_cursor(d, a, h))
     }
     d.primary = 0
     doc_merge_cursors(d)
@@ -643,6 +676,7 @@ doc_merge_cursors :: proc(d: ^Doc) {
     if len(d.cursors) <= 1 {
         return
     }
+    prim := d.cursors[d.primary].id // read before the sort: the index is what the sort scrambles
     slice.sort_by(d.cursors[:], proc(a, b: Cursor) -> bool {
         alo, _ := cursor_range(a)
         blo, _ := cursor_range(b)
@@ -655,10 +689,18 @@ doc_merge_cursors :: proc(d: ^Doc) {
         if pos_less(ahi, blo) { // disjoint
             w += 1
             d.cursors[w] = d.cursors[r]
-        } else if pos_less(ahi, bhi) { // overlap: fuse into the union
-            d.cursors[w] = Cursor{anchor = alo, head = bhi, goal = doc_cell_col(d, bhi)}
+            continue
+        }
+        // b goes into a: the union when it reaches further, a unchanged when it does not. Either
+        // way one caret is left where two were, and it answers to the primary's name if b did —
+        // otherwise the sort above would have decided the primary and nothing else would.
+        name := d.cursors[r].id == prim ? prim : d.cursors[w].id
+        if pos_less(ahi, bhi) {
+            d.cursors[w] = new_cursor(d, alo, bhi, -1, name)
+        } else {
+            d.cursors[w].id = name
         }
     }
     resize(&d.cursors, w + 1)
-    d.primary = clamp(d.primary, 0, w)
+    d.primary = cursor_index(d, prim)
 }

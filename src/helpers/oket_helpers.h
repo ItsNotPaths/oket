@@ -271,6 +271,12 @@ typedef struct {
 /* Appends "[lo, hi) becomes this text". A zero `len` is a deletion. */
 void oket_batch_edit(oket_batch *b, size_t lo, size_t hi, const char *text, size_t len);
 
+/* The same, naming the cursor that asked for it (oket_cursor.id). The caret this edit leaves
+ * carries that name, so the primary — and scroll-follow with it — stays on the caret the user
+ * is typing at instead of the topmost. A view stage's edits want the unnamed call above. */
+void oket_batch_edit_for(oket_batch *b, uint32_t cur, size_t lo, size_t hi,
+                         const char *text, size_t len);
+
 /* Submits the whole batch against `gen`, and answers whether anything went. An empty batch,
  * or one that ran out of memory, submits nothing. */
 int oket_batch_submit(const oket_api *api, oket_self self, oket_doc doc, uint64_t gen,

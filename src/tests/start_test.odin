@@ -99,7 +99,7 @@ the_home_page_offers_recovered_work :: proc(t: ^testing.T) {
     id := scratch_doc(&a, file, "xyz")
     app.docs_settle(&a) // the journal opens, with the file's own bytes as its base
     gen, _ := store.store_gen(&a.docs, id)
-    store.store_submit(&a.docs, id, gen, {txt.Edit{0, 0, "Q", 0}}) // a write, as a plugin's is
+    store.store_submit(&a.docs, id, gen, {txt.Edit{0, 0, "Q", 0, 0}}) // a write, as a plugin's is
     app.docs_settle(&a)
     testing.expect(t, app.journal_detach(&a, id), "the document was not being journaled")
     app.doc_close(&a, id)
@@ -320,7 +320,7 @@ recover_drop_throws_the_work_away :: proc(t: ^testing.T) {
     id := scratch_doc(&a, file, "xyz")
     app.docs_settle(&a)
     gen, _ := store.store_gen(&a.docs, id)
-    store.store_submit(&a.docs, id, gen, {txt.Edit{0, 0, "Q", 0}})
+    store.store_submit(&a.docs, id, gen, {txt.Edit{0, 0, "Q", 0, 0}})
     app.docs_settle(&a)
     testing.expect(t, app.journal_detach(&a, id), "the document was not being journaled")
     app.doc_close(&a, id)

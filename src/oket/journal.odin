@@ -186,7 +186,7 @@ recover_apply :: proc(a: ^App, journal: string) -> bool {
     // SPLICE because doc_set_text normalizes what it is given — a dropped trailing newline is
     // the crash's bytes edited on their way back in.
     doc.sink = {}
-    txt.doc_apply(doc, {txt.Edit{0, txt.doc_len(doc), content, 0}})
+    txt.doc_apply(doc, {txt.Edit{0, txt.doc_len(doc), content, 0, 0}})
     txt.doc_forget_undo(doc)
     os.remove(journal)
     journal_end(a, id) // the next sync opens a fresh one, based on what was recovered

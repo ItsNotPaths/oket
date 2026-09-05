@@ -12,8 +12,10 @@ import "core:unicode/utf8"
 // doc_cell_col are the only bridge. doc_clamp_pos is the one gate guaranteeing a column lands on
 // a rune boundary, and every Pos built from arithmetic passes through it.
 //
-// Invariants: >= 1 line, >= 1 cursor. `primary` is the cursor driving scroll-follow and the
-// gutter; after an edit it falls back to the topmost. What the SET guarantees is cursor.odin's.
+// Invariants: >= 1 line, >= 1 cursor, every cursor named. `primary` is the cursor driving
+// scroll-follow and the gutter, and it is an INDEX of a caret that has a name: an edit or a
+// merge rebuilds the set, and the index is recovered from the name rather than falling back to
+// the topmost (VIEWS.md §12). What the SET guarantees is cursor.odin's.
 Doc :: struct {
     // At the head, and checked after every plugin dispatch (§10). A wild store from a plugin
     // walking a snapshot lands near a document's header more often than anywhere else, and a
@@ -23,6 +25,9 @@ Doc :: struct {
     pt:      Piece_Table,
     cursors: [dynamic]Cursor,
     primary: int,
+    // Hands out cursor names (cursor.odin). Never reused inside a document, so a name that is
+    // gone stays gone rather than coming back as somebody else's caret.
+    next_id: u32,
     undo:    Undo, // patch journal (undo.odin)
     // Bumped on every content change. A reader keeps the generation it read and a write
     // carries it back, so a write against a document that has moved is caught rather than
@@ -80,7 +85,7 @@ DOC_MAGIC :: 0x6f6b_6574_646f_6300 // "oketdoc\0"
 doc_init :: proc(d: ^Doc) {
     d.magic = DOC_MAGIC
     pt_init(&d.pt)
-    append(&d.cursors, Cursor{})
+    append(&d.cursors, new_cursor(d, {}, {}))
 }
 
 // The invariants worth checking after every plugin dispatch (§10). All O(1), so leaving them on
@@ -310,7 +315,7 @@ doc_insert_text :: proc(d: ^Doc, text: string) -> bool {
     edits := make([dynamic]Edit, 0, len(d.cursors), context.temp_allocator)
     for c in edit_cursors(d) {
         lo, hi := cursor_range(c)
-        append(&edits, Edit{doc_off(d, lo), doc_off(d, hi), text, 0})
+        append(&edits, Edit{doc_off(d, lo), doc_off(d, hi), text, 0, c.id})
     }
     return doc_commit(d, edits[:])
 }
@@ -360,8 +365,9 @@ doc_paste_pieces :: proc(d: ^Doc, pieces: []string) -> bool {
     order := cursor_order(d, context.temp_allocator)
     edits := make([dynamic]Edit, 0, len(order), context.temp_allocator)
     for idx, k in order {
-        lo, hi := cursor_range(d.cursors[idx])
-        append(&edits, Edit{doc_off(d, lo), doc_off(d, hi), pieces[k], 0})
+        c := d.cursors[idx]
+        lo, hi := cursor_range(c)
+        append(&edits, Edit{doc_off(d, lo), doc_off(d, hi), pieces[k], 0, c.id})
     }
     return doc_commit(d, edits[:])
 }
@@ -410,7 +416,7 @@ doc_cut :: proc(d: ^Doc) -> bool {
             lo = Pos{line, 0}
             hi = line < doc_line_count(d) - 1 ? Pos{line + 1, 0} : Pos{line, doc_line_len(d, line)}
         }
-        append(&edits, Edit{doc_off(d, lo), doc_off(d, hi), "", 0})
+        append(&edits, Edit{doc_off(d, lo), doc_off(d, hi), "", 0, c.id})
     }
     return doc_commit(d, edits[:])
 }
@@ -440,20 +446,20 @@ doc_backspace :: proc(d: ^Doc) -> bool {
     for c in edit_cursors(d) {
         if cursor_has_selection(c) {
             lo, hi := cursor_range(c)
-            append(&edits, Edit{doc_off(d, lo), doc_off(d, hi), "", 0})
+            append(&edits, Edit{doc_off(d, lo), doc_off(d, hi), "", 0, c.id})
         } else if c.head.col > 0 {
             prev, size := doc_rune_before(d, c.head)
             at := Pos{c.head.line, c.head.col - size}
             // Inside an empty auto-pair "()" both halves go.
             if close, ok := pair_close(prev); ok && doc_rune_at(d, c.head) == close {
                 _, csz := utf8.encode_rune(close)
-                append(&edits, Edit{doc_off(d, at), doc_off(d, c.head) + csz, "", 0})
+                append(&edits, Edit{doc_off(d, at), doc_off(d, c.head) + csz, "", 0, c.id})
             } else {
-                append(&edits, Edit{doc_off(d, at), doc_off(d, c.head), "", 0})
+                append(&edits, Edit{doc_off(d, at), doc_off(d, c.head), "", 0, c.id})
             }
         } else if c.head.line > 0 {
-            prev := c.head.line - 1
-            append(&edits, Edit{doc_off(d, Pos{prev, doc_line_len(d, prev)}), doc_off(d, c.head), "", 0})
+            eol := Pos{c.head.line - 1, doc_line_len(d, c.head.line - 1)}
+            append(&edits, Edit{doc_off(d, eol), doc_off(d, c.head), "", 0, c.id})
         }
     }
     return doc_commit(d, edits[:])
@@ -465,12 +471,13 @@ doc_delete :: proc(d: ^Doc) -> bool {
     for c in edit_cursors(d) {
         if cursor_has_selection(c) {
             lo, hi := cursor_range(c)
-            append(&edits, Edit{doc_off(d, lo), doc_off(d, hi), "", 0})
+            append(&edits, Edit{doc_off(d, lo), doc_off(d, hi), "", 0, c.id})
         } else if c.head.col < doc_line_len(d, c.head.line) {
             _, size := utf8.decode_rune(doc_line(d, c.head.line)[c.head.col:])
-            append(&edits, Edit{doc_off(d, c.head), doc_off(d, c.head) + max(size, 1), "", 0})
+            append(&edits, Edit{doc_off(d, c.head), doc_off(d, c.head) + max(size, 1), "", 0, c.id})
         } else if c.head.line < doc_line_count(d) - 1 {
-            append(&edits, Edit{doc_off(d, c.head), doc_off(d, Pos{c.head.line + 1, 0}), "", 0})
+            next := Pos{c.head.line + 1, 0}
+            append(&edits, Edit{doc_off(d, c.head), doc_off(d, next), "", 0, c.id})
         }
     }
     return doc_commit(d, edits[:])
@@ -482,13 +489,13 @@ doc_delete_word_back :: proc(d: ^Doc) -> bool {
     for c in edit_cursors(d) {
         if cursor_has_selection(c) {
             lo, hi := cursor_range(c)
-            append(&edits, Edit{doc_off(d, lo), doc_off(d, hi), "", 0})
+            append(&edits, Edit{doc_off(d, lo), doc_off(d, hi), "", 0, c.id})
         } else if c.head.col > 0 {
             to := word_left_index(doc_line(d, c.head.line), c.head.col)
-            append(&edits, Edit{doc_off(d, Pos{c.head.line, to}), doc_off(d, c.head), "", 0})
+            append(&edits, Edit{doc_off(d, Pos{c.head.line, to}), doc_off(d, c.head), "", 0, c.id})
         } else if c.head.line > 0 {
-            prev := c.head.line - 1
-            append(&edits, Edit{doc_off(d, Pos{prev, doc_line_len(d, prev)}), doc_off(d, c.head), "", 0})
+            eol := Pos{c.head.line - 1, doc_line_len(d, c.head.line - 1)}
+            append(&edits, Edit{doc_off(d, eol), doc_off(d, c.head), "", 0, c.id})
         }
     }
     return doc_commit(d, edits[:])
@@ -500,12 +507,13 @@ doc_delete_word_forward :: proc(d: ^Doc) -> bool {
     for c in edit_cursors(d) {
         if cursor_has_selection(c) {
             lo, hi := cursor_range(c)
-            append(&edits, Edit{doc_off(d, lo), doc_off(d, hi), "", 0})
+            append(&edits, Edit{doc_off(d, lo), doc_off(d, hi), "", 0, c.id})
         } else if c.head.col < doc_line_len(d, c.head.line) {
             to := word_right_index(doc_line(d, c.head.line), c.head.col)
-            append(&edits, Edit{doc_off(d, c.head), doc_off(d, Pos{c.head.line, to}), "", 0})
+            append(&edits, Edit{doc_off(d, c.head), doc_off(d, Pos{c.head.line, to}), "", 0, c.id})
         } else if c.head.line < doc_line_count(d) - 1 {
-            append(&edits, Edit{doc_off(d, c.head), doc_off(d, Pos{c.head.line + 1, 0}), "", 0})
+            next := Pos{c.head.line + 1, 0}
+            append(&edits, Edit{doc_off(d, c.head), doc_off(d, next), "", 0, c.id})
         }
     }
     return doc_commit(d, edits[:])
@@ -537,6 +545,9 @@ Edit :: struct {
     lo, hi:      int,
     text:        string,
     caret_delta: int,
+    // The caret that asked for this edit, carried onto the one that replaces it under .Follow
+    // (CURSORS.md §5). 0 is nobody asking, and the replacement is named fresh.
+    id:          u32,
 }
 
 @(private = "file")
@@ -557,6 +568,7 @@ doc_apply :: proc(d: ^Doc, edits_in: []Edit, rec: ^Batch = nil, cur := Commit{})
         }
         return false
     }
+    prim := d.cursors[d.primary].id // the name .Follow gives the set back, past the sort below
     edits := slice.clone(edits_in, context.temp_allocator)
     slice.sort_by(edits, proc(a, b: Edit) -> bool {
         return a.lo != b.lo ? a.lo < b.lo : a.hi < b.hi
@@ -572,6 +584,9 @@ doc_apply :: proc(d: ^Doc, edits_in: []Edit, rec: ^Batch = nil, cur := Commit{})
             acc.hi = max(acc.hi, e.hi)
             acc.text = strings.concatenate({acc.text, e.text}, context.temp_allocator)
             acc.caret_delta = e.caret_delta
+            if e.id == prim {
+                acc.id = e.id // two carets in one word leave one, and it is the primary's
+            }
             continue
         }
         w += 1
@@ -656,9 +671,12 @@ doc_apply :: proc(d: ^Doc, edits_in: []Edit, rec: ^Batch = nil, cur := Commit{})
             // same line, by contract
             p.col = clamp(p.col - e.caret_delta, 0, doc_line_len(d, p.line))
             q := doc_clamp_pos(d, p)
-            append(&d.cursors, Cursor{anchor = q, head = q, goal = doc_cell_col(d, q)})
+            // The caret an edit leaves IS the caret that asked for it, so scroll-follow stays
+            // on the one the user is typing at instead of the topmost (VIEWS.md §12). An edit
+            // nobody asked for — an undo replay, a whole-buffer write — is named fresh.
+            append(&d.cursors, new_cursor(d, q, q, -1, e.id))
         }
-        d.primary = 0
+        d.primary = cursor_index(d, prim)
         doc_merge_cursors(d)
     case .Shift:
         // The splice loop never touches the cursors, so they still hold pre-edit positions.

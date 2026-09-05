@@ -132,7 +132,7 @@ a_foreign_write_lands_and_the_owner_is_told :: proc(t: ^testing.T) {
 
     // A splice nobody asked the plugin's permission for, the way a formatter would.
     doc := store.store_doc(&a.docs, id)
-    txt.doc_apply(doc, {{0, 4, "KIND", 0}})
+    txt.doc_apply(doc, {{0, 4, "KIND", 0, 0}})
     store.store_drain(&a.docs)
     app.plug_pump(&a)
 
@@ -165,7 +165,7 @@ a_dropped_write_of_our_own_still_reports_the_move :: proc(t: ^testing.T) {
     // drain applies the foreign one and drops the plugin's whole. (The seam drains behind each
     // call, so this is the shape a lost race has: two writers, one queue, one generation.)
     gen, _ := store.store_gen(&a.docs, id)
-    store.store_submit(&a.docs, id, gen, {{0, 4, "KIND", 0}})
+    store.store_submit(&a.docs, id, gen, {{0, 4, "KIND", 0, 0}})
     app.handle_chord(&a, chord("AD01")) // the plugin writes, and the drain behind it drops that
     testing.expect(t, strings.contains(doc_text(&a, id), "KIND"), "the foreign write did not land")
     testing.expect(t, !strings.contains(doc_text(&a, id), "1 chord(s)"), "the stale write landed")

@@ -73,7 +73,7 @@ doc_replace_all :: proc(d: ^Doc, pattern, with: string) -> int {
     }
     edits := make([]Edit, len(hits), context.temp_allocator)
     for h, i in hits {
-        edits[i] = Edit{doc_off(d, h[0]), doc_off(d, h[1]), with, 0}
+        edits[i] = Edit{doc_off(d, h[0]), doc_off(d, h[1]), with, 0, 0}
     }
     return doc_commit(d, edits) ? len(edits) : 0
 }

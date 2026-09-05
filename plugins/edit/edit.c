@@ -196,7 +196,9 @@ static void changed(const oket_api *api, oket_self self, const oket_at *at, edit
 
 /* --- writing --- */
 
-/* One edit per cursor, one transaction, one undo step: every caret's range becomes `text`. */
+/* One edit per cursor, one transaction, one undo step: every caret's range becomes `text`. Each
+ * edit NAMES its caret, so the one it leaves behind is the same caret and the primary does not
+ * jump to the top of the set. */
 static int insert_each_cursor(const oket_api *api, oket_self self, const oket_at *at,
                               const char *text, size_t len) {
     const oket_snapshot *s = at->snap;
@@ -209,7 +211,7 @@ static int insert_each_cursor(const oket_api *api, oket_self self, const oket_at
         size_t lo, hi;
 
         oket_cursor_span(s, i, &lo, &hi);
-        oket_batch_edit(&b, lo, hi, text, len);
+        oket_batch_edit_for(&b, s->cursors[i].id, lo, hi, text, len);
     }
     sent = oket_batch_submit(api, self, s->doc, s->gen, &b);
     oket_batch_free(&b);
@@ -239,7 +241,7 @@ static int newline_each_cursor(const oket_api *api, oket_self self, const oket_a
             ind = sizeof text - 1;
         }
         memcpy(text + 1, line, ind);
-        oket_batch_edit(&b, lo, hi, text, 1 + ind);
+        oket_batch_edit_for(&b, s->cursors[i].id, lo, hi, text, 1 + ind);
     }
     sent = oket_batch_submit(api, self, s->doc, s->gen, &b);
     oket_batch_free(&b);
@@ -306,7 +308,7 @@ static int32_t indent_cmd(const oket_api *api, oket_self self, const oket_at *at
         oket_cursor_span(s, i, &lo, &hi);
         line = oket_line_at(s, lo);
         cells = oket_col_cells(s, line, lo - oket_line_start(s, line), TAB_WIDTH);
-        oket_batch_edit(&b, lo, hi, SPACES, TAB_WIDTH - cells % TAB_WIDTH);
+        oket_batch_edit_for(&b, s->cursors[i].id, lo, hi, SPACES, TAB_WIDTH - cells % TAB_WIDTH);
     }
     oket_batch_submit(api, self, s->doc, s->gen, &b);
     oket_batch_free(&b);
