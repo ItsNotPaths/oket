@@ -383,7 +383,13 @@ journal_replay :: proc(file: string, alloc := context.allocator) ->
     doc_path := take_str(data, &at) or_return
     base := take_str(data, &at) or_return
 
-    text := strings.clone(base, context.temp_allocator)
+    // SPLICED IN PLACE, not rebuilt per record. A journal holds one record per splice for the
+    // document's whole life, so a long session leaves tens of thousands of them — and a
+    // concatenate each would copy the whole document that many times, into a temp arena that
+    // frees none of it until the replay ends. 20,000 records over 100 KB measured 2.2 GB. This
+    // is the path a crash sends you down, so it is the last one that may run out of memory.
+    text := make([dynamic]u8, len(base), context.temp_allocator)
+    copy(text[:], base)
     edits := 0
     for at + 24 <= len(data) {
         pos, _ := endian.get_u64(data[at:at + 8], .Little)
@@ -395,15 +401,24 @@ journal_replay :: proc(file: string, alloc := context.allocator) ->
         if new_len > u64(len(data) - at) {
             break // torn write; keep what came before it
         }
-        ins := string(data[at:at + int(new_len)])
+        ins := data[at:at + int(new_len)]
         at += int(new_len)
         if pos > u64(len(text)) || old_len > u64(len(text)) - pos {
             break // the record does not fit the document it claims to edit
         }
-        text = strings.concatenate(
-            {text[:pos], ins, text[pos + old_len:]},
-            context.temp_allocator,
-        )
+        // `ins` points into the file's bytes, which the splice copies out of — the buffer never
+        // borrows them, so growing it cannot leave a dangling read.
+        //
+        // The capacity is grown here and not left to inject_at, which reserves the EXACT new
+        // length: one byte at a time is a reallocation and a copy per record — the same
+        // quadratic in a different coat. Doubling makes it amortised.
+        lo := int(pos)
+        need := len(text) - int(old_len) + int(new_len)
+        if need > cap(text) {
+            reserve(&text, max(need, 2 * cap(text)))
+        }
+        remove_range(&text, lo, lo + int(old_len))
+        inject_at(&text, lo, ..ins)
         edits += 1
     }
     return Recovered {
@@ -411,7 +426,7 @@ journal_replay :: proc(file: string, alloc := context.allocator) ->
             path = strings.clone(doc_path, alloc),
             edits = edits,
         },
-        strings.clone(text, alloc),
+        strings.clone(string(text[:]), alloc),
         true
 }
 
