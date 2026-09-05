@@ -250,3 +250,30 @@ helpers_inline_and_the_rest_are_stripped :: proc(t: ^testing.T) {
         testing.expectf(t, !strings.contains(syms, gone), "%s was not stripped", gone)
     }
 }
+
+// CURSORS.md §7: a dispatch's snapshot names the document's own cursor array. A held snapshot
+// copies, because an append moves that array out from under it.
+@(test)
+a_dispatch_names_the_cursors_it_reads :: proc(t: ^testing.T) {
+    a, ok := bare_app()
+    if !testing.expect(t, ok, "no app") {
+        return
+    }
+    defer close_app(&a)
+    id := scratch_doc(&a, "note", "one\ntwo")
+    doc := store.store_doc(&a.docs, id)
+    txt.doc_add_cursor(doc, txt.Pos{1, 3})
+
+    v := app.view_make(&a, id)
+    defer app.view_free(v)
+    testing.expect_value(t, rawptr(v.snap.cursors), rawptr(raw_data(doc.cursors[:])))
+    testing.expect_value(t, int(v.snap.ncursors), len(doc.cursors))
+    testing.expect(t, v.curs == nil, "a dispatch allocated for cursors")
+
+    kept := app.view_hold(&a, id)
+    defer app.view_free(kept)
+    testing.expect(t, rawptr(kept.snap.cursors) != rawptr(raw_data(doc.cursors[:])),
+                   "a held snapshot borrowed an array that will move")
+    testing.expect_value(t, int(kept.snap.ncursors), len(doc.cursors))
+    testing.expect_value(t, int(kept.snap.cursors[1].head.line), doc.cursors[1].head.line)
+}
