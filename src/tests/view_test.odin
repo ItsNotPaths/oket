@@ -227,6 +227,44 @@ a_selected_row_is_marked_over_its_own_text :: proc(t: ^testing.T) {
     testing.expect_value(t, dark, 0) // and only the row point is on
 }
 
+// `[cursor] select` is how far the selection carries its swap. At 100 it is the reverse the
+// caret gets; below it both sides move together, so the cell's own colours are still in the mix
+// and a weaker reverse is what is left. The caret is never in it.
+@(test)
+a_selection_carries_its_swap_as_far_as_the_percent_says :: proc(t: ^testing.T) {
+    s: store.Store
+    defer store.store_destroy(&s)
+    snap, dp := opened(&s, "hello\nworld", {selection = .Char})
+    defer txt.snapshot_release(snap)
+    defer desc.release(dp)
+
+    g: gfx.Grid
+    testing.expect(t, gfx.grid_init(&g, 10, 2))
+    defer gfx.grid_destroy(&g)
+    th := gfx.DEFAULT_THEME
+    over := view.View{point = {anchor = {0, 0}, head = {0, 3}}}
+
+    // Full: the painter's own swap, which is the attr and not a colour.
+    view.draw(&g, th, &snap.text, dp, over, 0, 0, 10, 2, select = 100)
+    testing.expect(t, .Reverse in gfx.grid_at(&g, 0, 0).attrs)
+    testing.expect_value(t, gfx.grid_at(&g, 0, 0).fg, th[.Fg])
+
+    // Half of the way there, written as colours: no attr, and the two sides have swapped half.
+    view.draw(&g, th, &snap.text, dp, over, 0, 0, 10, 2, select = 50)
+    cell := gfx.grid_at(&g, 0, 0)
+    testing.expect(t, .Reverse not_in cell.attrs, "a percent left the painter's swap on too")
+    testing.expect_value(t, cell.fg, th[.Fg] + (th[.Bg] - th[.Fg]) * 0.5)
+    testing.expect_value(t, cell.bg, th[.Bg] + (th[.Fg] - th[.Bg]) * 0.5)
+
+    // Past the selection, the row is untouched.
+    testing.expect_value(t, gfx.grid_at(&g, 4, 0).fg, th[.Fg])
+
+    // And the caret is a full swap whatever the percent says.
+    caret := view.View{point = {anchor = {1, 0}, head = {1, 0}}}
+    view.draw(&g, th, &snap.text, dp, caret, 0, 0, 10, 2, select = 50)
+    testing.expect(t, .Reverse in gfx.grid_at(&g, 0, 1).attrs, "the percent reached the caret")
+}
+
 // A field's span is what it DRAWS and its value is what it ACTS on (desc.Field). A row showing
 // a bare name while `<path>` hands on the whole of where it lives is the one thing a span alone
 // could not say, and it is what makes a line a link.
