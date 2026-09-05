@@ -306,6 +306,61 @@ a_long_journal_replays_without_copying_the_document_per_record :: proc(t: ^testi
                     RECORDS, BASE, track.total_memory_allocated, budget)
 }
 
+// A journal that STOPS is the case os.write's error was being thrown away for. Half a record is
+// a torn tail the replay already ends at — so what a failed write really costs is this record
+// and every one after it, and a journal that kept taking them would look whole and recover a
+// document that never existed. The file stays: what it holds up to the failure is still work.
+@(test)
+a_journal_that_cannot_write_stops_and_says_so :: proc(t: ^testing.T) {
+    a, path, home, ok := crash_app(t, "oket-journal-broken", "abc")
+    if !ok {
+        return
+    }
+    defer delete(home)
+    defer delete(path)
+    defer close_plug_app(&a)
+
+    id := app.ring_focused(&a).doc
+    j, journaled := a.journals[id]
+    if !testing.expect(t, journaled, "the document was not being journaled") {
+        return
+    }
+    journal := strings.clone(j.path, context.temp_allocator)
+
+    // The platter says no. A read-only handle in place of the writable one is the portable way
+    // to say it — the fd stays valid, so nothing here is testing a use-after-free instead.
+    ro, oerr := os.open(journal, {.Read})
+    if !testing.expect_value(t, oerr, nil) {
+        return
+    }
+    writable := j.file
+    j.file = ro
+    app.fault_journal_add(os.fd(ro))
+
+    app.handle_chord(&a, chord("END"))
+    app.text_input(&a, 'Z')
+
+    // Broken is sticky: hand the working fd back, and the next record still must not land —
+    // bytes appended after a torn record would replay as its text.
+    j.file = writable
+    app.fault_journal_drop(os.fd(ro))
+    os.close(ro)
+    size := file_size(journal)
+    app.text_input(&a, 'Y')
+    testing.expect_value(t, file_size(journal), size)
+
+    app.journal_sync(&a)
+    doc := store.store_doc(&a.docs, id)
+    testing.expect(t, doc != nil && doc.sink.write == nil, "the journal went on taking records")
+    testing.expect(t, strings.contains(a.message, "stopped taking records"), a.message)
+    testing.expect(t, os.exists(journal), "the work written before the failure was thrown away")
+
+    // And it is not started over: a fresh journal on the same document would open with .Trunc
+    // and take the only copy of the work with it.
+    app.journal_sync(&a)
+    testing.expect_value(t, file_size(journal), size)
+}
+
 // Garbage is refused rather than replayed into a wrong document.
 @(test)
 journal_refuses_a_foreign_file :: proc(t: ^testing.T) {
@@ -370,4 +425,10 @@ raw_u64 :: proc(b: ^strings.Builder, v: u64) {
     buf: [8]u8
     endian.put_u64(buf[:], .Little, v)
     strings.write_bytes(b, buf[:])
+}
+
+@(private = "file")
+file_size :: proc(path: string) -> int {
+    raw, err := os.read_entire_file(path, context.temp_allocator)
+    return err == nil ? len(raw) : -1
 }
