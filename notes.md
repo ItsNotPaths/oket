@@ -13,6 +13,8 @@ type.
 - `ctrl+k`, `ctrl+shift+k` and `ctrl+u` kill to the clipboard; `ctrl+shift+v` walks back through
   what you killed.
 - A copy made with several carets pastes one piece per caret.
+- Every caret is drawn, not just the one the gutter follows. A trail you dropped is a trail you
+  can see.
 - A start writes every setting into `config.conf`, commented out with its default, so the file
   says what there is to change. `[mouse] wheel` and `[mouse] double` are new; `[menu] palette`
   was always there and had nowhere to be read about.
