@@ -159,31 +159,9 @@ typedef struct {
 
 static loaded loads[MAX_LANGS];
 
-/* The whole file, or NULL. Queries are small; one that is not is refused rather than read into
- * an unbounded allocation. */
-static char *read_file(const char *path, uint32_t *out_len) {
-    FILE *f = fopen(path, "rb");
-    long size;
-    char *buf;
-
-    if (!f) {
-        return NULL;
-    }
-    if (fseek(f, 0, SEEK_END) != 0 || (size = ftell(f)) < 0 || size > (1 << 22)) {
-        fclose(f);
-        return NULL;
-    }
-    rewind(f);
-    buf = malloc((size_t)size + 1);
-    if (!buf) {
-        fclose(f);
-        return NULL;
-    }
-    *out_len = (uint32_t)fread(buf, 1, (size_t)size, f);
-    buf[*out_len] = 0;
-    fclose(f);
-    return buf;
-}
+/* Queries are small; one that is not is refused rather than read into an unbounded
+ * allocation, which is what the cap on oket_file_read is for. */
+#define QUERY_MAX (1 << 22)
 
 /* `tree_sitter_<name>`, with dashes turned into underscores the way every grammar does it. */
 static const TSLanguage *grammar_entry(void *lib, const char *name) {
@@ -227,7 +205,8 @@ static loaded *grammar_load(const oket_api *api, oket_self self, const char *nam
     const char *dir = grammars_dir();
     char path[PATH_MAX_];
     char *src;
-    uint32_t len = 0, err_off = 0;
+    size_t len = 0;
+    uint32_t err_off = 0;
     TSQueryError err = TSQueryErrorNone;
     loaded *l = NULL;
     int i;
@@ -262,9 +241,9 @@ static loaded *grammar_load(const oket_api *api, oket_self self, const char *nam
     }
 
     snprintf(path, sizeof path, "%s/%s.scm", dir, name);
-    src = read_file(path, &len);
+    src = oket_file_read(path, QUERY_MAX, &len);
     if (src) {
-        l->query = ts_query_new(l->language, src, len, &err_off, &err);
+        l->query = ts_query_new(l->language, src, (uint32_t)len, &err_off, &err);
         free(src);
     }
     if (l->query) {

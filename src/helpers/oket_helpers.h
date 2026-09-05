@@ -44,6 +44,14 @@ int oket_mine(const oket_at *at);
  * one. NULL when the allocation fails. */
 char *oket_dup(const char *s, size_t len);
 
+/* A whole file, malloc'd and NUL-terminated, with its length written to `len`. NULL and
+ * `*len == 0` on anything that went wrong, and the caller says what that MEANS: a file an
+ * opener cannot read is a message, a query a grammar cannot read is a language it skips.
+ *
+ * `max` refuses a file bigger than that many bytes WITHOUT reading it, because the alternative
+ * is an unbounded allocation decided by whatever is on disk. 0 means no limit. */
+char *oket_file_read(const char *path, size_t max, size_t *len);
+
 /* --- UTF-8 --- */
 
 /* Decodes the rune at the start of `s`, writing it to `out`. Returns its length in bytes, or

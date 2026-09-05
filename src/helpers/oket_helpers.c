@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -968,4 +969,34 @@ char *oket_dup(const char *s, size_t len) {
     memcpy(out, s, len);
     out[len] = '\0';
     return out;
+}
+
+char *oket_file_read(const char *path, size_t max, size_t *len) {
+    FILE *f = fopen(path, "rb");
+    char *buf;
+    long n;
+
+    *len = 0;
+    if (f == NULL) {
+        return NULL;
+    }
+    /* Seek-tell-seek rather than stat: one header fewer, and a file that will not seek is one
+     * this cannot read whole anyway. */
+    if (fseek(f, 0, SEEK_END) != 0 || (n = ftell(f)) < 0 || fseek(f, 0, SEEK_SET) != 0) {
+        fclose(f);
+        return NULL;
+    }
+    if (max != 0 && (size_t)n > max) {
+        fclose(f);
+        return NULL;
+    }
+    buf = malloc((size_t)n + 1);
+    if (buf != NULL) {
+        /* Short reads are not an error here: `len` is what arrived, and a file shrinking under
+         * a reader is the same answer as a file that was always that size. */
+        *len = fread(buf, 1, (size_t)n, f);
+        buf[*len] = '\0';
+    }
+    fclose(f);
+    return buf;
 }
