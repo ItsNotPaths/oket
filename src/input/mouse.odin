@@ -79,9 +79,9 @@ mouse_moves_point :: proc(m: Mouse) -> bool {
 
 // --- press to chord ---
 
-// §14 wants the double-click window in config.conf and describe able to say what it is; this
-// is the one place it will be read to.
-DOUBLE_CLICK_S :: 0.3
+// The kernel passes `[mouse] double` in as seconds; the default serves callers with no config
+// to read. §14: a timeout is invisible state, so the file must be able to say what it is.
+DOUBLE_CLICK_MS :: 300
 
 Mouse_Phase :: enum u8 {
     Idle,
@@ -123,7 +123,8 @@ mouse_drop :: proc(s: ^Mouse_State) {
 
 // The chord the release fires, if any. A second press in the same cell inside the window is a
 // double-click; the click after that starts over rather than reading as a third.
-mouse_release :: proc(s: ^Mouse_State, x, y: int, now: f64) -> (Mouse, bool) {
+mouse_release :: proc(s: ^Mouse_State, x, y: int, now: f64,
+                      window := f64(DOUBLE_CLICK_MS) / 1000) -> (Mouse, bool) {
     if s.phase == .Idle {
         return {}, false
     }
@@ -133,7 +134,7 @@ mouse_release :: proc(s: ^Mouse_State, x, y: int, now: f64) -> (Mouse, bool) {
     if was_drag {
         return {}, false
     }
-    double := b == .Click && !s.paired && s.last == s.at && now - s.last_at <= DOUBLE_CLICK_S
+    double := b == .Click && !s.paired && s.last == s.at && now - s.last_at <= window
     s.last, s.last_at, s.paired = s.at, now, double
     return double ? .Double_Click : b, true
 }

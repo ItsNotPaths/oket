@@ -130,7 +130,8 @@ button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mods: i3
         }
         return
     }
-    if m, fired := input.mouse_release(&a.mouse, cx, cy, glfw.GetTime()); fired {
+    if m, fired := input.mouse_release(&a.mouse, cx, cy, glfw.GetTime(),
+                                       f64(a.config.double_ms) / 1000); fired {
         handle_chord(a, input.Chord{input.mouse_code(m), glfw_mods(mods), 0})
     }
 }

@@ -260,9 +260,9 @@ bind_dispatch :: proc(a: ^App, chord: input.Chord, b: input.Bind, extend: bool) 
     case .Describe_Key:
         input.pending_set(&a.pending, input.Pending_Describe{})
     case .View_Scroll_Up:
-        scroll_by(a, -WHEEL_LINES)
+        scroll_by(a, -a.config.wheel)
     case .View_Scroll_Down:
-        scroll_by(a, +WHEEL_LINES)
+        scroll_by(a, +a.config.wheel)
     case .View_Page_Up:
         scroll_by(a, -max(active_rect(a).h - 1, 1))
     case .View_Page_Down:
@@ -345,9 +345,6 @@ bind_dispatch :: proc(a: ^App, chord: input.Chord, b: input.Bind, extend: bool) 
         message_set(a, fmt.tprintf("%s is not built yet", input.COMMANDS[cmd].name))
     }
 }
-
-// One wheel notch. A config value once config.conf lands (§4).
-WHEEL_LINES :: 3
 
 // Which range a kill verb takes, in the shape motion_of already answers.
 @(private = "file")
