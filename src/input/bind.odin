@@ -378,8 +378,8 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
 
     // The modern spelling, not Emacs's C-w/M-w/C-y: C-w is the close-window reflex everywhere
     // else. The kill RING is Emacs's — ctrl+shift+v walks it, yank-pop under a guessable name.
-    // All {.Text, .Surface} and never {.Global}: Terminal is not in the set, so bind_find misses
-    // and the miss rule forwards, which is what keeps ctrl+c a SIGINT in a shell.
+    // All {.Text, .Surface} and never {.Global}, so a terminal answers for its own: ctrl+c there
+    // is `term.copy` and the interrupt is ctrl+shift+c (see the terminal rows below).
     bind_put(&b, "AB02", {.Ctrl}, .Cut) // ctrl+x
     bind_put(&b, "AB03", {.Ctrl}, .Copy) // ctrl+c
     bind_put(&b, "AB04", {.Ctrl}, .Paste) // ctrl+v
@@ -458,7 +458,12 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     // Surface claims: context-specific, so they shadow the global rows above (Esc must reach
     // vim inside the shell, never quit oket). Shift+Ctrl+Up extends via the Shift fallback.
     bind_put(&b, "ESC", {}, .Surface_Send)
-    bind_put(&b, "AB03", {.Ctrl, .Shift}, .Term_Copy) // ctrl+shift+c
+    // ctrl+c copies HERE TOO, so one chord means one thing in every document. The interrupt is
+    // ctrl+shift+c: it sends the 0x03 a shell reads as SIGINT, narrowed to the terminal so no
+    // other surface claims the chord. Both are ordinary rows, so a binds.conf that swaps them
+    // back is two lines.
+    bind_put(&b, "AB03", {.Ctrl}, .Term_Copy) // ctrl+c
+    bind_put(&b, "AB03", {.Ctrl, .Shift}, .Surface_Send, ctx = {.Terminal})
     bind_put(&b, "AB04", {.Ctrl, .Shift}, .Term_Paste) // ctrl+shift+v
     // Scrolling a session is the KERNEL's viewport over its document (§11), so these are the
     // same two verbs every other document has and there is no terminal scroll code to bind to.
@@ -481,11 +486,15 @@ bind_line :: proc(b: ^[dynamic]Bind, key: string, mods: Mods, text: string,
     bind_add(b, {code, mods, down}, Bind_Line{strings.clone(text), mode}, ctx, kind = kind)
 }
 
+// `ctx` narrows a row below the verb's own contexts, for a default that wants one of them and
+// not the rest. Empty means the verb's whole set.
 @(private = "file")
-bind_put :: proc(b: ^[dynamic]Bind, key: string, mods: Mods, cmd: Command) {
+bind_put :: proc(b: ^[dynamic]Bind, key: string, mods: Mods, cmd: Command, ctx: Bind_Ctxs = {}) {
     code, ok := key_code(key)
     assert(ok, "a kernel default names a key that is not in the table")
-    bind_add(b, {code, mods, 0}, cmd, COMMANDS[cmd].ctx, cmd == .Ring_Goto ? 8 : 0)
+    assert(ctx <= COMMANDS[cmd].ctx, "a kernel default names a context its verb does not answer in")
+    at := ctx == {} ? COMMANDS[cmd].ctx : ctx
+    bind_add(b, {code, mods, 0}, cmd, at, cmd == .Ring_Goto ? 8 : 0)
 }
 
 // A chord that is BOTH a primer and a row of its own. There is no priority between them: the
