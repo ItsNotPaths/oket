@@ -2,6 +2,7 @@ package tests
 
 import "core:encoding/endian"
 import "core:fmt"
+import "core:mem"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
@@ -246,6 +247,63 @@ journal_survives_a_torn_tail :: proc(t: ^testing.T) {
     testing.expect(t, len(torn_text) > 0 && len(torn_text) < len(full_text),
                    "a torn journal recovered the whole tail, or none of it")
     close_plug_app(&a)
+}
+
+// THE GATE, AND IT COUNTS BYTES rather than seconds. A journal holds one record per splice for
+// the document's life, so a long session leaves tens of thousands — and rebuilding the text per
+// record allocated the whole document that many times over, into a temp arena that frees none
+// of it until the replay returns. 20,000 records over 100 KB measured 2.2 GB, in the one path
+// that runs when the user has ALREADY lost work.
+//
+// A tracking allocator is the witness: the budget is a small multiple of what the replay is
+// entitled to hold at once, which is the file plus the document. Rebuilding blows it by ~50x on
+// this fixture, and the number does not move with the runner's load.
+@(test)
+a_long_journal_replays_without_copying_the_document_per_record :: proc(t: ^testing.T) {
+    RECORDS :: 1000
+    BASE :: 10 * 1024
+
+    dir, made := scratch(t, "oket-journal-long")
+    if !made {
+        return
+    }
+    b := strings.builder_make(context.temp_allocator)
+    strings.write_string(&b, "okjrnl\x00\x00")
+    raw_u32(&b, 1) // version
+    raw_u64(&b, 0) // path ""
+    raw_u64(&b, BASE)
+    strings.write_string(&b, strings.repeat(".", BASE, context.temp_allocator))
+    for _ in 0 ..< RECORDS {
+        raw_u64(&b, 0) // pos: at the front, so every record moves the whole document
+        raw_u64(&b, 0) // old_len
+        raw_u64(&b, 1) // new_len
+        strings.write_string(&b, "x")
+    }
+    file, _ := filepath.join({dir, "long.okjrnl"}, context.temp_allocator)
+    body := strings.to_string(b)
+    if !testing.expect_value(t, os.write_entire_file(file, transmute([]u8)body), nil) {
+        return
+    }
+
+    track: mem.Tracking_Allocator
+    mem.tracking_allocator_init(&track, context.temp_allocator)
+    defer mem.tracking_allocator_destroy(&track)
+
+    ok: bool
+    edits, held: int
+    {
+        context.temp_allocator = mem.tracking_allocator(&track)
+        rec, out, done := app.journal_replay(file, context.temp_allocator)
+        ok, edits, held = done, rec.edits, len(out)
+    }
+    testing.expect(t, ok, "the journal did not replay")
+    testing.expect_value(t, edits, RECORDS)
+    testing.expect_value(t, held, BASE + RECORDS)
+
+    budget := 8 * (len(body) + BASE + RECORDS)
+    testing.expectf(t, int(track.total_memory_allocated) < budget,
+                    "replaying %d records over %d bytes allocated %d, past %d",
+                    RECORDS, BASE, track.total_memory_allocated, budget)
 }
 
 // Garbage is refused rather than replayed into a wrong document.
