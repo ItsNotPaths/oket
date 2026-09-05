@@ -117,14 +117,20 @@ doc_drop_anchor :: proc(d: ^Doc) {
 // The cursors an edit fans out over. Alt+A leaves a fixed cursor exactly under the free caret,
 // and that pair names one range, not two — an edit per copy would apply it twice. Only the
 // selection matters here, so a stale goal column does not split a coincident pair.
+//
+// Keyed rather than rescanned: `:find` makes one caret per match, so the set reaches tens of
+// thousands and a scan per cursor is a keystroke that takes seconds. Insertion order and
+// first-one-wins are what the map preserves — the survivor's `id` is what .Follow re-finds the
+// primary by (doc.odin), so which copy lives is not a free choice.
 edit_cursors :: proc(d: ^Doc) -> []Cursor {
     out := make([dynamic]Cursor, 0, len(d.cursors), context.temp_allocator)
-    next: for c in d.cursors {
-        for k in out {
-            if k.anchor == c.anchor && k.head == c.head {
-                continue next
-            }
+    seen := make(map[[2]Pos]struct {}, len(d.cursors), context.temp_allocator)
+    for c in d.cursors {
+        key := [2]Pos{c.anchor, c.head}
+        if key in seen {
+            continue
         }
+        seen[key] = {}
         append(&out, c)
     }
     return out[:]
