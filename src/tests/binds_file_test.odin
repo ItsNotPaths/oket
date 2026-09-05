@@ -225,3 +225,36 @@ binds_scratch :: proc(t: ^testing.T, name: string) -> (dir: string, ok: bool) {
     }
     return dir, true
 }
+
+// A primer is declared by its CHILDREN (CHORDS.md §4.1), so the chord space under one is shared:
+// two plugins hang rows off `ctrl+b` and neither owns it. Both go in live — the clash rule is
+// per chord PAIR, and `ctrl+b ctrl+a` is not `ctrl+b ctrl+f` — and one primer lists both.
+@(test)
+two_owners_share_one_primer :: proc(t: ^testing.T) {
+    dir, ok := binds_scratch(t, "oket-binds-shared-primer")
+    if !ok {
+        return
+    }
+    defer os.remove_all(dir)
+
+    a := fixture()
+    defer close(&a)
+    a.home = strings.clone(dir)
+
+    app.binds_request(&a, "alpha", "global", "ctrl+@AB05 ctrl+@AC01", "exec :ls")
+    app.binds_request(&a, "beta", "global", "ctrl+@AB05 ctrl+@AC04", "exec :ring")
+    app.binds_sync(&a)
+
+    text := read(t, app.binds_path(&a))
+    testing.expect(t, strings.contains(text, "ctrl+@AB05 ctrl+@AC01 = exec :ls"), text)
+    testing.expect(t, strings.contains(text, "ctrl+@AB05 ctrl+@AC04 = exec :ring"), text)
+    testing.expect_value(t, len(a.clashes), 0) // neither took the other's chord
+
+    prefix, parsed := input.chord_parse("ctrl+@AB05", nil)
+    testing.expect(t, parsed)
+    testing.expect(t, input.bind_primes(a.binds[:], prefix, .Global), "no primer under ctrl+b")
+
+    kids := input.bind_children(a.binds[:], prefix, .Global, nil, {}, 0, context.temp_allocator)
+    testing.expect(t, strings.contains(kids, ":ls"), kids)
+    testing.expect(t, strings.contains(kids, ":ring"), kids)
+}
