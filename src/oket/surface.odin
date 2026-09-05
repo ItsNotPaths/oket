@@ -92,8 +92,14 @@ panel_draw :: proc(a: ^App, p: ^Panel, marked: bool) {
     // from the rest of them (routing.odin).
     styles := styles_over(doc_styles(a, s.doc, d, t, dv, s.view.top, b.h),
                           doc_link_over(a, p, d, s.view, marked))
+    // Borrowed from the document: the drawn text is a snapshot and the cursors are live, but
+    // both are read after the drain (docs_settle), so they name the same generation.
+    carets: []txt.Cursor
+    if doc := store.store_doc(&a.docs, s.doc); doc != nil {
+        carets = doc.cursors[:]
+    }
     view.draw(&p.grid, th, t, d, s.view, b.x, b.y, b.w, b.h,
-              styles, marked, dv, views_over(a, s.doc), a.config.select)
+              styles, marked, dv, views_over(a, s.doc), a.config.select, carets)
     if p.hover.on {
         // A columns document draws its FIELDS and not its bytes, so no style run reaches it —
         // the mark is the only way to underline a field there.

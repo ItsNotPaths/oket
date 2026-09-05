@@ -83,14 +83,20 @@ draw :: proc(
     // How far the selection carries its swap (§3). 100 is the full reverse; less leaves the
     // cell's own colours showing through, so syntax under a selection is still readable.
     select := SELECT_FULL,
+    // EVERY caret, borrowed for the call — a View is copied by VALUE into the jump ring, so an
+    // owned slice on it would alias. `View.point` stays what follow, the relative gutter and a
+    // jump entry mean by "the caret". Empty draws the primary.
+    carets: []txt.Cursor = nil,
 ) {
     gut := gutter_width(t, d, dv)
     body := w - gut
     if body <= 0 || h <= 0 {
         return
     }
+    one := [1]txt.Cursor{v.point}
+    set := len(carets) > 0 ? carets : one[:]
     if columnar(d) {
-        draw_columns(g, th, t, d, v, x, y, gut, w, h, point, dv, select)
+        draw_columns(g, th, t, d, v, x, y, gut, w, h, point, dv, select, set)
         return
     }
     for r, i in rows(t, d, v.top, body, h, dv) {
@@ -103,7 +109,7 @@ draw :: proc(
         restyle(g, t, d, dv, left, y + i, body - ind, clipped, src, styles)
         overstyle(g, d, left, y + i, body - ind, clipped, src, over)
         if point {
-            mark_point(g, t, d, dv, v, left, y + i, body - ind, clipped, src, select)
+            mark_point(g, t, d, dv, left, y + i, body - ind, clipped, src, select, set)
         }
     }
 }
@@ -365,6 +371,7 @@ draw_columns :: proc(
     point: bool,
     dv: ^Derived,
     select: int,
+    carets: []txt.Cursor,
 ) {
     for i in 0 ..< h {
         line := v.top + i
@@ -389,12 +396,20 @@ draw_columns :: proc(
         // except its own text. A columns document draws its fields and not its bytes, so what
         // is marked is the whole ROW rather than a span of it.
         if point && d.selection != .None && orig >= 0 {
-            lo, hi := txt.cursor_range(v.point)
-            if orig >= lo.line && orig <= hi.line {
-                // An empty range on this row is the CARET, and a caret is a full swap wherever
-                // it is drawn — the percent is the selection's alone.
-                mark_select(g, x + gut, y + i, 0, w - gut, lo == hi ? SELECT_FULL : select)
-            }
+            mark_row(g, x + gut, y + i, w - gut, select, orig, carets)
+        }
+    }
+}
+
+// The whole ROW is lit, so the first caret whose range covers it decides and the rest add
+// nothing. An empty range is the CARET, a full swap — the percent is the selection's alone.
+@(private)
+mark_row :: proc(g: ^gfx.Grid, x, y, width, select, orig: int, carets: []txt.Cursor) {
+    for c in carets {
+        lo, hi := txt.cursor_range(c)
+        if orig >= lo.line && orig <= hi.line {
+            mark_select(g, x, y, 0, width, lo == hi ? SELECT_FULL : select)
+            return
         }
     }
 }
@@ -488,28 +503,48 @@ mark_select :: proc(g: ^gfx.Grid, x, y, from, to, pct: int) {
     }
 }
 
-// The caret and its selection over one drawn row. An empty selection is one cell, which is the
-// caret; `selection: none` draws neither, which is what a terminal wants.
+// Every caret and its selection over one drawn row. `selection: none` draws neither, which is
+// what a terminal wants. None is marked out as the primary: which one leads is the gutter's and
+// the scroll's business, and a second kind of caret would be a theme token nothing else needs.
 @(private)
 mark_point :: proc(
     g: ^gfx.Grid,
     t: ^txt.Text,
     d: ^desc.Descriptor,
     dv: ^Derived,
-    v: View,
     x, y, width: int,
     r: Row,
     src: []u8,
     select: int,
+    carets: []txt.Cursor,
 ) {
     if d.selection == .None || r.src < 0 {
         return
     }
-    lo, hi := txt.cursor_range(v.point) // ORIGINAL positions: the caret never leaves that space
+    row := src[r.lo:r.hi]
+    // Walked, not searched: the set is sorted only AFTER doc_merge_cursors (txt/cursor.odin),
+    // so a placement verb can leave it in any order and a binary search would miss.
+    for c in carets {
+        mark_one(g, t, d, dv, x, y, width, r, row, select, c)
+    }
+}
+
+@(private)
+mark_one :: proc(
+    g: ^gfx.Grid,
+    t: ^txt.Text,
+    d: ^desc.Descriptor,
+    dv: ^Derived,
+    x, y, width: int,
+    r: Row,
+    row: []u8,
+    select: int,
+    c: txt.Cursor,
+) {
+    lo, hi := txt.cursor_range(c) // ORIGINAL positions: the caret never leaves that space
     if r.src < lo.line || r.src > hi.line {
         return
     }
-    row := src[r.lo:r.hi]
     if lo == hi {
         mark_caret(g, t, d, dv, x, y, width, r, row, lo)
         return
