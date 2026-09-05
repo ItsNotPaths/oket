@@ -417,6 +417,36 @@ a_stage_that_faults_dies_alone :: proc(t: ^testing.T) {
     testing.expect(t, tx == nil, "the chain outlived the stage that built it")
 }
 
+// CURSORS.md §6, through a plugin that computes its own motion: the runs no cell stands for
+// cross the seam on the snapshot, so the editor's own `left` and `right` step OVER a fold the
+// way the kernel's do. Without that list a plugin's only view is the original text, and one
+// press would leave the caret inside a fold nobody can see.
+@(test)
+a_plugins_own_motion_steps_over_what_a_stage_hid :: proc(t: ^testing.T) {
+    a, _, ok := views_app(t, "oket-views-plugin-motion", BLOCK)
+    if !ok {
+        return
+    }
+    defer close_plug_app(&a)
+
+    id := app.ring_focused(&a).doc
+    go_line(&a, 0)
+    app.cl_exec(&a, ":fold")
+    app.docs_settle(&a)
+    testing.expect(t, len(app.views_hidden(&a, id)) == 1, "the fold exported no hidden run")
+
+    // The end of the header row, which is the run's FAR edge: both edges draw at the same cell,
+    // and the direction of travel picks between them (§7).
+    app.handle_chord(&a, chord("END"))
+    testing.expect_value(t, point(&a).head, txt.Pos{2, 8})
+    // One press, whatever the run swallowed — two lines here — because a fold has no inside to
+    // sit in. The plugin computed both of these out of `snapshot.hidden`.
+    app.handle_chord(&a, chord("RGHT"))
+    testing.expect_value(t, point(&a).head, txt.Pos{3, 0})
+    app.handle_chord(&a, chord("LEFT"))
+    testing.expect_value(t, point(&a).head, txt.Pos{0, 10})
+}
+
 // The one renderer draws the derived document, and every consumer of §6 reads it in the right
 // space: the row's text is the stage's, and the NUMBER beside it is the line being edited. A
 // gutter that counted drawn rows would say 1, 2, 3 over a fold and be lying about all three.
