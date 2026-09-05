@@ -1,5 +1,6 @@
 package tests
 
+import "core:strings"
 import "core:testing"
 import "../desc"
 import "../gfx"
@@ -309,4 +310,97 @@ a_field_with_a_value_answers_with_it :: proc(t: ^testing.T) {
     testing.expect_value(t, shown, "src")
     acted, _ := view.field_text(&snap.text, dp, 0, "path")
     testing.expect_value(t, acted, "/tmp/src")
+}
+
+// --- the carets a draw can reach (view.onscreen) ---
+
+// THE GATE, COUNTED. `:find` puts one caret per match, so the set is the DOCUMENT's size while
+// the viewport is the SCREEN's — and the row loop asks every caret about every row. What the
+// filter leaves is what the row loop walks, so counting it is counting the work.
+@(test)
+a_draw_only_walks_the_carets_on_screen :: proc(t: ^testing.T) {
+    LINES :: 20_000
+    ROWS :: 50
+
+    s: store.Store
+    defer store.store_destroy(&s)
+    text := strings.repeat("ab\n", LINES, context.temp_allocator)
+    snap, dp := opened(&s, text, {})
+    defer txt.snapshot_release(snap)
+    defer desc.release(dp)
+
+    carets := make([]txt.Cursor, LINES, context.temp_allocator)
+    for i in 0 ..< LINES {
+        carets[i] = {anchor = {i, 0}, head = {i, 1}} // one selection per line
+    }
+
+    rs := view.rows(&snap.text, dp, 0, 20, ROWS)
+    testing.expect_value(t, len(rs), ROWS)
+    on := view.onscreen(carets, view.row_span(rs))
+    testing.expect_value(t, len(on), ROWS)
+}
+
+// A selection can cover the screen without either end being on it, and dropping one would leave
+// a hole in the middle of a highlight. So the test is overlap, not containment.
+@(test)
+a_selection_across_the_screen_survives_the_filter :: proc(t: ^testing.T) {
+    carets := [3]txt.Cursor {
+        {anchor = {0, 0}, head = {0, 1}},     // above
+        {anchor = {5, 0}, head = {40, 0}},    // straddling
+        {anchor = {99, 0}, head = {99, 1}},   // below
+    }
+    on := view.onscreen(carets[:], 10, 20)
+    testing.expect_value(t, len(on), 1)
+    testing.expect_value(t, on[0].anchor.line, 5)
+}
+
+// Order is kept, and that is not a nicety: mark_row lights a row from the FIRST caret covering
+// it and mark_point paints later carets over earlier ones. The set is unsorted by design
+// (txt/cursor.odin), so a filter that reordered would move pixels.
+@(test)
+the_filter_keeps_the_set_in_the_order_it_arrived :: proc(t: ^testing.T) {
+    carets := [3]txt.Cursor {
+        {anchor = {8, 0}, head = {8, 1}},
+        {anchor = {2, 0}, head = {2, 1}},
+        {anchor = {5, 0}, head = {5, 1}},
+    }
+    on := view.onscreen(carets[:], 0, 10)
+    testing.expect_value(t, len(on), 3)
+    testing.expect_value(t, on[0].anchor.line, 8)
+    testing.expect_value(t, on[1].anchor.line, 2)
+    testing.expect_value(t, on[2].anchor.line, 5)
+}
+
+// The same set through a real draw: an unsorted pair over a listing lights both rows and no
+// third one. The filter runs inside draw, so this is what says it kept the marking honest.
+@(test)
+an_unsorted_caret_set_lights_the_rows_it_names :: proc(t: ^testing.T) {
+    s: store.Store
+    defer store.store_destroy(&s)
+    columns := LISTING_COLUMNS
+    fields := LISTING_FIELDS
+    snap, dp := opened(&s, LISTING, {columns = columns[:], fields = fields[:], selection = .Line})
+    defer txt.snapshot_release(snap)
+    defer desc.release(dp)
+
+    g: gfx.Grid
+    testing.expect(t, gfx.grid_init(&g, 30, 3))
+    defer gfx.grid_destroy(&g)
+    // Row 2 named before row 0, and a coincident pair on row 2 for good measure.
+    carets := [3]txt.Cursor {
+        {anchor = {2, 0}, head = {2, 0}},
+        {anchor = {0, 0}, head = {0, 0}},
+        {anchor = {2, 0}, head = {2, 0}},
+    }
+    view.draw(&g, gfx.DEFAULT_THEME, &snap.text, dp, {}, 0, 0, 30, 3, carets = carets[:])
+
+    for y in 0 ..< 3 {
+        lit := 0
+        for x in 0 ..< 30 {
+            if .Reverse in gfx.grid_at(&g, x, y).attrs {
+                lit += 1
+            }
+        }
+        testing.expect_value(t, lit, y == 1 ? 0 : 30)
+    }
 }
