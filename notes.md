@@ -13,6 +13,8 @@ type.
 - `ctrl+k`, `ctrl+shift+k` and `ctrl+u` kill to the clipboard; `ctrl+shift+v` walks back through
   what you killed.
 - A copy made with several carets pastes one piece per caret.
+- `f5` in a buffer takes the file back, unsaved edits and all. It is the editor's `ed.reload`,
+  so a plugin that opens files can offer the same thing.
 - The editor moves its own caret: `left` and `right` are `ed.left` and `ed.right` rows in
   `binds.conf`, and `nav.left` still answers everywhere else.
 - The home page is the default document. A start with no session opens it, not a listing.
