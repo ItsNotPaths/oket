@@ -13,6 +13,8 @@ type.
 - `ctrl+k`, `ctrl+shift+k` and `ctrl+u` kill to the clipboard; `ctrl+shift+v` walks back through
   what you killed.
 - A copy made with several carets pastes one piece per caret.
+- `ctrl+alt+left` walks back through where you have been, `ctrl+alt+right` retraces it. It puts
+  the whole screen back, not just the caret.
 - `ctrl+=` and `ctrl+-` resize the text, `ctrl+0` goes back. `[font] size` in `config.conf`
   names the size a start opens at, and that is where `ctrl+0` returns to.
 - `f5` in a buffer takes the file back, unsaved edits and all. It is the editor's `ed.reload`,
