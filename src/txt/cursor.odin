@@ -355,7 +355,10 @@ doc_select_span :: proc(d: ^Doc, anchor, head: Pos) {
 // Every cursor at once, which is what a plugin that computed its own motion sends back (§9).
 // The order inside a span is the caller's and is not normalised; overlapping spans fuse, the
 // same way two edits at one word do.
-doc_set_spans :: proc(d: ^Doc, spans: [][2]Pos) {
+// `primary` says which span drives the gutter and the scroll, the way doc_set_cursors's does:
+// every match of a search is a span, but the one you were looking at is where the screen goes.
+// The merge below re-finds it by NAME, so setting it here survives the sort.
+doc_set_spans :: proc(d: ^Doc, spans: [][2]Pos, primary := 0) {
     if len(spans) == 0 {
         return
     }
@@ -364,7 +367,7 @@ doc_set_spans :: proc(d: ^Doc, spans: [][2]Pos) {
         a, h := doc_clamp_pos(d, s[0]), doc_clamp_pos(d, s[1])
         append(&d.cursors, new_cursor(d, a, h))
     }
-    d.primary = 0
+    d.primary = clamp(primary, 0, len(d.cursors) - 1)
     doc_merge_cursors(d)
 }
 
