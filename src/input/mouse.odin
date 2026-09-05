@@ -115,6 +115,12 @@ mouse_motion :: proc(s: ^Mouse_State, x, y: int) -> (drag: bool) {
     return s.phase == .Dragging
 }
 
+// A press the surface will never see the end of: the pointer went somewhere that is not a
+// document, so the release fires nothing — the same answer a drag's release gets.
+mouse_drop :: proc(s: ^Mouse_State) {
+    s.phase = .Idle
+}
+
 // The chord the release fires, if any. A second press in the same cell inside the window is a
 // double-click; the click after that starts over rather than reading as a third.
 mouse_release :: proc(s: ^Mouse_State, x, y: int, now: f64) -> (Mouse, bool) {

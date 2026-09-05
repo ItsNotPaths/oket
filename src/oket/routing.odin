@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 import "vendor:glfw"
 import "../desc"
@@ -88,65 +89,82 @@ pending_take :: proc(a: ^App, chord: input.Chord) -> bool {
         return true
     case input.Pending_Prefix:
         return prefix_take(a, chord)
+    case input.Pending_Menu:
+        return menu_take(a, chord)
     }
     return false
 }
 
-// Arms a primer, if this chord is one. Both bar labels are built here because the table cannot
-// change while a primer is up, and they are owned the way an armed pick owns its line.
+// Arms a primer, if this chord is one. The label is built here because the table cannot change
+// while a primer is up, and it is owned the way an armed pick owns its line. It POINTS at the
+// help chord rather than listing the children: the menubar that chord opens is where they are.
 @(private = "file")
 prefix_arm :: proc(a: ^App, chord: input.Chord, ctx: input.Bind_Ctx, kind: input.Kind) -> bool {
     if !input.bind_primes(a.binds[:], chord, ctx, kind) {
         return false
     }
-    kids := input.bind_children(a.binds[:], chord, ctx, key_layout_name, names(a), kind,
-                                context.temp_allocator)
     spelling := input.chord_format(chord, key_layout_name, context.temp_allocator)
-    code, _ := input.key_code(input.PREFIX_HELP)
-    help := key_layout_name(code)
+    help := input.chord_format(prefix_help(chord), key_layout_name, context.temp_allocator)
     input.pending_set(&a.pending, input.Pending_Prefix {
         chord = chord,
-        short = fmt.aprintf("%s: %s lists what follows it, esc cancels", spelling, help),
-        long  = fmt.aprintf("%s: %s", spelling, kids),
+        label = fmt.aprintf("%s: %s lists what follows it, esc cancels", spelling, help),
     })
     return true
 }
 
-// The three outcomes of a chord under a primer (§4.2), plus the two keys the primer reserves.
-//
-// An UNMODIFIED chord is never part of a sequence — structurally, not by timing — so it clears
-// the primer and answers false, and the key does exactly what it always did. That transparency
-// is the whole difference between this and Emacs. A modified chord that no child claims is
-// ABSORBED and reported: dispatching it as itself would fire an unrelated verb because a
-// sequence did not exist, which is what describe exists to prevent.
+// The chord that opens the menu under this primer: the help key carrying the PRIMER'S OWN
+// modifier, so the hand already holding it drops a thumb (MENU.md §5, and PREFIX_HELP's note).
+@(private = "file")
+prefix_help :: proc(prefix: input.Chord) -> input.Chord {
+    code, _ := input.key_code(input.PREFIX_HELP)
+    return {code, prefix.mods, 0}
+}
+
+// The two keys a primer reserves, and then the outcomes below. Both reserved chords are answered
+// here rather than in the resolve, because both are about the PRIMER and neither is a child.
 @(private = "file")
 prefix_take :: proc(a: ^App, chord: input.Chord) -> bool {
     p, _ := a.pending.(input.Pending_Prefix)
     esc, _ := input.key_code("ESC")
-    help, _ := input.key_code(input.PREFIX_HELP)
     // Escape is unmodified and would fall through to quit, so it cancels ahead of the rule
-    // below. The help key is the one other hole, and it keeps the primer up.
+    // below. The help chord is the one other key the primer reserves.
     if chord == (input.Chord{esc, {}, 0}) {
         input.pending_set(&a.pending)
         return true
     }
-    if chord == (input.Chord{help, {}, 0}) {
-        p.listing = true
-        a.pending = p // the same owned labels, so this is the one write that must not free them
+    // Code and mods, and `held` deliberately left out: keeping `x` down through `m-x` into
+    // `m-space` fills `held` with `x`, and an equality test against a zero one would miss the
+    // chord the user actually typed.
+    if h := prefix_help(p.chord); chord.code == h.code && chord.mods == h.mods {
+        menu_open(a, p.chord) // the write that replaces this pending is what frees its label
         return true
     }
-    if chord.mods == {} {
-        input.pending_set(&a.pending)
+    prefix := p.chord
+    input.pending_set(&a.pending)
+    return prefix_resolve(a, chord, prefix)
+}
+
+// The three outcomes of a chord under a primer (§4.2).
+//
+// An UNMODIFIED chord is never part of a sequence — structurally, not by timing — so it answers
+// false, and the caller lets the key do exactly what it always did. That transparency is the
+// whole difference between this and Emacs. A modified chord that no child claims is ABSORBED and
+// reported: dispatching it as itself would fire an unrelated verb because a sequence did not
+// exist, which is what describe exists to prevent.
+//
+// Shared with the menubar, because a menu opened on a primer's popout is still under that primer
+// and a chord it does not claim was typed at those children (MENU.md §5).
+prefix_resolve :: proc(a: ^App, chord, prefix: input.Chord) -> bool {
+    if chord.mods == {} || prefix == (input.Chord{}) {
         return false
     }
     ctx, kind := bind_ctx(a)
-    input.pending_set(&a.pending)
-    if b, extend, ok := input.bind_lookup(a.binds[:], chord, ctx, kind, p.chord); ok {
+    if b, extend, ok := input.bind_lookup(a.binds[:], chord, ctx, kind, prefix); ok {
         bind_dispatch(a, chord, b, extend)
         return true
     }
     message_set(a, fmt.tprintf("%s is unbound", input.chord_pair_format(
-        p.chord, chord, key_layout_name, context.temp_allocator)))
+        prefix, chord, key_layout_name, context.temp_allocator)))
     return true
 }
 
@@ -204,8 +222,8 @@ handle_chord :: proc(a: ^App, chord: input.Chord, repeat := false) {
 }
 
 // A resolved row, run. Split from handle_chord so a child reached under a primer takes exactly
-// the path its plain sibling takes (§4.2).
-@(private = "file")
+// the path its plain sibling takes (§4.2) — and so a row PRESSED in the menu takes it too, which
+// is the whole of "the menu does what typing it does" (MENU.md §1).
 bind_dispatch :: proc(a: ^App, chord: input.Chord, b: input.Bind, extend: bool) {
     if line, is_line := b.target.(input.Bind_Line); is_line {
         bind_line_fire(a, chord, line)
@@ -295,6 +313,8 @@ bind_dispatch :: proc(a: ^App, chord: input.Chord, b: input.Bind, extend: bool) 
         cl_show(a)
     case .CL_Sigil:
         cl_show(a, ":")
+    case .Menu_Open:
+        menu_open(a)
     case:
         // A bound chord that does nothing at all is the one thing §8 exists to prevent, so a
         // verb whose stage has not landed says so rather than going quiet.
@@ -852,6 +872,106 @@ hover_line :: proc(a: ^App, d: ^desc.Descriptor) -> (input.Bind_Line, bool) {
         return line, true
     }
     return click_line(a, d, .Double_Click)
+}
+
+// The fields on the visible rows that something would ACT on, as style runs (§8). A link is a
+// field some LINE names, and the lines are the ones already written down: the rows reachable in
+// this document's own context, and the table `:home enter` runs behind one row (home.odin). So
+// a link is drawn exactly where a key or a click would do something, and neither table is read
+// twice for it.
+//
+// Per frame rather than published into the span store, because both halves move under it — the
+// descriptor with every submit, the lines with every binds.conf re-read.
+doc_links :: proc(a: ^App, d: ^desc.Descriptor, first, last: int,
+                  allocator := context.temp_allocator) -> []view.Style {
+    if d == nil {
+        return nil // nothing resolved a descriptor, so there are no fields to be links
+    }
+    names := link_names(a, d, allocator)
+    if len(names) == 0 {
+        return nil
+    }
+    fg, bg := token_color(a, token_intern(a, TOKEN_LINK)), a.theme[.Bg]
+    out := make([dynamic]view.Style, allocator)
+    for at in first ..< last {
+        for name in names {
+            if lo, hi, named := desc.field_span(d, at, name); named && lo < hi {
+                append(&out, view.Style{at, lo, hi, fg, bg, {.Underline}})
+            }
+        }
+    }
+    return out[:]
+}
+
+@(private = "file")
+link_names :: proc(a: ^App, d: ^desc.Descriptor,
+                   allocator := context.temp_allocator) -> []string {
+    out := make([dynamic]string, allocator)
+    for b in a.binds {
+        if !input.bind_reachable(b, d.ctx, d.kind) {
+            continue
+        }
+        if line, is_line := b.target.(input.Bind_Line); is_line {
+            link_holes(&out, line.text)
+        }
+    }
+    for v in HOME_VERBS {
+        link_holes(&out, v.line) // a name no document carries costs a lookup that misses
+    }
+    return out[:]
+}
+
+@(private = "file")
+link_holes :: proc(out: ^[dynamic]string, template: string) {
+    rest := template
+    for {
+        _, name, tail, found := hole_next(rest)
+        if !found {
+            return
+        }
+        if !slice.contains(out[:], name) {
+            append(out, name)
+        }
+        rest = tail
+    }
+}
+
+// The one link that is LIVE: the field under the pointer, or the row the caret is on, which is
+// what `enter` acts on. Its own token, so a page of offers says which one the next keystroke
+// takes. Only where the caret is drawn — an unfocused panel has no next keystroke.
+doc_link_over :: proc(a: ^App, p: ^Panel, d: ^desc.Descriptor, v: view.View, marked: bool,
+                      allocator := context.temp_allocator) -> []view.Style {
+    line, lo, hi := p.hover.line, p.hover.lo, p.hover.hi
+    if !p.hover.on {
+        if !marked {
+            return nil
+        }
+        at := v.point.head.line
+        first, ok := link_at(a, d, at)
+        if !ok {
+            return nil
+        }
+        line, lo, hi = at, first.lo, first.hi
+    }
+    fg, bg := token_color(a, token_intern(a, TOKEN_LINK_OVER)), a.theme[.Bg]
+    out := make([dynamic]view.Style, 0, 1, allocator)
+    append(&out, view.Style{line, lo, hi, fg, bg, {.Underline}})
+    return out[:]
+}
+
+// The link on a row, if it carries one. A row carrying more than one is a row `:home enter`
+// would take the FIRST of, so this answers the same way it does.
+@(private = "file")
+link_at :: proc(a: ^App, d: ^desc.Descriptor, line: int) -> (desc.Field, bool) {
+    if d == nil {
+        return {}, false
+    }
+    for name in link_names(a, d) {
+        if f, named := desc.field_of(d, line, name); named && f.lo < f.hi {
+            return f, true
+        }
+    }
+    return {}, false
 }
 
 // Ask the bind table whether a click here would do anything, and underline the field it would

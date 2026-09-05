@@ -1,5 +1,6 @@
 package main
 
+import "../desc"
 import "../gfx"
 import "../store"
 import "../txt"
@@ -22,6 +23,7 @@ import "../view"
 doc_styles :: proc(
     a: ^App,
     id: store.Id,
+    d: ^desc.Descriptor,
     t: ^txt.Text,
     dv: ^view.Derived,
     top, rows: int,
@@ -39,11 +41,15 @@ doc_styles :: proc(
         lo, _ = view.src_off(dv, lo)
         hi, _ = view.src_off(dv, hi)
     }
+    olines := txt.text_line_count(orig)
+    // The rows a click would act on, over the same lines and in the same coordinates. Merged
+    // rather than concatenated, because line_styles binary-searches this list.
+    links := doc_links(a, d, txt.text_line_at_off(orig, lo),
+                       min(txt.text_line_at_off(orig, hi) + 1, olines))
     spans := store.store_spans(&a.docs, id, lo, hi, spans_order(a, id))
     if len(spans) == 0 {
-        return nil
+        return links
     }
-    olines := txt.text_line_count(orig)
     out := make([dynamic]view.Style, 0, len(spans), context.temp_allocator)
     for sp in spans {
         // Spans arrive sorted and non-overlapping and each one's pieces come out in line
@@ -70,5 +76,32 @@ doc_styles :: proc(
             }
         }
     }
+    return styles_over(out[:], links)
+}
+
+// Two lists, each already sorted by line, into one that is. `over` lands AFTER `under` on a line
+// they share: view.paint writes whole cells in list order, so the later run is the one that
+// shows — which is how a link draws over the syntax beneath it.
+styles_over :: proc(under, over: []view.Style,
+                    allocator := context.temp_allocator) -> []view.Style {
+    if len(over) == 0 {
+        return under
+    }
+    if len(under) == 0 {
+        return over
+    }
+    out := make([dynamic]view.Style, 0, len(under) + len(over), allocator)
+    i, j := 0, 0
+    for i < len(under) && j < len(over) {
+        if under[i].line <= over[j].line {
+            append(&out, under[i])
+            i += 1
+        } else {
+            append(&out, over[j])
+            j += 1
+        }
+    }
+    append(&out, ..under[i:])
+    append(&out, ..over[j:])
     return out[:]
 }

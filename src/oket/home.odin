@@ -62,7 +62,9 @@ home_news :: proc(a: ^App) -> bool {
 // `enter` over a row, as the verb the row's own field asks for. The lines are the ones you
 // could have typed, and the order is the page's own: work a crash left, then a plugin held
 // back, then a file to open. A row carrying none of them is prose, and says so.
-@(private = "file", rodata)
+// Not file-private: the link renderer reads the same table (routing.odin), so what is drawn as
+// an offer and what `enter` takes cannot come apart.
+@(rodata)
 HOME_VERBS := [?]struct {
     field: string,
     line:  string,
@@ -184,7 +186,8 @@ home_fill :: proc(a: ^App, id: store.Id) {
         say(&p, "")
         row(&p, "file", cwd, "   the directory you started in")
     }
-    say(&p, "alt+f files   alt+t term   alt+c command line   f1 describes a chord")
+    say(&p, "alt+space the menu   alt+f files   alt+t term   " +
+             "alt+c command line   f1 describes a chord")
 
     doc := store.store_doc(&a.docs, id)
     if doc == nil {

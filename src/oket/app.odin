@@ -26,6 +26,15 @@ App :: struct {
     // works in, and the widths live on the panels.
     panels:       [dynamic]Panel,
     focus:        int,
+    // The menubar's three grids and where the last draw put each (MENU.md §4). Painted AFTER
+    // the panels: the chrome is painted first and a panel covers it, so a bar drawn into the
+    // chrome would be invisible. `on` is what the frame DREW, so a box with no room to draw in
+    // paints nothing.
+    menu:         [Menu_Part]Menu_Layer,
+    // Where the keys are while the menu is up (MENU.md §5), the state the pointer moves too.
+    // The Pending_Menu in `pending` is still the one thing that says a menu IS up; this is only
+    // meaningful then, and menu_open resets it.
+    menu_nav:     Menu_Nav,
     strip:        strip.Strip,
     // The cell, in pixels, as the last fit measured it. The grids are cells and the strip is
     // pixels, so the conversion is written down once rather than asked of the painter from
@@ -157,6 +166,7 @@ app_destroy :: proc(a: ^App) {
     delete(a.home)
     glfw.DestroyCursor(a.hand)
     panels_destroy(a)
+    menubar_destroy(a)
     gfx.grid_destroy(&a.chrome)
     gfx.painter_destroy(&a.painter) // the atlas and its faces go with it
 }

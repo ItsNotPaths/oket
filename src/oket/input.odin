@@ -2,6 +2,7 @@ package main
 
 import "base:runtime"
 import "core:c"
+import "core:strings"
 import "vendor:glfw"
 import glfwb "vendor:glfw/bindings"
 import "../gfx"
@@ -99,6 +100,11 @@ button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mods: i3
     }
     px, py := glfw.GetCursorPos(window)
     pn, cx, cy := cell_at(a, px, py)
+    // The menu is over the panels and is asked before them (MENU.md §6): what it takes never
+    // reaches the panel under it.
+    if menu_took_button(a, pn, cx, cy, action == glfw.PRESS) {
+        return
+    }
     // Click to focus, before anything reads `active` (PANELS.md §7): the cell counts from the
     // panel it landed in, so aiming the keys somewhere else would place point with one panel's
     // numbers in another panel's document.
@@ -137,6 +143,11 @@ cursor_callback :: proc "c" (window: glfw.WindowHandle, px, py: f64) {
         return
     }
     pn, cx, cy := cell_at(a, px, py)
+    if pn == PANEL_MENU {
+        menu_hover(a, pn, cx, cy)
+        hover_update(a, pn, cx, cy) // over the menu is over no document: whatever was lit goes out
+        return
+    }
     if tm := mouse_events_target(a); tm != nil {
         term_mouse_at(a, tm, cx, cy, glfw_mods_now(window))
         return
@@ -169,9 +180,12 @@ scroll_callback :: proc "c" (window: glfw.WindowHandle, xoff, yoff: f64) {
     case yoff == 0:
         return
     }
+    px, py := glfw.GetCursorPos(window)
+    pn, cx, cy := cell_at(a, px, py)
+    if pn == PANEL_MENU {
+        return // the wheel over a menu is the menu's, and it scrolls with its own keys
+    }
     if tm := mouse_events_target(a); tm != nil {
-        px, py := glfw.GetCursorPos(window)
-        _, cx, cy := cell_at(a, px, py)
         term_mouse(a, tm, wheel, cx, cy, glfw_mods_now(window), true)
         return
     }
@@ -254,5 +268,11 @@ key_layout_name :: proc(code: input.Code) -> string {
         return ""
     }
     name := glfwb.GetKeyName(glfw.KEY_UNKNOWN, sc)
-    return name == nil ? "" : string(name)
+    // A position that types a SPACE has no visible glyph, and `alt+ ` is not a chord anybody can
+    // read. Nothing, so key_spelling falls back to the label ("space") — the menubar's own key
+    // (MENU.md §5).
+    if name == nil || strings.trim_space(string(name)) == "" {
+        return ""
+    }
+    return string(name)
 }

@@ -57,6 +57,7 @@ surface_draw :: proc(a: ^App) {
     for &p, i in a.panels {
         panel_draw(a, &p, i == panel_marked(a))
     }
+    menubar_draw(a) // its own grids, after the panels (MENU.md §4)
 }
 
 // One panel, into its own grid and its own cells. The rectangle it draws into is the FIT's, and
@@ -87,9 +88,15 @@ panel_draw :: proc(a: ^App, p: ^Panel, marked: bool) {
     // `dv` is the map back to the one being edited. Nil for everything nobody derived.
     b := p.body
     t, dv := views_text(a, s.doc, &snap.text)
+    // The link the pointer is in goes on LAST, so the one a click would take reads differently
+    // from the rest of them (routing.odin).
+    styles := styles_over(doc_styles(a, s.doc, d, t, dv, s.view.top, b.h),
+                          doc_link_over(a, p, d, s.view, marked))
     view.draw(&p.grid, th, t, d, s.view, b.x, b.y, b.w, b.h,
-              doc_styles(a, s.doc, t, dv, s.view.top, b.h), marked, dv, views_over(a, s.doc))
+              styles, marked, dv, views_over(a, s.doc), a.config.select)
     if p.hover.on {
+        // A columns document draws its FIELDS and not its bytes, so no style run reaches it —
+        // the mark is the only way to underline a field there.
         view.underline(&p.grid, t, d, s.view, b.x, b.y, b.w, b.h,
                        p.hover.line, p.hover.lo, p.hover.hi, dv)
     }
@@ -103,6 +110,7 @@ surface_paint :: proc(a: ^App, win_w, win_h: i32) {
     ox, oy := gfx.painter_origin(p, win_w, win_h, a.chrome.cols, a.chrome.rows)
     _, ch := gfx.painter_cell(p)
     gfx.painter_draw(p, &a.chrome, win_w, win_h, {f32(ox), f32(oy)}, {0, 0, win_w, win_h})
+    top := oy + menu_rows(a) * ch // the row a constant menubar keeps (MENU.md §4)
     ws := panel_widths(a)
     for &pn, i in a.panels {
         it := strip.span(a.strip, ws, i)
@@ -113,7 +121,8 @@ surface_paint :: proc(a: ^App, win_w, win_h: i32) {
         if hi <= lo {
             continue
         }
-        gfx.painter_draw(p, &pn.grid, win_w, win_h, {x, f32(oy)},
-                         {lo, i32(oy), hi - lo, i32(pn.grid.rows * ch)})
+        gfx.painter_draw(p, &pn.grid, win_w, win_h, {x, f32(top)},
+                         {lo, i32(top), hi - lo, i32(pn.grid.rows * ch)})
     }
+    menubar_paint(a, win_w, win_h) // last, over the panels (MENU.md §4)
 }

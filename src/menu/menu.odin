@@ -194,7 +194,8 @@ Box :: struct {
 }
 
 // Two borders and one row is the least a box can hold; under that it is nothing to draw or hit.
-@(private)
+// Public because the kernel paints these boxes and a grid it draws nothing into is one it must
+// not paint either (MENU.md §4).
 has_room :: proc(box: Box) -> bool {
     return box.w >= 3 && box.h >= 3
 }

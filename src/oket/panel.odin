@@ -221,7 +221,10 @@ panels_fit :: proc(a: ^App, cols, rows: int) {
     if land {
         a.strip.camera = a.strip.aim
     }
-    high := max(rows - 1, 0) // the bar's row is the chrome's, and no panel reaches it
+    // The bar's row is the chrome's and no panel reaches it, and a constant menubar keeps the
+    // top row the same way (MENU.md §4). A hidden one costs nothing here, which is why opening
+    // it reflows no document and resizes no session.
+    high := max(rows - 1 - menu_rows(a), 0)
     for &p, i in a.panels {
         if land || p.w <= 0 {
             p.w = dest[i] // a panel with no width yet lands; nothing slides in from nothing
@@ -280,16 +283,29 @@ panels_destroy :: proc(a: ^App) {
     a.panels = nil
 }
 
+// The menu's own lattice, which is nobody's panel: a click on it is worked by the menubar and
+// the panel under it never hears about it (MENU.md §6).
+PANEL_MENU :: -2
+
 // Which panel a screen PIXEL lands in, and where in that panel's own cells (PANELS.md §7). A
 // column number means nothing until you know whose grid it counts from, so the panel is answered
 // first. -1 is the chrome: the bar's row, a gap, or the space past the last panel.
 panel_hit :: proc(a: ^App, px, py: int) -> (panel, x, y: int) {
-    row := floor_div(py, a.cell.y)
+    col, win := floor_div(px, a.cell.x), floor_div(py, a.cell.y)
+    // The menu is painted OVER the panels, so it is asked before the strip (MENU.md §6): a cell
+    // it holds is not the panel's under it, and the cells that come back are the window's,
+    // because that is the lattice the menu is laid out on.
+    if _, on := menu_hit(a, col, win); on {
+        return PANEL_MENU, col, win
+    }
+    // A reserved menubar row pushes every panel down one, so the row a pixel lands on is the
+    // window's minus what the bar kept (MENU.md §4).
+    row := win - menu_rows(a)
     ws := panel_widths(a)
-    if i := strip.hit(a.strip, ws, f32(px)); i >= 0 && row < a.panels[i].grid.rows {
+    if i := strip.hit(a.strip, ws, f32(px)); i >= 0 && row >= 0 && row < a.panels[i].grid.rows {
         return i, floor_div(px - int(strip.span(a.strip, ws, i).x), a.cell.x), row
     }
-    return -1, floor_div(px, a.cell.x), row
+    return -1, col, row
 }
 
 // Truncation toward zero would fold the column left of a grid onto column 0.

@@ -32,14 +32,22 @@ Pending_Pick :: struct {
     target: int,
 }
 
-// A primer is up (§4): the next chord is qualified by `chord`. Both labels are built at arm
-// time — the table cannot change while a primer is up — and owned the way an armed pick owns
-// its line. `listing` is what the reserved help key turned on: one bar row does not hold six
-// children, so the short form only points at the help key until the list is asked for.
+// A primer is up (§4): the next chord is qualified by `chord`. The label is built at arm time —
+// the table cannot change while a primer is up — and owned the way an armed pick owns its line.
+// It points at the help chord and lists nothing: the MENUBAR holds the children, one row each,
+// and a bar row that also listed them would be a second answer to one question (MENU.md §5).
 Pending_Prefix :: struct {
-    chord:        Chord,
-    short, long:  string,
-    listing:      bool,
+    chord: Chord,
+    label: string,
+}
+
+// The menubar is up (MENU.md §5): this state in the union is the one thing that says so. Where
+// the keys are — the nav — lives on the App beside the menu grids, reset at the open, so this
+// package needs no view of the menu. `prefix` is the primer whose popout it opened on, zero for
+// a plain open: a chord the menu does not claim is still under that primer, so the fall-through
+// has to resolve there rather than as itself.
+Pending_Menu :: struct {
+    prefix: Chord,
 }
 
 Pending :: union {
@@ -48,6 +56,7 @@ Pending :: union {
     Pending_Switcher,
     Pending_Pick,
     Pending_Prefix,
+    Pending_Menu,
 }
 
 pending_describe :: proc(p: Pending) -> string {
@@ -64,7 +73,9 @@ pending_describe :: proc(p: Pending) -> string {
             v.target + 1,
         )
     case Pending_Prefix:
-        return v.listing ? v.long : v.short
+        return v.label
+    case Pending_Menu:
+        return "menu: arrows choose, enter runs, esc closes; anything else falls through"
     }
     return ""
 }
@@ -76,8 +87,7 @@ pending_set :: proc(p: ^Pending, to: Pending = nil) {
     case Pending_Pick:
         delete(it.line)
     case Pending_Prefix:
-        delete(it.short)
-        delete(it.long)
+        delete(it.label)
     }
     p^ = to
 }

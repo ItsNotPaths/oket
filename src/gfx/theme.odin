@@ -15,11 +15,27 @@ Token :: enum u8 {
 
 Theme :: [Token][3]f32
 
+// Percent toward black; 0 is the colour itself. Darker is the ONE direction derived colours go,
+// which is what keeps the token set at five: a shade needs no theme author to define it.
+shade :: proc(c: [3]f32, percent: int) -> [3]f32 {
+    return c * (1 - clamp(f32(percent), 0, 100) / 100)
+}
+
 // A shade of `Bg`, for the surface the panels sit ON. Derived rather than a sixth token: a
 // chrome colour every theme author has to define is the cost the set stays small to avoid
-// (PANELS.md §12). Percent toward black; 0 is `Bg` itself.
+// (PANELS.md §12).
 theme_behind :: proc(th: Theme, percent: int) -> [3]f32 {
-    return th[.Bg] * (1 - clamp(f32(percent), 0, 100) / 100)
+    return shade(th[.Bg], percent)
+}
+
+// Is the ink lighter than the ground. The question a theme answers rather than declares, so a
+// theme file grows no `dark = true` row and a palette can be asked to draw the other way round
+// (MENU.md §4). Rec. 601 weights, which is enough to order two colours.
+theme_dark :: proc(th: Theme) -> bool {
+    lum :: proc(c: [3]f32) -> f32 {
+        return 0.299 * c.r + 0.587 * c.g + 0.114 * c.b
+    }
+    return lum(th[.Bg]) < lum(th[.Fg])
 }
 
 // Gruvbox, baked in: the same five keys `themes/gruvbox.toml` resolves to, so a start with no

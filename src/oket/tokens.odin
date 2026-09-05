@@ -17,6 +17,11 @@ Token_Def :: struct {
     themed: bool, // false draws in the theme's Fg, which is what an unmapped name gets
 }
 
+// A field a bound mouse chord acts on, and the same field while the pointer or the caret is in
+// it. Named here because the KERNEL interns these two, the way a plugin interns its own.
+TOKEN_LINK :: "link"
+TOKEN_LINK_OVER :: "link.hover"
+
 // An id is 16 bits on the seam, and a plugin interning in a loop must hit a wall rather than
 // grow the table forever.
 TOKEN_MAX :: 1024
@@ -59,6 +64,11 @@ DEFAULT_SYNTAX := [?]struct {
     {"property", {0.55, 0.72, 0.85}},
     {"label", {0.55, 0.72, 0.85}},
     {"diagnostic", {0.95, 0.45, 0.40}},
+    // A field a mouse chord would act on, and the same field under the pointer or the caret
+    // (routing.odin). Two names rather than one, because `link.hover` would otherwise resolve
+    // to `link` by the dot rule and a link would look the same whether or not it was live.
+    {"link", {0.38, 0.62, 0.92}},
+    {"link.hover", {0.55, 0.79, 1.00}},
     {"punctuation", {0.55, 0.57, 0.62}},
     {"bracket", {0.55, 0.57, 0.62}},
     {"delimiter", {0.55, 0.57, 0.62}},

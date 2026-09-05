@@ -103,6 +103,7 @@ Command :: enum u8 {
     Jump_Forward,
     CL_Open,
     CL_Sigil,
+    Menu_Open,
     Surface_Send,
     Term_Copy,
     Term_Paste,
@@ -251,6 +252,7 @@ COMMANDS := [Command]Command_Info {
     .Jump_Forward        = {"jump.forward", "back toward the position you jumped from", {.Global}},
     .CL_Open             = {"cl.open", "open the command line", {.Global}},
     .CL_Sigil            = {"cl.sigil", "open the command line with the builtin : typed", {.Global}},
+    .Menu_Open           = {"menu.open", "open the menubar on its first menu", {.Global}},
     .Surface_Send        = {"surface.send", "send the key to the focused surface's own job", {.Terminal, .Surface}},
     .Term_Copy           = {"term.copy", "copy the selection, or the line point is on, to the system clipboard", {.Terminal}},
     .Term_Paste          = {"term.paste", "paste the clipboard as bracketed input", {.Terminal}},
@@ -412,6 +414,8 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     bind_put(&b, "AE10", {.Ctrl}, .Font_Reset) // ctrl+0
     bind_put(&b, "AB03", {.Alt}, .CL_Open) // alt+c
     bind_put(&b, "AC10", {.Alt}, .CL_Sigil) // alt+;
+    // alt+space; under a primer the same key carries THAT primer's modifier (MENU.md §5).
+    bind_put(&b, PREFIX_HELP, {.Alt}, .Menu_Open)
 
     // Switching lanes is its own key, not a walk through the numbers (§5). These are LINES, so
     // the kind is named in a command line the user can read and rebind, and never in a case in
@@ -551,10 +555,14 @@ bind_one_ctx :: proc(b: Bind) -> Bind_Ctx {
     return .Global
 }
 
-// The reserved key that lists a primer's children, and the one hole in §4.1's transparency: it
-// is unmodified, so it would otherwise fall through and type. One key, only while a primer is
-// up, and the menubar takes the rendering over when it lands.
-PREFIX_HELP :: "TLDE" // backtick
+// The key that opens the menubar on a primer's own popout (MENU.md §5). Compared as a CHORD
+// carrying the primer's modifier — `m-x` reserves `m-space`, `c-f` reserves `c-space` — so
+// every chord a primer reserves is modified, exactly like every child it can reach, and an
+// unmodified key under a primer always types.
+//
+// Space, because the one key that must work under EVERY primer cannot be a letter a plugin
+// wants for a mnemonic, and because it is the same position on every layout.
+PREFIX_HELP :: "SPCE"
 
 // A primer is declared by its CHILDREN and by nothing else: no `ctrl+b = prefix` row to keep in
 // step, and deleting the last child is what ends the primer. So arming asks the table whether
@@ -569,7 +577,8 @@ bind_primes :: proc(binds: []Bind, chord: Chord, ctx: Bind_Ctx, kind: Kind = 0) 
 }
 
 // The tiers bind_find would walk, as a predicate: this row's own kind, its context, or Global.
-@(private = "file")
+// Package-wide, because a reader asking what a DOCUMENT can do walks the table with it rather
+// than writing the tiers down a second time (the kernel's link renderer).
 bind_reachable :: proc(b: Bind, ctx: Bind_Ctx, kind: Kind) -> bool {
     if b.kind != 0 {
         return b.kind == kind && ctx in b.ctx
