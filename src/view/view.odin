@@ -99,7 +99,9 @@ draw :: proc(
         draw_columns(g, th, t, d, v, x, y, gut, w, h, point, dv, select, set)
         return
     }
-    for r, i in rows(t, d, v.top, body, h, dv) {
+    rs := rows(t, d, v.top, body, h, dv)
+    on := onscreen(set, row_span(rs))
+    for r, i in rs {
         src := txt.text_line(t, r.line, context.temp_allocator)
         clipped := scrolled(r, src, v.left, d.tab_width)
         ind := indent(d, body, r.src)
@@ -109,9 +111,68 @@ draw :: proc(
         restyle(g, t, d, dv, left, y + i, body - ind, clipped, src, styles)
         overstyle(g, d, left, y + i, body - ind, clipped, src, over)
         if point {
-            mark_point(g, t, d, dv, left, y + i, body - ind, clipped, src, select, set)
+            mark_point(g, t, d, dv, left, y + i, body - ind, clipped, src, select, on)
         }
     }
+}
+
+// THE CARETS A DRAW CAN REACH, and it is a filter rather than a search. `:find` makes one caret
+// per match, so the set runs to tens of thousands while a viewport shows fifty lines — and the
+// row loop asks EVERY caret about EVERY row, which is the whole screen's cost multiplied by a
+// number the document decides.
+//
+// One pass, order kept: mark_row takes the first caret covering its row, and mark_point paints
+// later carets over earlier ones, so a filter is the only shape that changes no pixel. Sorting
+// would be the faster answer and it is not available — the set is ordered only after
+// doc_merge_cursors (txt/cursor.odin) and a placement verb leaves it in any order.
+//
+// A TYPE AND NOT A CONVENTION, because removing the filter changes no pixel: nothing observable
+// says whether the row loop walks the screen's carets or the document's, so no test can tell
+// and a clock over the difference is the flake the tree already has one of. Marking takes an
+// Onscreen, so the narrowing is the compiler's to enforce.
+Onscreen :: distinct []txt.Cursor
+
+onscreen :: proc(carets: []txt.Cursor, lo, hi: int) -> Onscreen {
+    if hi < lo {
+        return nil
+    }
+    out := make([dynamic]txt.Cursor, 0, min(len(carets), 64), context.temp_allocator)
+    for c in carets {
+        a, b := txt.cursor_range(c)
+        if a.line <= hi && b.line >= lo {
+            append(&out, c)
+        }
+    }
+    return Onscreen(out[:])
+}
+
+// The original lines a row list covers. `src` is -1 for a row a view stage inserted, which
+// stands for nothing in the original and so widens no span.
+row_span :: proc(rs: []Row) -> (lo, hi: int) {
+    lo, hi = max(int), min(int)
+    for r in rs {
+        if r.src >= 0 {
+            lo, hi = min(lo, r.src), max(hi, r.src)
+        }
+    }
+    return
+}
+
+// The same span for a columns document, which has no row list: one row per line, so the ends
+// of what fits, skipping the rows a view stage inserted the way row_span does.
+@(private)
+col_span :: proc(t: ^txt.Text, dv: ^Derived, top, h: int) -> (lo, hi: int) {
+    lo, hi = max(int), min(int)
+    for i in 0 ..< h {
+        line := top + i
+        if line >= txt.text_line_count(t) {
+            break
+        }
+        if orig := src_line(dv, t, line); orig >= 0 {
+            lo, hi = min(lo, orig), max(hi, orig)
+        }
+    }
+    return
 }
 
 // The style runs covering one drawn row, painted over what `run` just placed. Before
@@ -373,6 +434,7 @@ draw_columns :: proc(
     select: int,
     carets: []txt.Cursor,
 ) {
+    on := onscreen(carets, col_span(t, dv, v.top, h))
     for i in 0 ..< h {
         line := v.top + i
         if line >= txt.text_line_count(t) {
@@ -396,7 +458,7 @@ draw_columns :: proc(
         // except its own text. A columns document draws its fields and not its bytes, so what
         // is marked is the whole ROW rather than a span of it.
         if point && d.selection != .None && orig >= 0 {
-            mark_row(g, x + gut, y + i, w - gut, select, orig, carets)
+            mark_row(g, x + gut, y + i, w - gut, select, orig, on)
         }
     }
 }
@@ -404,7 +466,7 @@ draw_columns :: proc(
 // The whole ROW is lit, so the first caret whose range covers it decides and the rest add
 // nothing. An empty range is the CARET, a full swap — the percent is the selection's alone.
 @(private)
-mark_row :: proc(g: ^gfx.Grid, x, y, width, select, orig: int, carets: []txt.Cursor) {
+mark_row :: proc(g: ^gfx.Grid, x, y, width, select, orig: int, carets: Onscreen) {
     for c in carets {
         lo, hi := txt.cursor_range(c)
         if orig >= lo.line && orig <= hi.line {
@@ -516,7 +578,7 @@ mark_point :: proc(
     r: Row,
     src: []u8,
     select: int,
-    carets: []txt.Cursor,
+    carets: Onscreen,
 ) {
     if d.selection == .None || r.src < 0 {
         return
