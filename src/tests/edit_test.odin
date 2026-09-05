@@ -177,6 +177,38 @@ each_caret_takes_its_own_indent_in_one_step :: proc(t: ^testing.T) {
     testing.expect_value(t, doc_text(&a, id), "  two\n        eight")
 }
 
+// CURSORS.md stage 3's gate, end to end: the plugin sends one edit per caret and NAMES each
+// one, so the caret an edit leaves is the same caret. That is what keeps `primary` — and the
+// viewport that follows it — on the caret being typed at, not the topmost (VIEWS.md §12).
+@(test)
+the_viewport_follows_the_caret_being_typed_at :: proc(t: ^testing.T) {
+    LINES :: 200
+
+    body := strings.builder_make(context.temp_allocator)
+    for i in 0 ..< LINES {
+        fmt.sbprintf(&body, "line %d\n", i)
+    }
+    a, _, ok := edit_app(t, "oket-edit-follow", strings.to_string(body))
+    if !ok {
+        return
+    }
+    defer close_plug_app(&a)
+
+    id := focused(&a)
+    doc := store.store_doc(&a.docs, id)
+    txt.doc_set_head(doc, {0, 0}, false)
+    txt.doc_add_cursor(doc, {LINES - 1, 0}) // alt+click at the bottom, and it is the primary
+    bottom := doc.cursors[doc.primary].id
+
+    app.text_input(&a, 'X')
+    app.surface_draw(&a)
+
+    testing.expect_value(t, len(doc.cursors), 2)
+    testing.expect_value(t, doc.cursors[doc.primary].id, bottom)
+    testing.expect_value(t, doc.cursors[doc.primary].head.line, LINES - 1)
+    testing.expect(t, app.active(&a).view.top > 0, "the viewport scrolled back to the top caret")
+}
+
 // Undo is the kernel's (§7), so it reaches a plugin's transaction with the plugin writing no
 // undo code. The same rule is what makes `ctrl+z` undo a formatter.
 @(test)

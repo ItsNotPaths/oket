@@ -482,6 +482,44 @@ a_cursor_set_is_not_a_transaction :: proc(t: ^testing.T) {
     testing.expect_value(t, doc.cursors[0].head, txt.Pos{1, 1})
 }
 
+// CURSORS.md stage 3's gate, across the seam: a plugin names its set, then submits one edit per
+// caret naming which caret asked. The caret each edit leaves keeps that name, so `primary` — and
+// scroll-follow with it — stays on the caret being typed at instead of falling back to the
+// topmost (VIEWS.md §12). An edit that names nobody is still named on arrival, so every cursor
+// in the document has one.
+@(test)
+a_submitted_edit_names_the_caret_it_leaves :: proc(t: ^testing.T) {
+    s: store.Store
+    defer store.store_destroy(&s)
+    id := store.store_open(&s, "one\ntwo\nthree")
+    doc := store.store_doc(&s, id)
+
+    // Editable first, or the drain regenerates instead of following (store.odin's
+    // cursor_policy), and a descriptor lands after the commit it rode in with.
+    d := desc.new_from({editable = true})
+    defer desc.release(d)
+    gen, _ := store.store_gen(&s, id)
+    store.store_submit(&s, id, gen, nil, d)
+    store.store_cursors(&s, id, {
+        {anchor = {0, 0}, head = {0, 0}, goal = -1, id = 11},
+        {anchor = {2, 0}, head = {2, 0}, goal = -1, id = 22},
+    }, 1)
+    store.store_drain(&s)
+    testing.expect_value(t, doc.primary, 1)
+
+    gen, _ = store.store_gen(&s, id)
+    store.store_submit(&s, id, gen, {
+        {lo = 0, hi = 0, text = "X", id = 11},
+        {lo = 8, hi = 8, text = "X", id = 22},
+    })
+    store.store_drain(&s)
+
+    testing.expect_value(t, len(doc.cursors), 2)
+    testing.expect_value(t, doc.cursors[1].id, u32(22))
+    testing.expect_value(t, doc.primary, 1) // the bottom caret, not index 0
+    testing.expect_value(t, doc.cursors[doc.primary].head, txt.Pos{2, 1})
+}
+
 // A LISTING IS N ROWS AND ONE COMMIT (VIEWS.md §11). A rename over every row lands as one
 // transaction past DOC_CHANGE_MAX; a log that drops it tells fields.odin `lost`, which deletes
 // every link in the document — one keystroke, and a browser is a listing you can no longer

@@ -145,6 +145,107 @@ set_policy_takes_the_authors_set :: proc(t: ^testing.T) {
     testing.expect_value(t, d.cursors[1].anchor, txt.Pos{1, 0})
 }
 
+// --- the primary, across an edit and a merge (CURSORS.md §5, VIEWS.md §12) ---
+//
+// The set is rebuilt by .Follow and re-SORTED by a merge, so an index says nothing about which
+// caret it was. A name does, and the two tests below are the whole of the difference: the
+// primary is recovered from the name, not clamped into the range that is left.
+
+// Typing at the bottom caret leaves the primary there, not at index 0, so scroll-follow stays
+// with the caret being typed at.
+@(test)
+the_primary_is_the_caret_that_typed :: proc(t: ^testing.T) {
+    d := mk2("one\ntwo\nthree", {0, 0}, {2, 0})
+    defer txt.doc_destroy(&d)
+    was := d.cursors[d.primary].id
+    testing.expect_value(t, d.cursors[d.primary].head, txt.Pos{2, 0})
+
+    testing.expect(t, txt.doc_insert_text(&d, "X"))
+    testing.expect_value(t, len(d.cursors), 2)
+    testing.expect_value(t, d.cursors[d.primary].id, was)
+    testing.expect_value(t, d.cursors[d.primary].head, txt.Pos{2, 1})
+}
+
+// A merge sorts, and the primary is the caret added LAST: the sort moves its index, so only
+// the name can say which caret is still the primary.
+@(test)
+a_merge_keeps_the_primary_named :: proc(t: ^testing.T) {
+    d := mk2("one\ntwo\nthree", {2, 0}, {0, 0})
+    defer txt.doc_destroy(&d)
+    was := d.cursors[d.primary].id
+    testing.expect_value(t, d.primary, 1) // appended last, and it is the TOP line
+
+    txt.doc_move(&d, .Right)
+    testing.expect_value(t, len(d.cursors), 2)
+    testing.expect_value(t, d.primary, 0) // sorted to the front, and still the primary
+    testing.expect_value(t, d.cursors[d.primary].id, was)
+    testing.expect_value(t, d.cursors[d.primary].head, txt.Pos{0, 1})
+}
+
+// Two carets inside one word fuse, and one name has to win. The primary's does, so the caret
+// the user is typing at is the one that survives being merged into a neighbour.
+@(test)
+a_fused_pair_answers_to_the_primary :: proc(t: ^testing.T) {
+    d := mk2("abcd", {0, 1}, {0, 2})
+    defer txt.doc_destroy(&d)
+    was := d.cursors[d.primary].id
+
+    testing.expect(t, txt.doc_delete_word_back(&d))
+    testing.expect_value(t, len(d.cursors), 1)
+    testing.expect_value(t, d.cursors[0].id, was)
+    testing.expect_value(t, d.primary, 0)
+}
+
+// A name is never reused, so a caret that is gone cannot come back as somebody else's. Every
+// cursor the kernel places has one; 0 only ever arrives from outside (oket.h).
+@(test)
+every_caret_is_named :: proc(t: ^testing.T) {
+    d := mk2("one\ntwo\nthree", {0, 0}, {2, 0})
+    defer txt.doc_destroy(&d)
+    txt.doc_add_cursor(&d, {1, 0})
+
+    seen: map[u32]bool
+    defer delete(seen)
+    for c in d.cursors {
+        testing.expect(t, c.id != 0)
+        testing.expect(t, !seen[c.id])
+        seen[c.id] = true
+    }
+    testing.expect_value(t, len(seen), 3)
+}
+
+// A set that arrives unnamed is named on the way in, and one that arrives named keeps what it
+// sent — which is what lets a plugin hand the same caret back next frame.
+@(test)
+an_unnamed_set_is_named_on_arrival :: proc(t: ^testing.T) {
+    d := mk("one\ntwo\nthree")
+    defer txt.doc_destroy(&d)
+
+    want := []txt.Cursor{
+        {head = {0, 1}, anchor = {0, 1}},
+        {head = {1, 1}, anchor = {1, 1}, id = 900},
+    }
+    txt.doc_set_cursors(&d, want, 0)
+    testing.expect(t, d.cursors[0].id != 0)
+    testing.expect_value(t, d.cursors[1].id, u32(900))
+
+    // The counter is past what arrived, so the next caret the kernel places cannot collide.
+    txt.doc_add_cursor(&d, {2, 0})
+    testing.expect(t, d.cursors[len(d.cursors) - 1].id > 900)
+}
+
+// The top of the range. A set may arrive naming any u32, and the counter pushed past the
+// highest one must still hand out a name rather than wrapping onto "unnamed".
+@(test)
+the_counter_never_hands_out_zero :: proc(t: ^testing.T) {
+    d := mk("one\ntwo\nthree")
+    defer txt.doc_destroy(&d)
+
+    txt.doc_set_cursors(&d, {{head = {0, 0}, anchor = {0, 0}, id = max(u32)}}, 0)
+    txt.doc_add_cursor(&d, {1, 0})
+    testing.expect(t, d.cursors[len(d.cursors) - 1].id != 0)
+}
+
 // --- the property ---
 
 @(private = "file")
