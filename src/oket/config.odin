@@ -37,6 +37,9 @@ Config :: struct {
     // A publisher `spans` does not name draws on top of the ones it does (producers.odin). A
     // plugin `view` does not name is not in the pipeline at all — a stage that ran because it
     // was loaded would make load order the layout.
+    //
+    // `[menu]` keeps its lists here too, keyed by the section rather than by the key, because
+    // every key in that section is one (menubar.odin).
     order:   [dynamic]Kind_Order,
 }
 
@@ -139,7 +142,9 @@ config_destroy :: proc(c: ^Config) {
 
 @(private = "file")
 config_set :: proc(c: ^Config, row: conf.Row) -> bool {
-    if slice.contains(ORDERED[:], row.key) {
+    // `[menu]` is lists all the way down (MENU.md §2): every key in it names a menu, so the
+    // SECTION is what says the value is a list, where the two above are said by the key.
+    if row.section == MENU_SECTION || slice.contains(ORDERED[:], row.key) {
         config_order(c, row)
         return true
     }
