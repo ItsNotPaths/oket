@@ -7,6 +7,7 @@ import "core:slice"
 import "core:strconv"
 import "core:strings"
 import "../conf"
+import "../input"
 import "../txt"
 
 // `config.conf` (§4): the settings the kernel keeps, in the flat `key = value` format
@@ -17,7 +18,7 @@ import "../txt"
 // silently does nothing is the failure the input design exists to prevent (§8), and it is the
 // rule binds.conf follows for a bad row.
 //
-// Six settings today, which is §4's tripwire: if this grows nesting, flat keys start encoding
+// Nine settings today, which is §4's tripwire: if this grows nesting, flat keys start encoding
 // structure in their names — `lang.odin.tab_width` — and that is a worse TOML. Revisit there.
 
 CONFIG_NAME :: "config.conf" // beside the binary, next to binds.conf
@@ -28,6 +29,8 @@ Config :: struct {
     behind:  int, // [strip] behind = 12 — percent the surface behind the panels is darkened
     tau:     int, // [strip] tau = 90 — milliseconds the strip's motion decays by 1/e (§7)
     select:  int, // [cursor] select = 90 — percent of the swap a selection carries (§3)
+    wheel:   int, // [mouse] wheel = 3 — lines one notch scrolls
+    double_ms: int, // [mouse] double = 300 — the double-click window (PLAN.md §14)
     font_px: int, // [font] size = 18 — the face size to bake at; 0 is the display's own
     split:   txt.Split, // [cursor] split = selections — what cursor.split_lines leaves per line
     // The two ordered lists, both keyed by KIND and not by document, because both answers are
@@ -75,33 +78,89 @@ BEHIND_DEFAULT :: 12
 // caret on top of it is the one thing still drawn at 100.
 SELECT_DEFAULT :: 90
 
+// One wheel notch, and the window a second click still counts as a double one (§14: a timeout
+// is invisible state, so the file must be able to say what it is). The window's one value is
+// the mouse machine's, which also serves its callers that have no config to read.
+WHEEL_DEFAULT :: 3
+DOUBLE_DEFAULT :: input.DOUBLE_CLICK_MS
+
 config_default :: proc() -> Config {
     return {gap = GAP_DEFAULT, tau = TAU_DEFAULT, behind = BEHIND_DEFAULT,
-            select = SELECT_DEFAULT}
+            select = SELECT_DEFAULT, wheel = WHEEL_DEFAULT, double_ms = DOUBLE_DEFAULT}
 }
 
-// A setting is where it is written and what reading it does, so adding one is a field above and
-// a row here. The read site parses its own value (§4): the file holds strings.
+// A setting is where it is written, what it MEANS, its default as you would type it, and what
+// reading it does — so adding one is a field above and a row here, and nowhere else.
+//
+// The file the user edits is written FROM this table, so a setting with no `doc` is one nobody
+// can find. `def` is a string because that is what the file holds; the drift gate parses every
+// one back and checks it against config_default.
 @(private = "file")
 Setting :: struct {
     section: string,
     key:     string,
+    def:     string,
+    doc:     string,
     read:    proc(c: ^Config, value: string),
+}
+
+// The settings whose value is a LIST. config_set routes these to config_order before SETTINGS
+// is ever consulted, so they need their own table to be written down — and being unwritable is
+// exactly how `[menu] palette` came to be a setting nobody could find.
+//
+// No reader: the ordered path stores a list by name and the site that wants one asks
+// config_names for it, so there is no Config field to parse into.
+@(private = "file")
+List_Setting :: struct {
+    section: string,
+    key:     string,
+    def:     string,
+    doc:     string,
+}
+
+@(private = "file", rodata)
+LISTS := [?]List_Setting {
+    {"menu", "bar", "file, edit, view, panel", "which menus the bar carries, in order"},
+    {"menu", "palette", "invert",
+     "the bar's colours: dark, light, or invert for the opposite of the theme"},
+    {"menu", "show", "hidden",
+     "constant keeps the bar on a row of its own; hidden draws it over what is there"},
+}
+
+// The forms whose KEY or SECTION is a name the user picks, so no row can stand for them. Written
+// into the block as prose, because a shape is the only thing there is to say.
+@(private = "file", rodata)
+SHAPES := [?]string {
+    "[menu] <name> = <namespace>...   what one menu holds; `bar` above says which menus exist",
+    "[<kind>] spans = <plugin>...     who draws over whom in that kind, lowest first",
+    "[<kind>] view  = <plugin>...     the view pipeline for that kind, in order",
 }
 
 @(private = "file", rodata)
 SETTINGS := [?]Setting {
-    {"session", "restore", proc(c: ^Config, value: string) {c.restore = conf_on(value)}},
-    {"strip", "gap", proc(c: ^Config, value: string) {c.gap = conf_int(value, GAP_DEFAULT)}},
-    {"strip", "tau", proc(c: ^Config, value: string) {c.tau = conf_int(value, TAU_DEFAULT)}},
-    {"strip", "behind",
+    {"session", "restore", "off", "reopen what was open at the last clean exit",
+     proc(c: ^Config, value: string) {c.restore = conf_on(value)}},
+    {"strip", "gap", "4", "pixels between two panels; zero puts two documents against each other",
+     proc(c: ^Config, value: string) {c.gap = conf_int(value, GAP_DEFAULT)}},
+    {"strip", "tau", "90",
+     "milliseconds the strip's motion decays by 1/e; 0 lands everything at once",
+     proc(c: ^Config, value: string) {c.tau = conf_int(value, TAU_DEFAULT)}},
+    {"strip", "behind", "12", "percent the surface behind the panels is darkened",
      proc(c: ^Config, value: string) {c.behind = conf_int(value, BEHIND_DEFAULT)}},
-    {"cursor", "select",
+    {"cursor", "select", "90", "percent of the swap a selection carries",
      proc(c: ^Config, value: string) {c.select = conf_int(value, SELECT_DEFAULT)}},
-    {"cursor", "split", proc(c: ^Config, value: string) {c.split = conf_split(value)}},
+    {"cursor", "split", "selections",
+     "what cursor.split_lines leaves per line: selections or carets",
+     proc(c: ^Config, value: string) {c.split = conf_split(value)}},
     // 0 is what an absent row means and what `font.reset` goes back to; the range guard is
     // face_px_ok's, at the read site.
-    {"font", "size", proc(c: ^Config, value: string) {c.font_px = conf_int(value, 0)}},
+    {"font", "size", "0", "the face size to bake at; 0 is whatever the display asked for",
+     proc(c: ^Config, value: string) {c.font_px = conf_int(value, 0)}},
+    {"mouse", "wheel", "3", "lines one wheel notch scrolls",
+     proc(c: ^Config, value: string) {c.wheel = conf_int(value, WHEEL_DEFAULT)}},
+    {"mouse", "double", "300",
+     "milliseconds within which a second click is a double one",
+     proc(c: ^Config, value: string) {c.double_ms = conf_int(value, DOUBLE_DEFAULT)}},
 }
 
 config_load :: proc(a: ^App) {
@@ -237,14 +296,65 @@ config_sync :: proc(a: ^App) {
     config_load(a)
     // No home is a test holding an App of its own. Writing would land beside the test binary,
     // which races the parallel runner and is not this App's file to write.
-    if a.home == "" || len(a.creqs) == 0 {
+    if a.home == "" {
         return
     }
     path, _ := filepath.join({a.home, CONFIG_NAME}, context.temp_allocator)
-    if config_writeback(a, path) {
+    // The kernel's own block first, so a start with no plugins at all still leaves a file that
+    // says what there is to set. Both writes are marker-keyed and asked once.
+    wrote := config_defaults_write(a, path)
+    if config_writeback(a, path) || wrote {
         config_load(a)
     }
 }
+
+// Every setting, commented out, under its section. COMMENTED because the defaults live in code
+// (§8's rule for binds.conf, and the same reason): a file that DEFINED them would mean a release
+// changing one never reaches anyone who already has the file. This block is documentation the
+// user can uncomment, and it is generated from SETTINGS so it cannot drift from what is read.
+@(private = "file")
+config_defaults_write :: proc(a: ^App, path: string) -> bool {
+    text := ""
+    if raw, err := os.read_entire_file(path, context.temp_allocator); err == nil {
+        text = string(raw)
+    }
+    if strings.contains(text, config_marker(DEFAULTS_OWNER)) {
+        return false // asked once; a user who deleted a line meant to delete it
+    }
+    b := strings.builder_make(context.temp_allocator)
+    fmt.sbprintf(&b, "%s\n", config_marker(DEFAULTS_OWNER))
+    strings.write_string(&b, "# Every setting oket has, with its default. Uncomment to change\n")
+    strings.write_string(&b, "# one; a commented row is the default, which lives in the code.\n")
+    section := ""
+    for s in SETTINGS {
+        if s.section != section {
+            section = s.section
+            fmt.sbprintf(&b, "\n[%s]\n", section)
+        }
+        fmt.sbprintf(&b, "# %s\n# %s = %s\n", s.doc, s.key, s.def)
+    }
+    for l in LISTS {
+        if l.section != section {
+            section = l.section
+            fmt.sbprintf(&b, "\n[%s]\n", section)
+        }
+        fmt.sbprintf(&b, "# %s\n# %s = %s\n", l.doc, l.key, l.def)
+    }
+    strings.write_string(&b, "\n# And three forms whose name is yours to pick, so no row above\n")
+    strings.write_string(&b, "# can stand for them:\n")
+    for shape in SHAPES {
+        fmt.sbprintf(&b, "#   %s\n", shape)
+    }
+    body := strings.to_string(b)
+    if text != "" && !strings.has_suffix(text, "\n") {
+        body = fmt.tprintf("\n%s", body)
+    }
+    return os.write_entire_file(path, transmute([]u8)fmt.tprintf("%s%s", text, body)) == nil
+}
+
+// Not a plugin name, and it cannot collide with one: a plugin's marker is its own name and no
+// plugin is called this.
+DEFAULTS_OWNER :: "oket"
 
 @(private = "file")
 config_marker :: proc(owner: string) -> string {
