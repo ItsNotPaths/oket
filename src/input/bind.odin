@@ -84,7 +84,6 @@ Command :: enum u8 {
     Save,
     Undo,
     Redo,
-    Reload,
     Ring_Goto,
     Ring_Alt,
     Ring_Alt_Lane,
@@ -233,7 +232,6 @@ COMMANDS := [Command]Command_Info {
     .Save                = {"file.dump", "write the focused document beside the binary, whatever opened it", {.Text, .Surface}},
     .Undo                = {"edit.undo", "undo the last step", {.Text, .Surface}},
     .Redo                = {"edit.redo", "redo the last undone step", {.Text, .Surface}},
-    .Reload              = {"file.reload", "drop unsaved edits and take the disk version", {.Text, .Surface}},
     .Ring_Goto           = {"ring.goto", "go to slot N", {.Global}},
     .Ring_Alt            = {"ring.alt", "toggle the two most recent surfaces, whatever ring they are in", {.Global}},
     .Ring_Alt_Lane       = {"ring.alt_lane", "the same toggle, kept inside the ring you are in", {.Global}},
@@ -374,7 +372,6 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     bind_put(&b, "AB01", {.Ctrl, .Shift}, .Redo) // a different verb, so Shift is written out
     bind_put(&b, "FK03", {}, .Search_Next)
     bind_put(&b, "FK03", {.Shift}, .Search_Prev)
-    bind_put(&b, "FK05", {}, .Reload)
 
     // The modern spelling, not Emacs's C-w/M-w/C-y: C-w is the close-window reflex everywhere
     // else. The kill RING is Emacs's — ctrl+shift+v walks it, yank-pop under a guessable name.

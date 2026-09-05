@@ -88,28 +88,6 @@ static void describe(const editor *e, oket_descriptor *d) {
     d->file_len = e->path == NULL ? 0 : strlen(e->path);
 }
 
-static char *read_file(const char *path, size_t *len) {
-    FILE *f = fopen(path, "rb");
-    char *buf;
-    long n;
-
-    *len = 0;
-    if (f == NULL) {
-        return NULL;
-    }
-    if (fseek(f, 0, SEEK_END) != 0 || (n = ftell(f)) < 0 || fseek(f, 0, SEEK_SET) != 0) {
-        fclose(f);
-        return NULL;
-    }
-    buf = malloc((size_t)n + 1);
-    if (buf != NULL) {
-        *len = fread(buf, 1, (size_t)n, f);
-        buf[*len] = '\0';
-    }
-    fclose(f);
-    return buf;
-}
-
 /* The kernel made the document and handed over the path it was asked to open. Reading it is
  * the opener's: the kernel decides nothing about what a file becomes (§7). */
 static void *open_edit(const oket_api *api, oket_self self, oket_doc doc,
@@ -124,7 +102,7 @@ static void *open_edit(const oket_api *api, oket_self self, oket_doc doc,
     }
     if (args_len > 0) {
         e->path = oket_dup(args, args_len);
-        text = e->path == NULL ? NULL : read_file(e->path, &len);
+        text = e->path == NULL ? NULL : oket_file_read(e->path, 0, &len);
         if (text == NULL) {
             oket_say(api, self, "edit: that file will not read");
         }
@@ -154,17 +132,40 @@ static void close_edit(const oket_api *api, oket_self self, oket_doc doc, void *
 
 /* --- the file, changing underneath --- */
 
+/* The smallest splice that turns the buffer into `now`, and it takes ownership of `now`. Only
+ * the changed MIDDLE is submitted: a whole-buffer replace drags every caret onto it. */
+static void take_disk(const oket_api *api, oket_self self, const oket_snapshot *s, editor *e,
+                      char *now, size_t now_len) {
+    size_t buf_len, lo, a, b;
+    char *buf = buffer_bytes(s, &buf_len);
+
+    if (buf == NULL) {
+        free(now);
+        return;
+    }
+    for (lo = 0; lo < buf_len && lo < now_len && buf[lo] == now[lo]; lo++) {
+    }
+    a = buf_len;
+    b = now_len;
+    while (a > lo && b > lo && buf[a - 1] == now[b - 1]) {
+        a--;
+        b--;
+    }
+    oket_replace(api, self, s->doc, lo, a, now + lo, b - lo);
+    disk_keep(e, now, now_len); /* the baseline moves, so our own splice is not a foreign one */
+    free(buf);
+}
+
 /* Three answers, told apart by the baseline: our own write coming back, a clean buffer that
  * takes the new file whole, or two edits of one file — say so and change nothing.
- * Only the changed MIDDLE is submitted: a whole-buffer replace drags every caret onto the
- * splice. */
+ * The third is the whole reason for the baseline; `ed.reload` is how you overrule it. */
 static void changed(const oket_api *api, oket_self self, const oket_at *at, editor *e) {
     const oket_snapshot *s = at->snap;
-    size_t now_len, buf_len, lo, a, b;
+    size_t now_len, buf_len;
     char *now, *buf;
     char note[512];
 
-    now = read_file(e->path, &now_len);
+    now = oket_file_read(e->path, 0, &now_len);
     if (now == NULL) {
         return; /* deleted, or being written this instant; the buffer is what we still have */
     }
@@ -184,17 +185,8 @@ static void changed(const oket_api *api, oket_self self, const oket_at *at, edit
         free(now);
         return;
     }
-    for (lo = 0; lo < buf_len && lo < now_len && buf[lo] == now[lo]; lo++) {
-    }
-    a = buf_len;
-    b = now_len;
-    while (a > lo && b > lo && buf[a - 1] == now[b - 1]) {
-        a--;
-        b--;
-    }
-    oket_replace(api, self, s->doc, lo, a, now + lo, b - lo);
-    disk_keep(e, now, now_len);
     free(buf);
+    take_disk(api, self, s, e, now, now_len);
 }
 
 /* --- writing --- */
@@ -363,6 +355,36 @@ static int32_t select_right_cmd(const oket_api *api, oket_self self, const oket_
     return move(api, self, at, OKET_MOTION_RIGHT, 1);
 }
 
+/* `ed.reload` — the file, back into the buffer, unsaved edits and all. It is `changed`'s third
+ * answer overruled: the watch REFUSES to touch a buffer that has edits the file does not, and
+ * this is how the user says take it anyway. The kernel kept no verb for this — it reads no file
+ * into a document, so it cannot re-read one either (PLAN.md §14's answer for `watch`). */
+static int32_t reload_cmd(const oket_api *api, oket_self self, const oket_at *at,
+                          const char *args, size_t args_len) {
+    editor *e = at->inst;
+    size_t len;
+    char *now;
+    char note[512];
+
+    (void)args;
+    (void)args_len;
+    if (!oket_mine(at)) {
+        return refuse(api, self, "reload: this document is not the editor's");
+    }
+    if (e->path == NULL) {
+        return refuse(api, self, "reload: this buffer has no file");
+    }
+    now = oket_file_read(e->path, 0, &len);
+    if (now == NULL) {
+        snprintf(note, sizeof note, "reload: %s will not read", e->path);
+        return refuse(api, self, note);
+    }
+    take_disk(api, self, at->snap, e, now, len);
+    snprintf(note, sizeof note, "reloaded %s", e->path);
+    oket_say(api, self, note);
+    return 1;
+}
+
 /* `:w [path]` — the buffer, back to its file. The kernel's own `file.dump` writes a copy
  * beside the binary and knows nothing about paths, which is what leaves this verb here: what a
  * file IS on disk is the opener's business, and the opener is this plugin. */
@@ -430,6 +452,8 @@ OKET_MAIN {
         return 1; /* the ledger reverts nothing, because nothing went on */
     }
     api->register_command(api, self, LIT("w"), LIT("write the buffer to its file"), write_cmd);
+    api->register_command(api, self, LIT("ed.reload"),
+                          LIT("drop unsaved edits and take the disk version"), reload_cmd);
     api->register_command(api, self, LIT("ed.newline"),
                           LIT("split the line and keep its indent"), newline_cmd);
     api->register_command(api, self, LIT("ed.indent"), LIT("spaces to the next tab stop"),
@@ -447,6 +471,7 @@ OKET_MAIN {
     api->request_bind(api, self, LIT("edit"), LIT("enter"), LIT("ed.newline"));
     api->request_bind(api, self, LIT("edit"), LIT("tab"), LIT("ed.indent"));
     api->request_bind(api, self, LIT("edit"), LIT("ctrl+@AC02"), LIT("exec :w")); /* ctrl+s */
+    api->request_bind(api, self, LIT("edit"), LIT("@FK05"), LIT("ed.reload")); /* f5 */
     /* One verb at a time (§9): the two the editor computes for itself, and their Shift
      * siblings. Everything else — the words, the line ends, the vertical arrows, the placement
      * verbs — is still the kernel's row, over this kind and every other. */
