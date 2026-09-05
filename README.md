@@ -224,6 +224,42 @@ enter = exec :br.enter <path> && :open <path>
 on to the kernel's `:open`, which hands the path to the editor. The plugin's whole contribution
 is an exit code.
 
+`ctrl+backspace` is the way back out, and so is the `..` row. The side arrows are not asked for, so
+they stay the kernel's own motion and walk the caret through the name you are renaming.
+
+## The menubar
+
+`alt+space` opens it. It READS what is already bound: every row is a bind row or a `:` row that
+exists anyway, and pressing one does what typing it does. There is no registry, so a menu can
+never name a verb nothing else can reach.
+
+A menu is a namespace — `file.dump` is under `file`, `edit.cut` under `edit` — and `chords` is
+the sequence space: one row per primer, and `enter` pops its children out to the right with the
+plugin that asked for each one beside it. Right of that, one menu per live plugin, holding the
+commands it registered. No plugin writes a menu entry.
+
+Arrows walk it. `enter` runs a chord row and stages a `:` row with its `<arg>` holes still
+editable, and escape closes the popout, then the menu. Anything else falls through AND closes,
+in the one keystroke: the menu claims six keys and nothing else, so a chord that does something
+keeps doing it. Under a primer the same key opens the menu on that primer's own children.
+
+The pointer works the same menu: a name opens it and closes it, a row runs the way `enter` runs
+it, and a click anywhere else closes it and does nothing else. The bar is asked before the
+panels are, so a click on it never lands a caret in the document underneath.
+
+```conf
+# config.conf, beside the binary
+[menu]
+show    = hidden       # or constant, which keeps the top row for the bar
+palette = invert       # the bar sits ON the screen: a dark theme draws a light bar
+bar     = file, edit, view, panel
+file    = file, cl, plug
+```
+
+`bar` names the menus and their order; every other key says which verb namespaces one menu
+holds. `chords` and the plugin menus are in neither list, because they are what is loaded rather
+than what is written down: no primer, no `chords` menu.
+
 ## Plugins
 
 One `.so`, `dlopen`'d in-process, trusted. The seam is six messages: `register`, `submit`,
@@ -493,6 +529,18 @@ The ring can persist across restarts, off unless you ask:
 [session]
 restore = on
 ```
+
+Two more the eye reads before the manual does:
+
+```conf
+[cursor] select = 90   # percent of the swap a selection carries; 100 is a hard reverse
+```
+
+A field some LINE would act on is drawn as a link — underlined, in the `link` token, and in
+`link.hover` for the live one: the row the caret is on, or the field under the pointer when a
+click would take it. Nothing declares a link. The lines are the ones already written down — the
+rows reachable in that document's context, and the table `:home enter` runs — so what is
+coloured and what a keystroke does cannot disagree. Name either token in a theme file.
 
 A session is a list of command lines, so restoring one is running them and there is nothing to
 version. A document with no file is not written down: a terminal's session ended with the
