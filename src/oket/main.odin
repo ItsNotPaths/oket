@@ -131,6 +131,11 @@ main :: proc() {
     // Input first: binds.conf may spell a chord as a layout glyph, and resolving one needs the
     // scancode base this sets.
     input_init(&a)
+    // The environment the plugins and every shell step read their directories out of
+    // (path.odin). Said here rather than in app_init because it is PROCESS state: a test holds
+    // an App of its own and must not reach into this one's environment. Before app_init,
+    // because that is where a plugin loads and asks.
+    home_export()
     app_init(&a)
     defer app_destroy(&a)
 
@@ -142,11 +147,6 @@ main :: proc() {
     }
 
     // A session's reader thread, and the I/O worker, both have to reach the frame loop, which
-    // The environment the plugins and every shell step read their directories out of
-    // (path.odin). Said here rather than in app_init because it is PROCESS state: a test holds
-    // an App of its own and must not reach into this one's environment. Before app_init,
-    // because that is where a plugin loads and asks.
-    home_export()
     // is parked in WaitEvents. Before autoload: a plugin may start a job in its entry point,
     // and a completion nobody wakes for is a frame that never comes.
     wake.hook = proc() {glfw.PostEmptyEvent()}
