@@ -8,12 +8,13 @@ BIN_NAME="oket"
 
 usage() {
     cat <<EOF
-usage: $(basename "$0") [--local [--asan]] [--public --version vX.Y.Z [--notes "text"]]
+usage: $(basename "$0") [--local [--asan] [--tarball]] [--public --version vX.Y.Z [--notes "text"]]
 
   --local               build locally into build/ inside the project (gitignored)
   --asan                with --local: build the kernel AND the plugins with AddressSanitizer
+  --tarball             with --local: pack build/ into dist/ as the asset a release ships
   --public              trigger release.yml workflow via gh CLI
-  --version <tag>       required when --public is used
+  --version <tag>       the tag; required with --public, and stamped into a --local build
   --notes <text>        optional release notes
 EOF
 }
@@ -21,6 +22,7 @@ EOF
 DO_LOCAL=0
 DO_PUBLIC=0
 DO_ASAN=0
+DO_TARBALL=0
 VERSION=""
 NOTES=""
 
@@ -28,6 +30,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --local)   DO_LOCAL=1; shift ;;
         --asan)    DO_ASAN=1; shift ;;
+        --tarball) DO_TARBALL=1; shift ;;
         --public)  DO_PUBLIC=1; shift ;;
         --version) VERSION="${2:?--version needs a value}"; shift 2 ;;
         --notes)   NOTES="${2:?--notes needs a value}"; shift 2 ;;
@@ -61,7 +64,8 @@ if [ $DO_LOCAL -eq 1 ]; then
             -define:OKET_VERSION='"dev-local-asan"'
     else
         odin build "$PROJECT_DIR/src/oket" -out:"$RELEASE_DIR/$BIN_NAME" \
-            -o:speed -define:GLFW_SHARED=false -define:OKET_VERSION='"dev-local"'
+            -o:speed -define:GLFW_SHARED=false \
+            -define:OKET_VERSION="\"${VERSION:-dev-local}\""
         # release.yml strips too, so a local build matches the download.
         strip --strip-all "$RELEASE_DIR/$BIN_NAME"
     fi
@@ -102,6 +106,30 @@ if [ $DO_LOCAL -eq 1 ]; then
         "$RELEASE_DIR/stage.sh" "$src" "$RELEASE_DIR/plugins" $PLUGIN_FLAGS
     done
     echo "==> Local done: $RELEASE_DIR"
+fi
+
+# The asset a release ships (INSTALL.md §8). ONE archive and not a file per plugin: what oket
+# needs to run is a directory, and install.sh unpacks it and runs `oket --install`, which is the
+# same code path `:oket install` runs from inside the app.
+#
+# The tarball holds what release.sh --local staged and nothing else. oket.desktop and the icon
+# are #load-ed into the binary, so they are already in it.
+if [ $DO_TARBALL -eq 1 ]; then
+    if [ $DO_LOCAL -eq 0 ]; then
+        echo "error: --tarball needs --local" >&2
+        exit 1
+    fi
+    DIST_DIR="$PROJECT_DIR/dist"
+    ARCH="$(uname -m)"
+    TARBALL="$DIST_DIR/${BIN_NAME}-${ARCH}-linux.tar.gz"
+    echo "==> Tarball: $TARBALL"
+    mkdir -p "$DIST_DIR"
+    rm -f "$DIST_DIR"/*.tar.gz
+    # -C so the archive holds bare names and not build/. An unpack lands one directory, whatever
+    # the person called it, and `oket --install` reads the folder beside the binary either way.
+    tar -czf "$TARBALL" -C "$RELEASE_DIR" .
+    cp "$PROJECT_DIR/install.sh" "$DIST_DIR/install.sh"
+    echo "==> Tarball done: $(du -h "$TARBALL" | cut -f1)"
 fi
 
 if [ $DO_PUBLIC -eq 1 ]; then

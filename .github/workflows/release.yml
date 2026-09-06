@@ -34,20 +34,11 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      # release.sh --local is what a developer runs, so the layout a release ships and the
+      # layout you build on your own machine cannot drift. It builds the kernel AND every
+      # plugin: a release without them is an editor with no editor in it.
       - name: Build
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          # The tag is wrapped in literal quotes so Odin receives them: -define parses its
-          # value, and a tag like `2.0` read bare becomes a float.
-          odin build src/oket -out:"$BIN_NAME" -o:speed -define:GLFW_SHARED=false \
-              -define:OKET_VERSION="\"$VERSION\""
-          strip --strip-all "$BIN_NAME"
-
-      - name: Stage artifacts
-        run: |
-          mkdir -p dist
-          cp "$BIN_NAME" dist/
+        run: ./release.sh --local --version "${{ inputs.version }}" --tarball
 
       - uses: actions/upload-artifact@v4
         with:
@@ -65,8 +56,12 @@ jobs:
           name: linux-assets
           path: dist
 
-      # The binary is uploaded RAW: it is downloaded one file at a time by a script that has
-      # nothing but curl, and a zip would add an `unzip` dependency for nothing.
+      # Two assets. The tarball is what oket NEEDS to run — the binary alone has no plugins, so
+      # it has no editor, no browser and no syntax. `.tar.gz` and not `.zip` because tar is on
+      # every machine that has curl, and unzip is not.
+      #
+      # install.sh rides along raw: the curl one-liner fetches it by name, and a script inside
+      # the archive it is supposed to download would be a circle.
       #
       # This job never checks out, so gh has no remote to infer the repo from: GH_REPO
       # supplies it, and --target pins the tag to the dispatched commit.
@@ -82,7 +77,7 @@ jobs:
             PRERELEASE_FLAG="--prerelease"
           fi
           gh release create "$VERSION" \
-              "dist/${BIN_NAME}" \
+              dist/*.tar.gz dist/install.sh \
               --target "${{ github.sha }}" \
               --title "$VERSION" \
               --notes "$NOTES" \

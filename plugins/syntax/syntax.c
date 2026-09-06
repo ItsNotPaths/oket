@@ -730,7 +730,7 @@ static int32_t grammar_cmd(const oket_api *api, oket_self self, const oket_at *a
 OKET_MAIN {
     api->register_watch(api, self, on_moved);
     api->register_command(api, self, "grammar", 7,
-                          "syntax: status | ready <lang> | dir <path>", 41, grammar_cmd);
+                          "syntax: status | ready <lang> | dir <path>", 42, grammar_cmd);
     /* The list is a KIND, so `:ring grammars` opens it and alt+g is one requested row. A plugin
      * cannot open a document — there is no message for it, and the ring already answers the
      * question (§5, §7). */

@@ -1,5 +1,6 @@
 vendor/
 /build/
+/dist/
 docs/
 
 # The built binary at the repo root. Anchored: an unanchored `oket` also matches src/oket/.

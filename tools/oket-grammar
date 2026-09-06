@@ -17,7 +17,8 @@
 #   subpath    where the grammar sits inside the repo, for the repos that hold several.
 #
 # The destination is $OKET_GRAMMARS, else $OKET_HOME/grammars, else grammars/ beside this
-# script — the same three answers the plugin asks in the same order.
+# script — the same three answers the plugin asks in the same order. oket sets the first two
+# (home_export in src/oket/path.odin), so a chain reaches the right directory in either mode.
 set -euo pipefail
 
 NAME="${1:?usage: oket-grammar <name> <repo-or-dir> [rev] [subpath]}"
@@ -31,7 +32,13 @@ DIR="${DIR:-$HERE/grammars}"
 CC=${CC:-cc}
 CXX=${CXX:-c++}
 
-mkdir -p "$DIR"
+# A destination we cannot write is a clean failure with the reason. Without this the mkdir fails
+# and the build goes on to compile a grammar into a directory nobody will ever read.
+if ! mkdir -p "$DIR" 2>/dev/null || [ ! -w "$DIR" ]; then
+    echo "oket-grammar: $DIR cannot be written; install a copy that can (:oket install)" >&2
+    exit 1
+fi
+
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
