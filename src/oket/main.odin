@@ -71,6 +71,17 @@ swap_interval :: proc(platform: i32) -> i32 {
 }
 
 main :: proc() {
+    // Before the window, because install.sh runs these on a machine with no display. The App is
+    // bare on purpose: these three read directories and write files, and none of them wants a
+    // renderer, a plugin or a bind table (install.odin).
+    {
+        a: App
+        a.home = home_resolve()
+        defer home_destroy(&a.home)
+        if install_cli(&a, os.args[1:]) {
+            return
+        }
+    }
     if !glfw.Init() {
         desc, code := glfw.GetError()
         fmt.eprintfln("glfw.Init failed (%d): %s", code, desc)

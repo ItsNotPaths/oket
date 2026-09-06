@@ -316,7 +316,8 @@ config_sync :: proc(a: ^App) {
 // (§8's rule for binds.conf, and the same reason): a file that DEFINED them would mean a release
 // changing one never reaches anyone who already has the file. This block is documentation the
 // user can uncomment, and it is generated from SETTINGS so it cannot drift from what is read.
-@(private = "file")
+// Not file-private: `:oket install` lays the file down in the one place it is ever created, and
+// it has to be the same block the kernel would have written (install.odin).
 config_defaults_write :: proc(a: ^App, path: string) -> bool {
     text := ""
     if raw, err := os.read_entire_file(path, context.temp_allocator); err == nil {

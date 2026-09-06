@@ -1,0 +1,40 @@
+[Desktop Entry]
+Type=Application
+Name=Oket
+GenericName=Text Editor
+Comment=A GPU text editor: panels, a command line, and everything is a document
+Exec=oket %F
+TryExec=oket
+Icon=oket
+Terminal=false
+# Utility is the one main category and TextEditor is its subcategory. Adding Development, also a
+# main category, would list oket twice in a menu that groups by main category.
+Categories=Utility;TextEditor;
+Keywords=editor;text;code;odin;terminal;file;browser;
+
+# Two associations, both narrow. Claiming text/* would put oket in the Open With list of every
+# text file on the machine, which is the person's decision and not ours. A FOLDER is different:
+# opening one is what the browser is for, and a plain text file is what an editor is for.
+MimeType=inode/directory;text/plain;
+StartupNotify=true
+
+# The window's app-id, and the one string that ties a running window back to this entry. oket
+# sets it (APP_ID in src/oket/main.odin: glfw.WAYLAND_APP_ID and glfw.X11_INSTANCE_NAME), so a
+# launcher shows this entry on the running window instead of a fallback and a Hyprland
+# windowrule can name us. The binary's name deliberately: one spelling for what you type, what
+# an install writes, and what `hyprctl clients` reports.
+StartupWMClass=oket
+
+# `Icon=oket` is a NAME, not a path: a launcher resolves it through the icon theme, which is why
+# an install writes assets/oketpus.svg out as icons/hicolor/scalable/apps/oket.svg. A name also
+# lets a theme override the drawing, which a path would not.
+
+# `%F` is the launcher's half of the association: the paths it opened. oket takes bare paths as
+# arguments (args_open in src/oket/main.odin), and the first directory among them is where its
+# terminals start.
+
+# THIS FILE IS A TEMPLATE. It is #load-ed into the binary (src/oket/desktop.odin) and written to
+# ~/.local/share/applications by an install. That write replaces the two lines above that say
+# `oket` with the ABSOLUTE path of the installed binary, because a desktop entry is launched
+# with the session's PATH and ~/.local/bin is not always on it. The bare name stands here so the
+# file in the repo is a working entry on its own.
