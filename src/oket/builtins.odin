@@ -225,22 +225,31 @@ builtin_width :: proc(a: ^App, args: string, _: CL_Step) -> bool {
 
 USAGE_WIDTH :: ":width <percent>... [@panel]"
 
-// A percent, or one of the four words for the ones worth a name. Out of range is REPORTED and
-// not clamped: a row that says 200 meant something, and sizing it to 100 in silence hides it.
+// A percent, or one of the four words for the ones worth a name, as the SHARE the panel keeps
+// (panel.odin). The words are exact; a typed number is snapped to an exact fraction when it is
+// near one, so `:width 30` is a third and three of them fill the strip.
+//
+// Out of range is REPORTED and not clamped: a row that says 200 meant something, and sizing it
+// to 100 in silence hides it. Checked before the snap, so a number nobody can mean is refused
+// rather than rounded into range.
 @(private = "file")
 width_pct :: proc(field: string) -> (int, bool) {
     switch field {
     case "full":
-        return 100, true
+        return WIDTH_FULL, true
     case "half":
-        return 50, true
+        return WIDTH_FULL / 2, true
     case "third":
-        return 33, true
+        return WIDTH_FULL / 3, true
     case "quarter":
-        return 25, true
+        return WIDTH_FULL / 4, true
     }
     n, num := strconv.parse_int(field, 10)
-    return n, num && n >= WIDTH_MIN && n <= WIDTH_FULL
+    share := n * (WIDTH_FULL / 100)
+    if !num || share < WIDTH_MIN || share > WIDTH_FULL {
+        return share, false
+    }
+    return width_snap(share), true
 }
 
 // A directory goes to whoever registered the `files` kind and to the kernel's own listing when

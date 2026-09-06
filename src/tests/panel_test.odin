@@ -325,23 +325,70 @@ a_width_list_is_a_cycle :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    testing.expect_value(t, app.panel_focused(&a).size, 100)
+    testing.expect_value(t, app.panel_focused(&a).size, app.WIDTH_FULL)
     app.cl_exec(&a, ":width 100 50 33")
-    testing.expect_value(t, app.panel_focused(&a).size, 50)
+    testing.expect_value(t, app.panel_focused(&a).size, app.WIDTH_FULL / 2)
     app.cl_exec(&a, ":width 100 50 33")
-    testing.expect_value(t, app.panel_focused(&a).size, 33)
+    testing.expect_value(t, app.panel_focused(&a).size, app.WIDTH_FULL / 3)
     app.cl_exec(&a, ":width 100 50 33") // and round, which is what makes it a cycle
-    testing.expect_value(t, app.panel_focused(&a).size, 100)
+    testing.expect_value(t, app.panel_focused(&a).size, app.WIDTH_FULL)
 
     // One percent is a set, and the words are the same numbers said another way.
     app.cl_exec(&a, ":width 25")
-    testing.expect_value(t, app.panel_focused(&a).size, 25)
+    testing.expect_value(t, app.panel_focused(&a).size, app.WIDTH_FULL / 4)
     app.cl_exec(&a, ":width third")
-    testing.expect_value(t, app.panel_focused(&a).size, 33)
+    testing.expect_value(t, app.panel_focused(&a).size, app.WIDTH_FULL / 3)
 
     // A panel at a percent the list does not name takes the first entry rather than nowhere.
     app.cl_exec(&a, ":width 80 40")
-    testing.expect_value(t, app.panel_focused(&a).size, 80)
+    testing.expect_value(t, app.panel_focused(&a).size, 80 * (app.WIDTH_FULL / 100))
+}
+
+// A third has no whole percent, so a typed number near one becomes the fraction itself: three
+// panels at `:width 30` fill the strip, and three at a whole 33 leave a sliver of it empty.
+@(test)
+a_width_near_a_fraction_becomes_it :: proc(t: ^testing.T) {
+    a, ok := bare_app(60, 5)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    third := app.WIDTH_FULL / 3
+    for typed in ([?]string{":width 30", ":width 33", ":width 34"}) {
+        app.cl_exec(&a, typed)
+        testing.expectf(t, app.panel_focused(&a).size == third, "%s is not a third", typed)
+    }
+    app.cl_exec(&a, ":width 67")
+    testing.expect_value(t, app.panel_focused(&a).size, app.WIDTH_FULL * 2 / 3)
+    app.cl_exec(&a, ":width 17")
+    testing.expect_value(t, app.panel_focused(&a).size, app.WIDTH_FULL / 6)
+
+    // Far from every fraction is left alone: a number nothing is near meant itself.
+    app.cl_exec(&a, ":width 10")
+    testing.expect_value(t, app.panel_focused(&a).size, 10 * (app.WIDTH_FULL / 100))
+    app.cl_exec(&a, ":width 45")
+    testing.expect_value(t, app.panel_focused(&a).size, 45 * (app.WIDTH_FULL / 100))
+}
+
+// The words say the fraction outright, so they are exact whatever the snap does.
+@(test)
+the_width_words_are_exact_fractions :: proc(t: ^testing.T) {
+    a, ok := bare_app(60, 5)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    for pair in ([?]struct{line: string, want: int} {
+        {":width full", app.WIDTH_FULL},
+        {":width half", app.WIDTH_FULL / 2},
+        {":width third", app.WIDTH_FULL / 3},
+        {":width quarter", app.WIDTH_FULL / 4},
+    }) {
+        app.cl_exec(&a, pair.line)
+        testing.expectf(t, app.panel_focused(&a).size == pair.want, "%s", pair.line)
+    }
 }
 
 // A percent the row cannot mean is REPORTED and sizes nothing. Clamping 200 to 100 would answer
@@ -355,16 +402,16 @@ a_percent_out_of_range_sizes_nothing :: proc(t: ^testing.T) {
     defer close_app(&a)
 
     app.cl_exec(&a, ":width 200")
-    testing.expect_value(t, app.panel_focused(&a).size, 100)
+    testing.expect_value(t, app.panel_focused(&a).size, app.WIDTH_FULL)
     testing.expect(t, strings.contains(a.message, "200"), a.message)
 
     app.cl_exec(&a, ":width 50 wide")
-    testing.expect_value(t, app.panel_focused(&a).size, 100) // not even the 50 it could read
+    testing.expect_value(t, app.panel_focused(&a).size, app.WIDTH_FULL) // not even the 50 it could read
     testing.expect(t, strings.contains(a.message, "wide"), a.message)
 
     // No percent at all is usage, not a no-op with no answer.
     app.cl_exec(&a, ":width @1")
-    testing.expect_value(t, app.panel_focused(&a).size, 100)
+    testing.expect_value(t, app.panel_focused(&a).size, app.WIDTH_FULL)
     testing.expect(t, strings.contains(a.message, "<percent>"), a.message)
 }
 
@@ -380,7 +427,7 @@ a_width_reaches_a_panel_and_makes_none :: proc(t: ^testing.T) {
 
     app.cl_exec(&a, ":width 50 @2")
     testing.expect_value(t, len(a.panels), 1)
-    testing.expect_value(t, app.panel_focused(&a).size, 100)
+    testing.expect_value(t, app.panel_focused(&a).size, app.WIDTH_FULL)
     testing.expect(t, strings.contains(a.message, "panel"), a.message)
 
     // With the panel there it is sized, and the focus stays where it was.
@@ -388,8 +435,8 @@ a_width_reaches_a_panel_and_makes_none :: proc(t: ^testing.T) {
     app.panel_step(&a, -1)
     app.cl_exec(&a, ":width 50 @2")
     testing.expect_value(t, a.focus, 0)
-    testing.expect_value(t, app.panel_get(&a, 0).size, 100)
-    testing.expect_value(t, app.panel_get(&a, 1).size, 50)
+    testing.expect_value(t, app.panel_get(&a, 0).size, app.WIDTH_FULL)
+    testing.expect_value(t, app.panel_get(&a, 1).size, app.WIDTH_FULL / 2)
 }
 
 // A click lands in the panel it was over, and the column counts from THAT panel's grid (§7).

@@ -19,7 +19,7 @@ import "../strip"
 Panel :: struct {
     at:    Spot, // the lane, and the slot inside it, this panel shows
     prev:  Spot, // alt+`: the most recent spot IN THIS PANEL
-    size:  int, // percent of the view it is going to; `:width` sets it
+    size:  int, // its share of the view, in hundredths of a percent; `:width` sets it
     w:     f32, // the pixels it is drawn at NOW; `size` says where it is going (§7)
     grid:  gfx.Grid,
     // Where the document was drawn, in the panel's OWN cells. A click is placed against it, so
@@ -36,10 +36,39 @@ Hover :: struct {
     on:           bool,
 }
 
-// A percent of the view, so one panel at 100 is a strip of length one rather than a special
-// case. WIDTH_MIN is what keeps a mistyped row from leaving a panel nobody can find.
-WIDTH_FULL :: 100
-WIDTH_MIN :: 1
+// A share of the view, in HUNDREDTHS OF A PERCENT, so one panel at the full share is a strip of
+// length one rather than a special case. Not whole percents: a third is 33.33, and three panels
+// at a whole 33 leave a hundredth of the view empty behind them, which is a sliver you can see.
+// `:width` still takes percents — this is only the unit they land in.
+//
+// WIDTH_MIN is what keeps a mistyped row from leaving a panel nobody can find.
+WIDTH_FULL :: 10_000
+WIDTH_MIN :: 100 // one percent
+
+// The fractions a share is snapped to, as a denominator: halves through sixths, which is every
+// split a strip is worth having. Sevenths and finer are past the point where a panel holds a
+// line of code, and they would sit close enough together to swallow a number somebody meant.
+WIDTH_PARTS :: 6
+
+// How near a typed percent has to be to an exact fraction to become it. 3.5 percent, because
+// `:width 30` means a third — the default row says 30 and three of them must fill the strip.
+// Tighten this and 30 stays 30; the words `third` and `half` are exact either way.
+WIDTH_SNAP :: 350
+
+// The nearest exact fraction of the view, or the share as it stands when nothing is near. `m/n`
+// and not just `1/n`, so two thirds is as reachable as one.
+width_snap :: proc(share: int) -> int {
+    best, gap := share, WIDTH_SNAP + 1
+    for n in 1 ..= WIDTH_PARTS {
+        for m in 1 ..= n {
+            exact := WIDTH_FULL * m / n
+            if d := abs(share - exact); d < gap {
+                best, gap = exact, d
+            }
+        }
+    }
+    return best
+}
 
 // The strip is never empty. Every reader goes through here rather than through a start of its
 // own, because the first document can reach the ring before the first fit does (main.odin).
@@ -197,7 +226,7 @@ panel_dests :: proc(a: ^App) -> []f32 {
     panels_ready(a)
     w := make([]f32, len(a.panels), context.temp_allocator)
     for p, i in a.panels {
-        w[i] = a.strip.view * f32(p.size) / 100
+        w[i] = a.strip.view * f32(p.size) / WIDTH_FULL
     }
     return w
 }
