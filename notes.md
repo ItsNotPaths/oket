@@ -6,6 +6,12 @@ type.
 
 ## unreleased
 
+- Hold `alt` and the ring is drawn down the side of the panel: the lane you are in, then its
+  slots in the numbers `alt+1..9` uses. `[switcher] show = numbers` cuts it to the digits.
+- N0 is spelled `0` now and not `#`. The bind row is `ring.zero`, so a `ring.system` line in
+  `binds.conf` needs the new name; `alt+0` is unchanged.
+- A new terminal starts where N0's shell is standing, so `cd` in `alt+0` and the next one you
+  open is already there.
 - `ctrl+c`, `ctrl+x` and `ctrl+v` are the system clipboard, so a copy crosses between oket and
   anything else you have open.
 - In a session `ctrl+c` copies too, and the interrupt moved to `ctrl+shift+c`. Both are rows:

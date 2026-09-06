@@ -23,8 +23,7 @@ Linux, x86_64.
 curl -fsSL https://github.com/ItsNotPaths/oket/releases/latest/download/install.sh | sh
 ```
 
-Or unpack the tarball and run it where it lands. Nothing outside that folder is touched until
-you type `:oket install`.
+Or unpack the tarball and run it. Nothing is touched until you `:oket install`.
 
 | | |
 |---|---|
@@ -42,7 +41,8 @@ uses the XDG folders. Anywhere else it is portable and everything lives beside i
 ~/.local/state/oket/{journal,quarantine,session}  what a crash left
 ```
 
-`oket <path>` opens it. `oket <dir>` is also where the terminals start.
+`oket <path>` opens it. `oket <dir>` is where the first terminal starts; every one after it
+starts where N0's shell is standing.
 
 ## Getting around
 
@@ -50,7 +50,8 @@ uses the XDG folders. Anywhere else it is portable and everything lives beside i
 |---|---|
 | `alt+f` `alt+t` `alt+e` | files, terminal, editor |
 | `alt+1`..`alt+9` | slot N of the lane you are in |
-| `alt+0` | N0, where a command's output lands |
+| `alt+0` | N0, the terminal oket runs things in, and where a command's output lands |
+| hold `alt` | the lane drawn down the side of the panel, so the numbers are on screen |
 | ``alt+` `` | back where you just were, across lanes |
 | `alt+q` | close this slot |
 | `alt+c` | the command line; `alt+;` with `:` typed, `alt+.` with `:ring ` |
@@ -66,6 +67,14 @@ dotfiles. The side arrows stay the kernel's own motion, walking the name you are
 drag-select are the kernel's own, with no terminal-specific code behind them. **`ctrl+c` copies
 there too.** One chord, one meaning, in every document. The interrupt is `ctrl+shift+c`. Both
 are ordinary rows, so a `binds.conf` that swaps them back is two lines.
+
+A new session starts where N0's shell is standing, so `cd` in `alt+0` and the next terminal you
+open is already there.
+
+Holding `alt` draws the lane you are in down the side of the panel — its number and its title,
+one row each, with the slot you are standing in filled. Gaps stay gaps, because the column has to
+read the way the key does. `[switcher] show = numbers` in `config.conf` cuts it back to the
+digits alone.
 
 ## Panels
 
@@ -134,6 +143,7 @@ transparent: an unmodified key after one clears it and does what it always did.
 [strip]   gap = 4        # pixels between panels
 [cursor]  select = 90    # percent of the swap a selection carries
 [session] restore = on   # the ring, across restarts
+[switcher] show = titles # what a held alt draws: titles or numbers
 [edit]    spans = syntax, lsp     # who colours over whom, lowest first
 [edit]    view  = fold, popup     # the view pipeline, in order
 [menu]    bar   = file, edit, view, panel
