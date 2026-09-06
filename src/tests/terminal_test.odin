@@ -1,5 +1,7 @@
 package tests
 
+import "core:fmt"
+import "core:os"
 import "core:strings"
 import "core:sys/posix"
 import "core:testing"
@@ -503,4 +505,57 @@ wait_tty_answer :: proc(t: ^testing.T, tm: ^pty.Terminal) -> (string, bool) {
     }
     testing.expect(t, false, "a shell never answered `tty`")
     return "", false
+}
+
+// A new session starts where N0's shell is standing (term.odin), read off /proc rather than
+// asked for. And a `cd` into a directory that is then deleted reads as no answer at all: /proc
+// spells it "/path (deleted)", which must never reach a spawn.
+@(test)
+a_new_session_starts_where_n0_stands :: proc(t: ^testing.T) {
+    a, ok := bare_app(60, 6)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+    dir, dok := scratch(t, "n0-cwd")
+    if !dok {
+        return
+    }
+
+    sys := app.sys_slot(&a)
+    if !testing.expect(t, sys != nil, "no N0 to spawn") {
+        return
+    }
+    n0 := app.term_of(&a, sys.doc)
+    pty.terminal_write(&n0.t, transmute([]u8)fmt.tprintf("cd '%s'\n", dir))
+    moved := false
+    for _ in 0 ..< TERM_WAIT_TRIES {
+        if strings.has_suffix(pty.terminal_cwd(&n0.t), "/n0-cwd") {
+            moved = true
+            break
+        }
+        time.sleep(TERM_WAIT_STEP)
+    }
+    if !testing.expectf(t, moved, "N0 never moved; cwd=%q", pty.terminal_cwd(&n0.t)) {
+        return
+    }
+
+    id, made := app.term_open(&a)
+    if !testing.expect(t, made, "no second shell to spawn") {
+        return
+    }
+    tm := app.term_of(&a, id)
+    followed := false
+    for _ in 0 ..< TERM_WAIT_TRIES {
+        if pty.terminal_cwd(&tm.t) == pty.terminal_cwd(&n0.t) {
+            followed = true
+            break
+        }
+        time.sleep(TERM_WAIT_STEP)
+    }
+    testing.expectf(t, followed, "the new session stands in %q, N0 in %q",
+                    pty.terminal_cwd(&tm.t), pty.terminal_cwd(&n0.t))
+
+    os.remove_all(dir)
+    testing.expect_value(t, pty.terminal_cwd(&n0.t), "")
 }
