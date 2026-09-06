@@ -188,9 +188,10 @@ a_kind_section_narrows_over_its_context :: proc(t: ^testing.T) {
 }
 
 // The lane that empties out under you: focus falls to the alternate spot across lanes, and with
-// nothing live anywhere it leaves entirely — the kernel screen floor, never a dead slot.
+// nothing live anywhere the last panel lands on a home page. The kernel screen is a recovery
+// floor and alt+q is not the way to it.
 @(test)
-closing_the_last_slot_leaves_the_lane :: proc(t: ^testing.T) {
+closing_the_last_slot_lands_on_home :: proc(t: ^testing.T) {
     a, ok := bare_app(40, 4)
     if !ok {
         return
@@ -203,10 +204,40 @@ closing_the_last_slot_leaves_the_lane :: proc(t: ^testing.T) {
     app.handle_chord(&a, alt("AD01")) // the files lane empties; focus crosses to the text lane
     testing.expect_value(t, app.doc_title(&a, app.ring_focused(&a).doc), "a")
 
-    app.handle_chord(&a, alt("AD01")) // nothing is live anywhere
-    testing.expect(t, app.ring_focused(&a) == nil, "focus points at a dead slot")
-    testing.expect_value(t, app.bar_text(&a),
-                         "esc quits, f1 describes a chord, alt+c opens the command line")
+    app.handle_chord(&a, alt("AD01")) // nothing was live anywhere, so a home page opened
+    s := app.ring_focused(&a)
+    if !testing.expect(t, s != nil, "the last panel was left standing on nothing") {
+        return
+    }
+    testing.expect_value(t, app.kind_name(&a, app.doc_kind(&a, s.doc)), "home")
+}
+
+// alt+q takes the PANEL with the slot. A panel whose document you just closed is one you asked
+// to be rid of, so it does not go hunting for another document to show — a hunt is how two
+// panels end up on one slot, and a live slot is in at most one panel (PANELS.md §2).
+@(test)
+closing_a_slot_closes_its_panel :: proc(t: ^testing.T) {
+    a, ok := bare_app(80, 6)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    app.ring_add(&a, scratch_doc(&a, "a", "a"))
+    app.panel_open(&a)
+    app.ring_add(&a, scratch_doc(&a, "b", "b"))
+    testing.expect_value(t, len(a.panels), 2)
+    kept := a.panels[0].at
+
+    app.handle_chord(&a, alt("AD01"))
+    testing.expect_value(t, len(a.panels), 1)
+    testing.expect_value(t, a.panels[0].at, kept) // the panel that stayed kept its own document
+    testing.expect_value(t, app.doc_title(&a, app.ring_focused(&a).doc), "a")
+
+    // And the last one standing does not close: it falls, the way it does with no strip at all.
+    app.handle_chord(&a, alt("AD01"))
+    testing.expect_value(t, len(a.panels), 1)
+    testing.expect(t, app.ring_focused(&a) != nil, "the last panel was left standing on nothing")
 }
 
 // The viewport is view state and belongs to the slot (§11), so switching away and back does not
