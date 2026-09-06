@@ -157,6 +157,12 @@ home_fill :: proc(a: ^App, id: store.Id) {
         say(&p, "--no-plugins: nothing under plugins/ was loaded")
     case .Ordinary:
     }
+    // Nothing here can be saved, and the page is where a start says so. `:oket` is spelled out
+    // rather than made a field, because the fix is a command and not a path to act on.
+    if a.home.config != "" && !home_writable(a.home.config) {
+        say(&p, fmt.tprintf("%s cannot be written, so no setting is saved (:oket install)",
+                            a.home.config))
+    }
 
     if work := recover_scan(a); len(work) > 0 {
         head(&p, "unsaved work a crash left behind — enter takes it back:")

@@ -384,6 +384,12 @@ binds_sync :: proc(a: ^App) {
     }
     path := binds_path(a)
     binds_load(a, path)
+    // A directory that cannot be written still HOLDS a binds.conf, and every row in it is live.
+    // What a requested row loses is the file to be written down in, and a plugin whose chord is
+    // never recorded would ask again at every start.
+    if !home_writable(a.home.config) {
+        return
+    }
     had := len(a.clashes)
     if binds_writeback(a, path) {
         binds_load(a, path)

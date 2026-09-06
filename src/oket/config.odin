@@ -296,7 +296,11 @@ config_sync :: proc(a: ^App) {
     config_load(a)
     // No home is a test holding an App of its own. Writing would land beside the test binary,
     // which races the parallel runner and is not this App's file to write.
-    if a.home == "" {
+    //
+    // A directory that cannot be written is the OTHER refusal (INSTALL.md §2): an Installed oket
+    // has none until `:oket install` makes them, and a Portable one unpacked somewhere root owns
+    // never will. The file still READS in both cases; what stops is writing to it.
+    if !home_writable(a.home.config) {
         return
     }
     path, _ := filepath.join({a.home.config, CONFIG_NAME}, context.temp_allocator)
