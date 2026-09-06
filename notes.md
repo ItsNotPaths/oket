@@ -4,7 +4,7 @@ Newest first. A section is one release, headed `## <version>`. The home page sho
 section at every start, so keep it short and keep the first lines the ones that change what you
 type.
 
-## unreleased
+## released
 
 - `alt+q` closes the panel along with the slot. The last panel standing lands on a home page
   instead, so closing the last document no longer drops you on the glyph-check screen.

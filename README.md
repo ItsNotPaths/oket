@@ -8,14 +8,36 @@ emacs like, buffer/doc based, a panel is a document + descriptor. Documents sit 
 numbered lane per kind, so `alt+1..9` reaches the third file and the third listing without
 either knowing the other exists.
 
-Nothing that colours text draws it. A parser, a linter or a search publishes spans, byte ranges
-carrying a style token, into a layer of its own name; the kernel merges the layers by a rank the
-config sets and paints once. What is on screen is post-processed the same way. A view stage is
-handed a snapshot and returns edits against it, so a fold is a deleted run and a popup an
-inserted box. Neither reaches the file.
+Panel displays are built in four layers, plugins write to each separately.
 
-The kernel owns the renderer, the viewport, the cursors, undo and the bind table. Plugins
-produce documents; they never draw.
+**The document** is the bytes. A piece table the kernel owns, in an arena a reader can hold
+across a write. A plugin submits edits and never holds the text.
+
+**The descriptor** is how one generation renders and routes: wrap, line numbers, columns,
+per-line depth, the bind context a chord lands in, and named fields that turn a row into a
+link. It is immutable and replaced whole per write, and it carries no colour at all. This is
+effectively render params to the kernel.
+
+**Spans** are the colour. A parser, a linter or a search publishes byte ranges carrying a style
+token, into a bucket under its own name, on the same transaction as the text, so runs and the
+bytes they cover land at one generation. A run says which channels it sets, foreground,
+background or attributes, so an underline over a colour draws as both instead of replacing it.
+A config line ranks the names, lowest first; a publisher the line does not name draws on top.
+
+**View stages** are the post-processing, and they run at settle, not at draw. A stage is handed
+a snapshot and returns edits against it, in the vocabulary `submit` already uses. A fold is a
+deleted run, a ghost an insert, a popup a replace over the cells it covers. Each stage sees
+what the last one returned.
+
+Both orders are config, per kind, so every plugin-owned panel sets its own:
+
+```conf
+[plugin-name] layer = post-processing-plugin-1, post-processing-plugin-2
+[edit] spans = syntax, lsp     # who colours over whom
+[edit] view  = fold, popup     # the pipeline, in order
+```
+
+Neither the spans nor the stages reach the file.
 
 Linux, x86_64.
 
