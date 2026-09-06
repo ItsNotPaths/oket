@@ -1,6 +1,6 @@
-<img align="left" width="150" src="assets/oketpus.png" alt="oket">
-
 # oket
+
+<img align="left" width="150" src="assets/oketpus.png" alt="oket">
 
 A graphical text editing kernel with `.so` plugins.
 
