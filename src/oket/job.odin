@@ -7,7 +7,7 @@ import "../pty"
 
 // The system session (§11), and the one shell step a chain has out at a time.
 //
-// N# is where everything oket itself runs goes: a chain's shell steps, and what a builtin has
+// N0 is where everything oket itself runs goes: a chain's shell steps, and what a builtin has
 // to say at more than one line's worth. One kernel-owned session in the ring's reserved slot,
 // reached by alt+0 and outside the alt+1..9 rotation. It surfaces itself on a non-zero exit and
 // on nothing else, which is a rule and not a mode — a prompt blocking a chain with no visible
@@ -32,7 +32,7 @@ import "../pty"
 STEP :: "%s ;printf '\\033]%d;%d;%%d\\007' \"$?\"%s\n"
 
 // Said once per session, so no step has to carry it. A pager blocking on a keypress is a chain
-// stalled behind a question, which is the invisible state N# exists to make visible.
+// stalled behind a question, which is the invisible state N0 exists to make visible.
 //
 // What a release SHIPS goes on the path with it, so a chain reaches `oket-grammar` or
 // `stage.sh` by name whether or not oket itself was installed onto anybody's PATH — which is
@@ -102,7 +102,7 @@ sh_run :: proc(a: ^App, cmd, feed: string, fed: bool) -> bool {
     return true
 }
 
-// After the frame's drains: the exit code N# reported, and the step's staged output to whatever
+// After the frame's drains: the exit code N0 reported, and the step's staged output to whatever
 // the chain does next.
 sh_pump :: proc(a: ^App) {
     if !a.job.live {
@@ -111,9 +111,9 @@ sh_pump :: proc(a: ^App) {
     tm := term_of(a, a.ring.system.doc)
     if tm == nil || !pty.terminal_alive(&tm.t) {
         // The step took the shell down with it — `exit` at the top level does exactly that,
-        // because a step is not wrapped in a subshell and `cd` is why. Surface it: a dead N#
+        // because a step is not wrapped in a subshell and `cd` is why. Surface it: a dead N0
         // showing its last screen is the answer, and the next step spawns a fresh one.
-        message_set(a, "the system session's shell exited mid-step")
+        message_set(a, "N0's shell exited mid-step")
         ring_show_system(a)
         job_end(a)
         chain_clear(a)
@@ -130,7 +130,7 @@ sh_pump :: proc(a: ^App) {
         }
     }
     a.job.live = false // the staging survives until the next step: `cat` is still reading it
-    // §11: a failure surfaces N#. Except where the chain was reading this step's output, which
+    // §11: a failure surfaces N0. Except where the chain was reading this step's output, which
     // means the answer lands in the document you are looking at and being thrown to a terminal
     // is the wrong place to be told.
     if code != 0 {
@@ -176,10 +176,10 @@ job_stage :: proc(a: ^App, pattern, text: string) -> string {
     return strings.clone(os.name(f))
 }
 
-// --- N# ---
+// --- N0 ---
 
 // The system session's document, spawned the first time anything needs it and again after its
-// shell exits. A dead N# is not an error state to report: the next thing that runs gets a fresh
+// shell exits. A dead N0 is not an error state to report: the next thing that runs gets a fresh
 // shell, which is what a terminal multiplexer does.
 sys_slot :: proc(a: ^App) -> ^Slot {
     if a.ring.system.live {

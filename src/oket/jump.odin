@@ -27,7 +27,7 @@ Jump :: struct {
 // abandon the branch you had walked back out of.
 jump_record :: proc(a: ^App, at: Spot, v: view.View) {
     if at.slot < 1 {
-        return // slot 0 is standing on nothing, and N# stays at the rotation's edge (§11)
+        return // slot 0 is standing on nothing, and N0 stays at the rotation's edge (§11)
     }
     resize(&a.jumps, a.jump_at)
     if len(a.jumps) > 0 && a.jumps[len(a.jumps) - 1].at == at {

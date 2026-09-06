@@ -18,7 +18,7 @@ import app "../oket"
 run_line :: proc(a: ^app.App, line: string) {
     app.cl_exec(a, line)
     for i := 0; app.chain_busy(a) && i < 5000; i += 1 {
-        app.term_pump(a) // N# is a PTY: nothing reports until its bytes reach the parser
+        app.term_pump(a) // N0 is a PTY: nothing reports until its bytes reach the parser
         app.sh_pump(a)
         store.store_drain(&a.docs)
         time.sleep(2 * time.Millisecond)
@@ -139,7 +139,7 @@ put_needs_something_piped_into_it :: proc(t: ^testing.T) {
     testing.expect_value(t, a.message, ":put: this document does not take typing")
 }
 
-// A shell step with nothing to pipe into goes to N#, which is the default sink and the reason
+// A shell step with nothing to pipe into goes to N0, which is the default sink and the reason
 // `echo` alone is still useful. A non-zero exit surfaces it and stops the chain.
 @(test)
 a_shell_step_reports_to_the_system_session :: proc(t: ^testing.T) {
@@ -152,23 +152,23 @@ a_shell_step_reports_to_the_system_session :: proc(t: ^testing.T) {
     app.ring_add(&a, scratch_doc(&a, "note", "x"))
     run_line(&a, "echo out && echo more")
 
-    // N# is a real session, so the transcript is the shell's: the line it was handed, echoed by
+    // N0 is a real session, so the transcript is the shell's: the line it was handed, echoed by
     // its own line editor, and the output under it.
     sys := app.sys_slot(&a).doc
     text := doc_text(&a, sys)
     testing.expect(t, strings.contains(text, "echo out && echo more"), text)
     testing.expect(t, strings.contains(text, "out\nmore"), text)
-    testing.expect(t, app.ring_slot(&a) != app.SLOT_SYSTEM, "a run that worked surfaces nothing")
+    testing.expect(t, app.ring_slot(&a) != app.SLOT_ZERO, "a run that worked surfaces nothing")
 
-    // && short-circuits, and the failure is what brings N# forward. The second step is a
+    // && short-circuits, and the failure is what brings N0 forward. The second step is a
     // BUILTIN, so this is our chain stopping and not bash's own &&. The subshell is the test's:
     // a bare `exit` at the top level ends the session's shell, which is a different failure.
     run_line(&a, "(exit 3) && :close")
-    testing.expect_value(t, app.ring_slot(&a), app.SLOT_SYSTEM)
+    testing.expect_value(t, app.ring_slot(&a), app.SLOT_ZERO)
     testing.expect(t, app.lane_first(&a.ring, 0) != 0, ":close never ran")
 }
 
-// A failing step whose output the chain was reading does NOT throw you to N#: the answer was
+// A failing step whose output the chain was reading does NOT throw you to N0: the answer was
 // going into the document you are looking at, and a terminal is the wrong place to be told.
 // The bar says it instead. An uncaptured failure still surfaces, which is the test above.
 @(test)
@@ -183,14 +183,14 @@ a_failure_the_chain_was_reading_reports_rather_than_surfaces :: proc(t: ^testing
     app.ring_add(&a, id)
     run_line(&a, "false | :put")
 
-    testing.expect(t, app.ring_slot(&a) != app.SLOT_SYSTEM, "a chain feeding :put must not jump to N#")
+    testing.expect(t, app.ring_slot(&a) != app.SLOT_ZERO, "a chain feeding :put must not jump to N0")
     testing.expect_value(t, a.message, "the shell step exited 1")
     testing.expect_value(t, doc_text(&a, id), "keep me") // && short-circuited, so :put never ran
 }
 
 // A bare `exit` ends the session's shell itself: a step is not wrapped in a subshell (`cd`
 // must work at the top level), so the report never comes and the death is the answer. The
-// chain stops, N# surfaces its last screen, and the next step gets a fresh shell.
+// chain stops, N0 surfaces its last screen, and the next step gets a fresh shell.
 @(test)
 a_step_that_kills_the_shell_stops_the_chain :: proc(t: ^testing.T) {
     a, ok := bare_app(60, 6)
@@ -201,8 +201,8 @@ a_step_that_kills_the_shell_stops_the_chain :: proc(t: ^testing.T) {
 
     app.ring_add(&a, scratch_doc(&a, "note", "x"))
     run_line(&a, "exit 0 && :close")
-    testing.expect_value(t, a.message, "the system session's shell exited mid-step")
-    testing.expect_value(t, app.ring_slot(&a), app.SLOT_SYSTEM)
+    testing.expect_value(t, a.message, "N0's shell exited mid-step")
+    testing.expect_value(t, app.ring_slot(&a), app.SLOT_ZERO)
     testing.expect(t, !a.job.live, "the job never came back to rest")
     testing.expect(t, app.lane_first(&a.ring, 0) != 0, ":close ran past a dead shell")
 

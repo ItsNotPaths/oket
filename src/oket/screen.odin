@@ -48,8 +48,8 @@ bar_text :: proc(a: ^App) -> string {
     // Which PANEL, once there is more than one: the bar is global (§2), so it has to say which
     // of them it is answering for. `@N` is stage 4's spelling for a panel, used here first.
     tag := len(a.panels) > 1 ? fmt.tprintf("@%d ", a.focus + 1) : ""
-    if ring_slot(a) == SLOT_SYSTEM {
-        return fmt.tprintf("%sN#  the system session", tag)
+    if ring_slot(a) == SLOT_ZERO {
+        return fmt.tprintf("%sN0  the terminal oket runs things in", tag)
     }
     if s := ring_focused(a); s != nil {
         // A trail is half-visible state: the carets are drawn, the count and the way out are not

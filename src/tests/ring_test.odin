@@ -107,7 +107,7 @@ the_alternate_crosses_lanes_and_the_shift_one_does_not :: proc(t: ^testing.T) {
     testing.expect_value(t, app.doc_title(&a, app.ring_focused(&a).doc), "a")
 }
 
-// N# is a reserved SLOT, not a lane and not an exemption a kind asks for: alt+N cannot reach it
+// N0 is a reserved SLOT, not a lane and not an exemption a kind asks for: alt+N cannot reach it
 // and alt+q cannot close it.
 @(test)
 the_system_slot_is_outside_the_rotation :: proc(t: ^testing.T) {
@@ -123,16 +123,16 @@ the_system_slot_is_outside_the_rotation :: proc(t: ^testing.T) {
     // Nothing in 1..9 addresses it.
     for name in ([?]string{"AE01", "AE02", "AE09"}) {
         app.handle_chord(&a, alt(name))
-        testing.expect(t, app.ring_slot(&a) != app.SLOT_SYSTEM)
+        testing.expect(t, app.ring_slot(&a) != app.SLOT_ZERO)
     }
 
     app.handle_chord(&a, alt("AE10")) // alt+0
-    testing.expect_value(t, app.ring_slot(&a), app.SLOT_SYSTEM)
-    testing.expect_value(t, app.bar_text(&a), "N#  the system session")
+    testing.expect_value(t, app.ring_slot(&a), app.SLOT_ZERO)
+    testing.expect_value(t, app.bar_text(&a), "N0  the terminal oket runs things in")
 
     // And it survives a close: its shell is the kernel's, so its jobs get a real session.
     app.handle_chord(&a, alt("AD01"))
-    testing.expect_value(t, app.ring_slot(&a), app.SLOT_SYSTEM)
+    testing.expect_value(t, app.ring_slot(&a), app.SLOT_ZERO)
 }
 
 // Switching lanes is its own key, and it is a default ROW naming the kind in a command line —

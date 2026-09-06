@@ -88,7 +88,7 @@ Command :: enum u8 {
     Ring_Alt,
     Ring_Alt_Lane,
     Ring_Close,
-    Ring_System,
+    Ring_Zero,
     Panel_Open,
     Panel_Close,
     Panel_Next,
@@ -236,7 +236,7 @@ COMMANDS := [Command]Command_Info {
     .Ring_Alt            = {"ring.alt", "toggle the two most recent surfaces, whatever ring they are in", {.Global}},
     .Ring_Alt_Lane       = {"ring.alt_lane", "the same toggle, kept inside the ring you are in", {.Global}},
     .Ring_Close          = {"ring.close", "close the focused slot; its number is never reused while others live", {.Global}},
-    .Ring_System         = {"ring.system", "go to N#, the system session", {.Global}},
+    .Ring_Zero           = {"ring.zero", "go to N0, the terminal oket runs things in", {.Global}},
     .Panel_Open          = {"panel.open", "a panel to the right of this one, standing on nothing", {.Global}},
     .Panel_Close         = {"panel.close", "close the focused panel; what was in it stays in the ring", {.Global}},
     .Panel_Next          = {"panel.next", "focus the panel to the right", {.Global}},
@@ -389,7 +389,7 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     bind_put(&b, "TLDE", {.Alt}, .Ring_Alt) // alt+` sits at the number row's door
     bind_put(&b, "TLDE", {.Alt, .Shift}, .Ring_Alt_Lane) // and Shift keeps it in one ring
     bind_put(&b, "AD01", {.Alt}, .Ring_Close) // alt+q
-    bind_put(&b, "AE10", {.Alt}, .Ring_System) // alt+0: at the rotation's edge, not in it (§11)
+    bind_put(&b, "AE10", {.Alt}, .Ring_Zero) // alt+0: at the rotation's edge, not in it (§11)
     // The strip (PANELS.md §3, §5). Alt keeps meaning "move between things": the numbers walk
     // the ring, and the side arrows walk the panels. Ctrl on the same two walks the JUMP ring,
     // which is the third thing you move between; their vertical twins are already the placement

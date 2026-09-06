@@ -93,7 +93,7 @@ App :: struct {
     cl:           Cmdline,
     chain:        Chain,
     job:          Job,
-    sys_seq:      u64, // the last injection into N#; a report carrying another is stale
+    sys_seq:      u64, // the last injection into N0; a report carrying another is stale
     binds:        [dynamic]input.Bind,
     reqs:         [dynamic]Bind_Request,
     clashes:      [dynamic]Bind_Clash,

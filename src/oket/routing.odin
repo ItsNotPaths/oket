@@ -295,8 +295,8 @@ bind_dispatch :: proc(a: ^App, chord: input.Chord, b: input.Bind, extend: bool) 
         ring_alt_lane(a)
     case .Ring_Close:
         ring_close(a, ring_slot(a))
-    case .Ring_System:
-        sys_slot(a) // alt+0 opens N# if nothing has needed it yet
+    case .Ring_Zero:
+        sys_slot(a) // alt+0 opens N0 if nothing has needed it yet
         ring_show_system(a)
     case .Panel_Open:
         panel_open(a)

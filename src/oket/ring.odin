@@ -23,9 +23,14 @@ import "../view"
 //
 // A ^Slot points into a [dynamic], so nothing holds one across a call that may open a slot.
 
-// N#'s reserved slot (§11): kernel-owned, never closable, and outside the alt+1..9 rotation.
-// "Outside the rotation" is a property of the slot, not an exemption a kind asks for.
-SLOT_SYSTEM :: -1
+// N0, the slot at the rotation's edge (§11): kernel-owned, never closable, and never reached by
+// alt+1..9. "Outside the rotation" is a property of the slot, not an exemption a kind asks for.
+//
+// The ID IS NOT 0, because 0 is already "standing on nothing" — the value ring_close and
+// ring_lane_leave put in `Spot.slot` when a lane empties out under you. `slot_tag` is what turns
+// this into the `0` you type, and the two cannot be the same number until that sentinel moves.
+// PANELS.md §11 carries the rest, for the pass that gives every lane a 0 of its own.
+SLOT_ZERO :: -1
 
 Slot :: struct {
     doc:  store.Id,
@@ -52,7 +57,9 @@ Spot :: struct {
 
 Ring :: struct {
     lanes:  [dynamic]Lane,
-    system: Slot, // N#; dead until the first thing runs there
+    // N0. ONE of them today, shared by every lane, which is why it sits on the Ring and not on
+    // the Lane. PANELS.md §11 is where the per-lane version is written up.
+    system: Slot, // dead until the first thing runs there
 }
 
 // The document a slot holds, and the session behind it if it had one. Every close goes through
@@ -80,9 +87,9 @@ ring_destroy :: proc(a: ^App) {
     a.ring = {}
 }
 
-// "1".."N" for a user slot, "#" for the system session. Temp-allocated.
+// "1".."N" for a user slot, "0" for N0. Temp-allocated.
 slot_tag :: proc(id: int) -> string {
-    return id == SLOT_SYSTEM ? "#" : fmt.tprintf("%d", id)
+    return id == SLOT_ZERO ? "0" : fmt.tprintf("%d", id)
 }
 
 // --- lanes ---
@@ -144,7 +151,7 @@ ring_lane_goto :: proc(a: ^App, lane: int) -> bool {
 // --- slots ---
 
 lane_get :: proc(r: ^Ring, lane, id: int) -> ^Slot {
-    if id == SLOT_SYSTEM {
+    if id == SLOT_ZERO {
         return r.system.live ? &r.system : nil
     }
     if lane < 0 || lane >= len(r.lanes) {
@@ -188,7 +195,7 @@ ring_find :: proc(a: ^App, id: store.Id) -> (Spot, bool) {
         }
     }
     if a.ring.system.live && a.ring.system.doc == id {
-        return {ring_lane(a), SLOT_SYSTEM}, true
+        return {ring_lane(a), SLOT_ZERO}, true
     }
     return {}, false
 }
@@ -327,7 +334,7 @@ ring_alt_lane :: proc(a: ^App) {
 ring_close :: proc(a: ^App, id: int) {
     r := &a.ring
     s := ring_get(a, id)
-    if s == nil || id == SLOT_SYSTEM { // N# never closes; its shell is the kernel's
+    if s == nil || id == SLOT_ZERO { // N0 never closes; its shell is the kernel's
         return
     }
     doc_close(a, s.doc)
@@ -432,11 +439,11 @@ ring_lane_named :: proc(a: ^App, name: string) -> (int, bool) {
     return lane_index(&a.ring, kind), true
 }
 
-// Go to N#. It is a reserved slot rather than a lane, so this is not a bare ring_goto: that
+// Go to N0. It is a reserved slot rather than a lane, so this is not a bare ring_goto: that
 // only ever addresses the lane you are already in.
 ring_show_system :: proc(a: ^App) -> bool {
     if !a.ring.system.live {
         return false
     }
-    return ring_move(a, {ring_lane(a), SLOT_SYSTEM})
+    return ring_move(a, {ring_lane(a), SLOT_ZERO})
 }

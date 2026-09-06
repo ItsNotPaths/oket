@@ -40,7 +40,7 @@ BUILTINS := [?]Builtin {
      "go to that kind's lane; with no kind, list the lanes",
      builtin_ring},
     {"ls", "", "ring", ":ls",
-     "print every live slot of every lane into the system session",
+     "print every live slot of every lane into N0",
      builtin_ls},
     {"close", "", "ring", ":close",
      "close the focused slot; its number is never reused while others live",
@@ -306,7 +306,7 @@ builtin_ring :: proc(a: ^App, args: string, _: CL_Step) -> bool {
     return true
 }
 
-// The ring, printed into N#, which surfaces to show it.
+// The ring, printed into N0, which surfaces to show it.
 @(private = "file")
 builtin_ls :: proc(a: ^App, _: string, _: CL_Step) -> bool {
     n := 0
@@ -474,7 +474,7 @@ plug_list :: proc(a: ^App) -> bool {
 }
 
 // `:pluginify <dir>`: build a plugin directory and load what came out. It hands the chain a
-// command line rather than running a compiler itself, so an error lands in N# where `enter`
+// command line rather than running a compiler itself, so an error lands in N0 where `enter`
 // over a `file:line` opens the file. The recipe is plugins/stage.sh and nothing else:
 // release.sh and the gate tests run the same script, so this build is the shipped build.
 @(private = "file")
