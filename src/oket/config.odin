@@ -18,7 +18,7 @@ import "../txt"
 // silently does nothing is the failure the input design exists to prevent (§8), and it is the
 // rule binds.conf follows for a bad row.
 //
-// Nine settings today, which is §4's tripwire: if this grows nesting, flat keys start encoding
+// Ten settings today, which is §4's tripwire: if this grows nesting, flat keys start encoding
 // structure in their names — `lang.odin.tab_width` — and that is a worse TOML. Revisit there.
 
 CONFIG_NAME :: "config.conf" // in the config directory, next to binds.conf (path.odin)
@@ -33,6 +33,7 @@ Config :: struct {
     double_ms: int, // [mouse] double = 300 — the double-click window (PLAN.md §14)
     font_px: int, // [font] size = 18 — the face size to bake at; 0 is the display's own
     split:   txt.Split, // [cursor] split = selections — what cursor.split_lines leaves per line
+    switcher: Switcher_Show, // [switcher] show = titles — what the alt column carries
     // The two ordered lists, both keyed by KIND and not by document, because both answers are
     // about the vocabulary a kind is written in:
     //
@@ -161,6 +162,9 @@ SETTINGS := [?]Setting {
     {"mouse", "double", "300",
      "milliseconds within which a second click is a double one",
      proc(c: ^Config, value: string) {c.double_ms = conf_int(value, DOUBLE_DEFAULT)}},
+    {"switcher", "show", "titles",
+     "what the column under a held alt carries: titles or numbers",
+     proc(c: ^Config, value: string) {c.switcher = conf_switcher(value)}},
 }
 
 config_load :: proc(a: ^App) {
@@ -465,6 +469,15 @@ conf_on :: proc(value: string) -> bool {
         return true
     }
     return false
+}
+
+// What the alt column carries (Switcher_Show), spelled the way the enum is.
+@(private = "file")
+conf_switcher :: proc(value: string) -> Switcher_Show {
+    if strings.to_lower(strings.trim_space(value), context.temp_allocator) == "numbers" {
+        return .Numbers
+    }
+    return .Titles
 }
 
 // The two families the editors split into (txt.Split), spelled the way the enum is. The default

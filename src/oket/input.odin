@@ -45,6 +45,7 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
     }
     code := input.Code(scancode) + scancode_shift
     if input.code_is_modifier(code) {
+        switcher_hold(a, code, action != glfw.RELEASE)
         return // a held modifier is not a chord; wait for what it qualifies
     }
     // RELEASES NEVER ENTER THE BIND TABLE (PANELS.md §6). One field holds the key that is down,
@@ -80,6 +81,7 @@ focus_callback :: proc "c" (window: glfw.WindowHandle, focused: i32) {
     }
     a.held = 0
     pick_drop(a)
+    switcher_drop(a) // alt's release will be delivered elsewhere, so the column ends here
 }
 
 // Text is not keys (§8): a rune arrives on its own channel, so a bind never sees an `a` on its

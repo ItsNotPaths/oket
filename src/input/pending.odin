@@ -15,9 +15,15 @@ Pending_Describe :: struct {}
 Pending_Cmdline :: struct {}
 
 // Alt held: a display state, not a capture — chords dispatch normally while the switcher
-// overlay shows the ring. `since` lets the overlay wait out a quick chord.
+// overlay shows the ring. `alts` is which alt keys are down: with both held, one release must
+// not take the column out from under the other.
+Switcher_Alt :: enum u8 {
+    Left,
+    Right,
+}
+
 Pending_Switcher :: struct {
-    since: f64,
+    alts: bit_set[Switcher_Alt],
 }
 
 // The picker is ARMED (PANELS.md §6): the line is already expanded and waiting, `chord` is the
@@ -66,7 +72,7 @@ pending_describe :: proc(p: Pending) -> string {
     case Pending_Cmdline:
         return "command line: enter runs, esc closes"
     case Pending_Switcher:
-        return "alt: 1-9 goes to a slot, 0 the system session, ` alternates, q closes"
+        return "alt: 1-9 goes to a slot, 0 to N0, ` alternates, q closes"
     case Pending_Pick:
         return fmt.tprintf(
             "pick: @%d; arrows choose, the chord again makes a panel, release opens, esc cancels",
