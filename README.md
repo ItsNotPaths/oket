@@ -1,275 +1,180 @@
+<img align="right" width="150" src="assets/oketpus.png" alt="oket">
+
 # oket
 
-Graphical text editing kernel, .so plugins. A strip of panels you scroll, one full-width by
-default.
+A graphical text editing kernel with `.so` plugins.
 
-Everything on screen is a document: a file, a directory listing, a shell session, the command
-line. A document is text plus a descriptor, data the kernel reads to decide how to draw it and
-where a keystroke goes. The kernel owns the renderer, the viewport, the cursors, undo and the
-bind table. Plugins produce documents. They never draw.
+emacs like, buffer/doc based, a panel is a document + descriptor. Documents sit in rings, one
+numbered lane per kind, so `alt+1..9` reaches the third file and the third listing without
+either knowing the other exists.
 
-## The ring
+Nothing that colours text draws it. A parser, a linter or a search publishes spans, byte ranges
+carrying a style token, into a layer of its own name; the kernel merges the layers by a rank the
+config sets and paints once. What is on screen is post-processed the same way. A view stage is
+handed a snapshot and returns edits against it, so a fold is a deleted run and a popup an
+inserted box. Neither reaches the file.
 
-One lane per kind of document, each numbered. `alt+1`..`alt+9` address slots in the lane you
-are looking at, so three files and three listings are both on `alt+1..3`.
+The kernel owns the renderer, the viewport, the cursors, undo and the bind table. Plugins
+produce documents; they never draw.
+
+Linux, x86_64.
+
+```sh
+curl -fsSL https://github.com/ItsNotPaths/oket/releases/latest/download/install.sh | sh
+```
+
+Or unpack the tarball and run it where it lands. Nothing outside that folder is touched until
+you type `:oket install`.
+
+| | |
+|---|---|
+| `:oket status` | the mode, and every path it chose |
+| `:oket install` | put the files where they go, then restart |
+| `:oket uninstall` | take them back out; settings, state and grammars stay |
+
+Where a binary sits is where its files go. In a `bin` directory oket is installed and
+uses the XDG folders. Anywhere else it is portable and everything lives beside it.
+
+```
+~/.local/bin/oket                                 the binary
+~/.config/oket/config.conf                        what you edit
+~/.local/share/oket/{plugins,themes,grammars}     what a release wrote
+~/.local/state/oket/{journal,quarantine,session}  what a crash left
+```
+
+`oket <path>` opens it. `oket <dir>` is also where the terminals start.
+
+## Getting around
 
 | | |
 |---|---|
 | `alt+f` `alt+t` `alt+e` | files, terminal, editor |
-| `alt+.` | any other lane: the command line, with `:ring ` already typed |
+| `alt+1`..`alt+9` | slot N of the lane you are in |
 | `alt+0` | N0, where a command's output lands |
-| ``alt+` `` | back to where you just were, across lanes |
-| `alt+q` | close this slot; its number is never reused while others live |
+| ``alt+` `` | back where you just were, across lanes |
+| `alt+q` | close this slot |
+| `alt+c` | the command line; `alt+;` with `:` typed, `alt+.` with `:ring ` |
+| `alt+space` | the menubar |
+| `f1` then any chord | what it does, and where it was bound |
 
-`alt+f` is the file browser. It is a plugin, the same way the editor is — the kernel opens no
-listing of its own, and `:open` on a directory reports if nothing registers the `files` kind.
-And it is a document like any other: `ls -la` output you can type into.
+`alt+f` is the file browser, a plugin like the editor. `up`/`down` move a row, `enter` visits
+it, `ctrl+backspace` and the `..` row go back up. The caret sits at the end of each name, so any
+row you land on is ready to rename; `ctrl+s` does the renames, `f5` re-reads, `ctrl+b` shows
+dotfiles. The side arrows stay the kernel's own motion, walking the name you are editing.
 
-```
-drwxr-xr-x      4096  Sep  2 21:35  ../
-drwxr-xr-x       160  Sep  3 03:54  plugins/
--rw-r--r--     28914  Sep  3 03:54  README.md
-```
+`alt+t` is a real PTY. Scrollback and the live grid are the document's lines, so scrolling and
+drag-select are the kernel's own, with no terminal-specific code behind them. **`ctrl+c` copies
+there too.** One chord, one meaning, in every document. The interrupt is `ctrl+shift+c`. Both
+are ordinary rows, so a `binds.conf` that swaps them back is two lines.
 
-`../` is row one of every listing, and it is a link like any other row — `enter` over it goes up.
-Which directory you are in is the bar's answer; what a listing carries is the way out of it.
-
-The caret is pinned to the end of a name, so every row you arrive on is ready to rename. `up`
-and `down` move a row and land there; `enter` visits the row (a directory replaces the buffer, a
-file goes to the editor); `right` goes into the directory under point and `left` comes back out
-to the row it came from. Nothing moves the caret sideways, which is what frees the side arrows
-to be the hierarchy. Typing and backspace are clamped into the name, so the mode bits, the size
-and the date cannot be edited whatever the caret is doing. `ctrl+s` does the renames on disk and
-says how many, `f5` reads the directory again and drops what you typed, `ctrl+b` shows dotfiles.
-Undo is the kernel's, so `ctrl+z` works on a half-typed name like anywhere else.
-
-`alt+t` is a real PTY: scrollback and the live grid are the document's lines, so the kernel's
-own scroll, drag-select and `ctrl+shift+c` work on it with no terminal-specific code behind
-them.
-
-## The strip
-
-Two files side by side is one oket, not two. A panel is a window onto the ring — the store, the
-bind table, the plugin ledger and the io thread all stay single, so a link can cross from one
-panel to the next. The layout is a horizontal strip you scroll, no nesting.
+## Panels
 
 | | |
 |---|---|
 | `alt+left` `alt+right` | walk the strip |
 | `alt+shift+left` `alt+shift+right` | move this panel along it |
-| `alt+p` | a panel to the right of this one, on the home page |
-| `alt+shift+p` | close the panel; what was in it stays in the ring |
-| `alt+w` | the next width in its row's list; `:width 30 50 100` by default |
+| `alt+p` / `alt+shift+p` | new panel / close it |
+| `alt+w` | next width in its list; `:width 30 50 100` |
+| | `full` `half` `third` `quarter` are the same numbers in words |
+| `ctrl+enter` | open a link one panel left |
+| hold `tab`, `enter` | aim, steer with the arrows, release to drop it |
 
-The sizing model is the row, not the kernel. `:width` takes a list of percents and moves the
-panel to the next one, so the same key is a toggle, a three-way or a set depending on what the
-file says. `full`, `half`, `third` and `quarter` are the same numbers in words.
+Two files side by side is one oket, not two: the store, the bind table and the plugin ledger
+stay single, so a link can cross panels.
 
-```conf
-# config.conf's neighbour, binds.conf
-[global]
-alt+w       = exec :width 100 50
-alt+shift+w = exec :width quarter
-```
+A percent near an exact fraction becomes it. `:width 30` is a third, so three of them fill the
+strip instead of leaving a tenth of it empty.
 
-`:width 50 @2` sizes panel 2 from the command line and leaves the focus where it is. It reaches
-a panel and never makes one: there is no document to put in a panel that is not there.
-
-The two numberings do not interfere. A ring slot is per kind, stable and keeps its gaps; a panel
-is positional, so closing one renumbers the strip and no document at all. `alt+N` addresses slot
-N of the FOCUSED panel's lane, and the focused panel is the one with the caret in it — which is
-also what makes a mixed strip legal: one browser and two editors, three panels, one lane each.
-
-A slot is in at most one panel, because the viewport lives on the slot. Asking for a slot another
-panel is standing on swaps the two.
-
-One grammar addresses both. `#N` is a ring slot, `@N` is a panel counted from the left, `@+N` and
-`@-N` are panels either side of the one you are in, `@=` is the panel already showing it, and a
-bare `N` still means `#N`. A command takes one of each, in any order, and names a panel the strip
-does not have yet by making it.
+One grammar addresses both numberings. `#N` is a ring slot, `@N` a panel from the left, `@+N`
+and `@-N` either side of you, `@=` the panel already showing it.
 
 ```
-# slot 3 of the editor's lane, in the second panel
 :open src/oket/app.odin #3 @2
-# in the panel to the left, made if there is none
-:open src/oket/ring.odin @-1
-# where it already is, and where you are when it is nowhere
-:open src/oket/ring.odin @=
+:open src/oket/ring.odin @-1     # made if there is none
 ```
 
-A line with no `@` lands in the panel you are in, so `enter` replaces what you were looking at
-and nothing chooses a panel for you. `@=` is the other policy, and it is a word in a row rather
-than a mode: put it on `enter` and an open goes to the panel that already has the file, leaving
-the rest of the strip alone. If no panel has it, the row does what the one without `@=` does.
-
-```conf
-# a file already up is where you go; anything else opens here
-[surface]
-enter = exec :open <path> @=
-```
-
-One path is one document. A file the ring already holds goes back to where it is, so `#N` places
-a document the first time it opens and says where it went after that. Two documents over one file
-would be two undo stacks, two journals under one name and a save from either clobbering the other
-— and the strip could not show both anyway, because a live slot is in at most one panel.
-
-```
-# config.conf, beside the binary
-[strip]
-gap = 4      # pixels between two panels
-behind = 12  # percent the surface behind the panels is darkened
-tau = 90     # milliseconds the strip's motion decays by 1/e; 0 turns it off
-```
-
-`behind` shades `Bg` rather than naming a colour, so a gap reads as depth in every theme and no
-palette grows a token for it. The bar's row is shaded deeper still, and the three layers read in
-order: a panel, the gap beside it, the line under both.
-
-The strip scrolls and a panel resizes by exponential decay on a monotonic clock, so the motion
-settles in the same wall time at 60 Hz and at 144. A document lays out once, at the width the
-panel is arriving at, and the clip animates over it: a wrapped buffer reflows once per resize
-and a shell hears one `TIOCSWINSZ`.
-
-### Opening into another panel
-
-`ctrl+enter` on a link opens it one panel to the left. To choose the panel instead, hold `tab`,
-press `enter`, steer with the side arrows and let `tab` go: the caret shows where the thing will
-land, and `esc` drops the whole gesture. Press `enter` again, still holding `tab`, and the strip
-grows a panel to the right of the caret to throw it into.
-
-All of them are ordinary rows, and `tab+enter` is a different chord from `tab`, so an editor
-keeps its indent. The one that makes a panel runs `:np`, which is `panel.open` under another
-name — `alt+p` does the same thing mid-gesture.
-
-```conf
-[surface]
-ctrl+enter = exec :open <path> @-1
-tab+enter  = pick :open <path> @
-
-[pick]
-tab+enter  = exec :np
-```
+One path is one document. Open a file the ring already holds and you land where it is, not on a
+second copy of it.
 
 ## The command line
 
-`alt+c` opens it, `alt+;` opens it with the `:` already typed, `alt+.` with `:ring `. A bare line goes to the shell, a
-leading `:` is a builtin, `&&` chains them and "|" works via bash. Shell steps run in a session you can see and
-answer.
+A bare line goes to the shell, `:` is a builtin, `&&` chains them. Shell steps run in a session
+you can see and answer.
 
 ```
-# into slot 3 of the editor's lane
-:open src/oket/app.odin #3
 make && :ls
-# the selection, out through a pipeline, back at point
-:sel | sort -u | :put
+:sel | sort -u | :put                 # selection out through a pipeline, back at point
+:find thing && echo replaced | :put   # select all "thing"s, echo "replaced" and put it in selections
 ```
-
-`|` between two shell steps is bash's own, the chain hands it over whole. The two ends are
-ours: `:sel` puts the selection on the next step's stdin, `:put` replaces it with what came
-back.
 
 ## Binds
 
-`binds.conf` sits beside the binary. A section is a context or a kind's name, and the narrower
-one wins where it applies.
-
 ```conf
+# binds.conf, beside config.conf
 [files]
 enter       = exec :open <path>
 right-click = stage :open <path>
 
 [global]
-alt+g = exec git diff -- <path> | :put
-```
-
-A value is a verb's name, or `exec`/`stage`/`pick` and a command line. `exec` runs the line,
-`stage` puts it in the command line for aiming, and `pick` expands it now and runs it when the
-chord's held key comes up. `<name>` holes fill from the fields of the line under point, so a
-bind acts on document data with no callback into the plugin that drew it. A click is a chord
-like any other, and hovering underlines the field a bound click would act on. `f1` then any
-chord says what it does and where it was bound.
-
-A key may be two chords. `ctrl+b ctrl+f` puts the row behind a primer, and the primer is
-declared by its children and by nothing else — delete the last child and it stops existing.
-
-```conf
-[global]
+alt+g         = exec git diff -- <path> | :put
 ctrl+b ctrl+f = exec :ring files
-ctrl+b ctrl+k = exec :close
 ```
 
-**Both chords carry a modifier.** `ctrl+b f` is refused at the parse, and that is what makes a
-primer transparent: an unmodified key after one is never part of a sequence, so it clears the
-primer and does exactly what it always did. A modified chord no child claims is absorbed and
-reported, because dispatching it on its own would fire an unrelated verb. Escape cancels, and
-`` ` `` lists the children while keeping the primer up.
+A section is a context or a kind. A value is a verb's name, or `exec`/`stage`/`pick` and a
+command line. `<name>` holes fill from the fields of the line under point, so a bind acts on
+document data with no callback. A click is a chord like any other.
 
-The kernel binds no primer of its own. `:` is already its dense-verb answer, and a typed line
-you can see before it commits beats a two-chord tree. Primers are for a plugin that wants chords
-instead of typing. A chord that is both a primer and a row of its own is a collision the home
-page names: there is no priority between them, so the file decides rather than the kernel.
+Two-chord binds work, and both chords carry a modifier. That is what keeps a primer
+transparent: an unmodified key after one clears it and does what it always did.
 
-A field is a named span of a line, and it may carry a VALUE that is not the text it covers.
-That is what makes a row a link: the tree draws `browser.c` and `<path>` hands on
-`plugins/browser/browser.c`, so a row can be renamed by typing without what it points at moving.
-
-Chains do the branching a callback would. The file browser's `enter` is one row:
+## Config
 
 ```conf
-[files]
-enter = exec :br.enter <path> && :open <path>
+# config.conf, generated with every setting commented out
+[strip]   gap = 4        # pixels between panels
+[cursor]  select = 90    # percent of the swap a selection carries
+[session] restore = on   # the ring, across restarts
+[edit]    spans = syntax, lsp     # who colours over whom, lowest first
+[edit]    view  = fold, popup     # the view pipeline, in order
+[menu]    bar   = file, edit, view, panel
 ```
 
-`br.enter` visits a directory and stops the chain; over a file it does nothing, and `&&` carries
-on to the kernel's `:open`, which hands the path to the editor. The plugin's whole contribution
-is an exit code.
+Themes are helix's TOML, dropped in unchanged.
 
-`ctrl+backspace` is the way back out, and so is the `..` row. The side arrows are not asked for, so
-they stay the kernel's own motion and walk the caret through the name you are renaming.
+## Editing
 
-## The menubar
+| | |
+|---|---|
+| `ctrl+alt+up` `ctrl+alt+down` | another caret above / below |
+| `alt+d` / `alt+shift+d` | the word under the caret, one match / every match |
+| `alt+click` | a caret there; plain click puts them all down |
+| `alt+z` / `alt+shift+z` | fold the block point is in / unfold every one |
+| `alt+/` | complete from words in the buffer; again for the next |
+| `esc` | put the carets down |
 
-`alt+space` opens it. It READS what is already bound: every row is a bind row or a `:` row that
-exists anyway, and pressing one does what typing it does. There is no registry, so a menu can
-never name a verb nothing else can reach.
+Carets are placed, not armed. No prefix key, no mode. The editor is a plugin; motion,
+selection, undo and the viewport are the kernel's, for every document.
 
-A menu is a namespace — `file.dump` is under `file`, `edit.cut` under `edit` — and `chords` is
-the sequence space: one row per primer, and `enter` pops its children out to the right with the
-plugin that asked for each one beside it. Right of that, one menu per live plugin, holding the
-commands it registered. No plugin writes a menu entry.
+## Syntax
 
-Arrows walk it. `enter` runs a chord row and stages a `:` row with its `<arg>` holes still
-editable, and escape closes the popout, then the menu. Anything else falls through AND closes,
-in the one keystroke: the menu claims six keys and nothing else, so a chord that does something
-keeps doing it. Under a primer the same key opens the menu on that primer's own children.
-
-The pointer works the same menu: a name opens it and closes it, a row runs the way `enter` runs
-it, and a click anywhere else closes it and does nothing else. The bar is asked before the
-panels are, so a click on it never lands a caret in the document underneath.
+`alt+g` lists three hundred grammars, a `*` on the ones you have. Type to filter, `enter`
+builds the row under point. Nothing is shipped and nothing is fetched at startup.
 
 ```conf
-# config.conf, beside the binary
-[menu]
-show    = hidden       # or constant, which keeps the top row for the bar
-palette = invert       # the bar sits ON the screen: a dark theme draws a light bar
-bar     = file, edit, view, panel
-file    = file, cl, plug
+[grammars]
+enter = exec :gr.build <lang> && oket-grammar <lang> <repo> <rev> <sub> || true && :grammar ready <lang>
 ```
 
-`bar` names the menus and their order; every other key says which verb namespaces one menu
-holds. `chords` and the plugin menus are in neither list, because they are what is loaded rather
-than what is written down: no primer, no `chords` menu.
+Spans are stored per document and per publisher, so who draws over whom is a config line rather
+than load order. A run says which of foreground, background and attributes it sets; what it
+leaves alone shows through from below. A parse too big for one frame says so and resumes on the
+next.
 
 ## Plugins
 
-One `.so`, `dlopen`'d in-process, trusted. The seam is six messages: `register`, `submit`,
-`reveal`, `event`, `open`, `close`. Reads are not among them: a plugin walks a document's
-snapshot by pointer, with no lock and no call back into the kernel, and writes by submitting a
-batch against the generation it read.
-
-A plugin that draws nothing asks to be told about documents it did not open, and a handler that
-answers "not finished" is called again next frame. That is the whole of how long work is spread
-without a thread.
+One `.so`, `dlopen`'d in-process. The seam is six messages: `register`, `submit`, `reveal`,
+`event`, `open`, `close`. Reads are not among them. A plugin walks a snapshot by pointer with no
+lock, and writes by submitting a batch against the generation it read.
 
 ```c
 #include "oket_helpers.h"
@@ -283,283 +188,49 @@ OKET_MAIN {
 }
 ```
 
-A chord is never claimed, only requested: the row lands in `binds.conf` and the file decides
-from then on. Every registration goes in a ledger, and unloading walks it backwards.
-
 ```sh
 ./plugins/stage.sh plugins/hello build/plugins   # or `:pluginify plugins/hello` while it runs
 ```
 
-That one step compiles the helper library in with `-flto`, so a snapshot walk inlines into your
-loop and the half you never call is stripped. `:plug load|unload|reload <name>` does the rest.
+A chord is requested: the row lands in `binds.conf` and the file decides after
+that. Slow work is a kernel job, not a plugin thread — `io_spawn` and `io_watch` come back as
+ordinary events on the main thread.
 
-Every `.so` in `plugins/` loads at startup. One that faults, or stops returning, is unloaded
-where it stands and named in the bar: the kernel keeps its documents and carries on drawing
-them. `oket --no-plugins` starts with none of them, for the day that is not enough.
+Every `.so` in `plugins/` loads at startup. One that faults is unloaded where it stands and
+named in the bar. `--no-plugins` starts with none.
 
-## Syntax
+## Crashes
 
-Colour is a span: a byte range with a style token on it, stored per document and per publisher.
-A parser, a linter and a search each own their runs under their own name, the kernel merges
-them, and the renderer paints the answer. Nothing that publishes colour knows what a theme is —
-it names a token, and the palette decides.
+Every file you type into is journaled as it lands, so recovery reads bytes that were already on
+the platter. `kill -9` mid-edit, start again, and the work is offered back on the home page.
 
-A run says which of foreground, background and attributes it SETS, and what it leaves unset
-comes from whoever is below it. So an LSP's underline over a keyword's colour draws as both, and
-a search hit's background lets the syntax under it show through. Who draws over whom is a line
-per kind, and a publisher the line does not name draws on top of the ones it does:
-
-```
-# config.conf, beside the binary
-[edit]
-spans = syntax, lsp   # lowest first; `term` is the terminal's own
-```
-
-`plugins/syntax` is a tree-sitter plugin that draws nothing. It asks to be told about every
-document, picks a grammar off the file's extension, and publishes what its highlights query
-captures. A parse too big for one frame says so and resumes on the next, so a megabyte colours
-from the top down without a dropped frame and without a thread.
-
-Grammars are not shipped, and the list of the ones you could have is a document:
-
-```sh
-:ring grammars   # alt+g
-```
-
-Three hundred languages, one per row, a `*` on the ones already built. Typing filters, by name
-or by an extension you have open — `rs` finds `rust`. `enter` builds the row under point, and
-the row is the whole of the install:
-
-```conf
-[grammars]
-enter = exec :gr.build <lang> && oket-grammar <lang> <repo> <rev> <sub> || true && :grammar ready <lang>
-```
-
-Four holes over one row, a shell step you can watch in N#, and a plugin command either side of
-it. The list spawns nothing and knows nothing about git. `oket-grammar` ships beside `oket`, so
-it is on `PATH` wherever oket is, and it takes a directory as well as a URL — which is how a
-checkout you already have gets built, and how the tests build one with no network.
-
-The two plugin commands are the feedback. `:gr.build` marks the row and starts a bar on it, so a
-clone and a compile are not a frozen list:
-
-```text
-  rust             ░░░░░░░░░██████░░░░░░░░  building 4s
-```
-
-One lit run crosses in 1.26 s and the seconds count up. Both move on a monotonic clock, not on
-frames: the loop polls rather than waits while anything is latched, so a frame count would run
-the bar at whatever the display and the GPU allow. Nothing here can measure a clone, so nothing
-fills — the seconds are the only real number on the row, and they are what says a build is slow
-rather than hung.
-
-`:grammar ready` is the other end, and the shell step is `|| true` so that it always runs. It
-stats `<lang>.so` and the row stops on what is there: `done` beside a fresh `*`, or `failed`
-with the reason already in N#. A refusal comes early — a name the registry does not carry, or a
-build already out, stops the chain at the first step rather than four steps later.
-
-The grammar lands in `grammars/` beside the binary as `<name>.so` plus its `<name>.scm` query,
-and an open file takes its colours on the next frame. `:grammar status` counts what is installed
-and says where it is looking; `:grammar dir <path>` moves it.
-
-The name is what an extension selects: `.rs` wants `rust`, `.json` wants `json`, and the registry
-the list is built on answers that too, so a row you install and a file you open cannot disagree.
-A language nobody listed still works as soon as its grammar is built under the name of its own
-extension.
-
-## Subprocesses and watched files
-
-Slow work is a kernel job, not a plugin thread. A plugin asks for a child process or a watched
-path, and the answer arrives as an ordinary event on the main thread:
-
-```c
-oket_io server = api->io_spawn(api, self, doc, argv, nargv, NULL, 0);
-api->io_write(api, self, server, request, len);   /* queued; a full pipe blocks nobody */
-oket_io w = api->io_watch(api, self, doc, path, path_len);
-```
-
-One kernel thread does the waiting for every plugin — one `poll` over every child's pipes and
-one inotify descriptor — and a frame's worth of output is handed over at the same point in the
-frame every other write lands at. A language server, a formatter, a linter and a file watch all
-ride that, and none of them is a thread a plugin can see. The child's stderr is inherited rather
-than captured: merging it into stdout would corrupt a framed protocol, and a shell redirect
-already captures it.
-
-A watch names a file and holds its DIRECTORY, so a save by rename is reported rather than
-missed — which is how most programs write a file.
-
-## Editing
-
-The editor is a plugin, and the kernel has no text kind of its own. `:open` on a regular file
-hands the path to whoever registered the `edit` kind, which is a plugin like any other and
-loads at startup like any other.
-
-```sh
-:open src/oket/app.odin
-```
-
-It owns what is genuinely an editor's: reading the file, `:w`, what a typed rune means, and the
-verbs that are policy rather than storage, a newline that keeps the indent, a Tab that lands
-on the next stop. It watches the file it opened, so a checkout or a formatter that rewrites it
-underneath is taken back into the buffer — only the changed part, so the carets stay where they
-were sitting, and only while you have no unsaved edits of your own. If you do, it says so and
-changes nothing. Motion, selection, the viewport, undo and the plain delete verbs are the
-kernel's, for every document. Swap in your own by registering the same kind.
-
-### Carets
-
-A caret is placed, not walked to, so there is no prefix key and no mode to arm. The arrows move
-every caret you have put down, and typing goes into all of them.
-
-| chord | |
-|---|---|
-| `ctrl+alt+down` `ctrl+alt+up` | a caret on the line under the lowest, or over the highest |
-| `alt+d` | the word under the caret, then one match at a time |
-| `alt+shift+d` | the same, then every match at once |
-| `alt+click` | a caret where you clicked; a plain click puts them all down |
-| `esc` | put them down, ahead of whatever else the key means |
-
-`cursor.split_lines` has no default chord. It gives you one selection per line of what was
-selected; `[cursor] split = carets` in `config.conf` puts a caret at each line's end instead,
-which is the other family. The bar says how many carets are up whenever there is more than one.
-
-## Folding, and a popup
-
-What is on screen can be a document derived from the one you are editing. A plugin registers a
-VIEW STAGE, the kernel hands it a snapshot, and it returns edits against what it was handed —
-so a fold is a deleted run with a marker in its place, and a popup is an inserted box. Nothing
-of that reaches the file. Motion is told which runs no cell stands for and steps over them;
-undo, find, `:w` and the recovery journal go on seeing the document you are editing.
-
-```
-# config.conf, beside the binary
-[edit]
-view = fold, popup   # in order; each stage is handed the one before it
-```
-
-The ORDER is the point. A stage past the first is handed the stage before it, caret and all, so
-a popup that puts its box under the caret's row is right whether or not a fold above it took
-five lines off the screen. It does no mapping to get that right — it cannot: the snapshot it
-reads is already the folded one.
-
-| chord | |
-|---|---|
-| `alt+z` | fold or unfold the block point is standing on; blocks are indent |
-| `alt+shift+z` | unfold every one of them |
-| `alt+/` | the words in the buffer that carry on from the one point is inside |
-| `alt+/` again | the next candidate |
-| `alt+shift+/` | put it in, which is an ordinary edit against the document |
-
-A stage's name is in that line or it is never called, so installing one is `cp` plus a row and
-uninstalling one is deleting the row. A plugin writes its own row the first time it loads and
-never asks again, which is what makes an edit to the line stick.
-
-Text a stage inserted is not enterable: point never lands in it, a click in a fold marker
-answers the real byte beside it, and a gutter number belongs to the line being edited. A stage
-that needs more than one frame says so and is called again on the next one.
-
-## The home page
-
-A start with no session to restore opens the home page, and so does a new panel. It is what the
-kernel has to say before you have said anything: what this build changed, what a crash left
-behind, which plugins it took with it, how this start came up, and the chords that are in each
-other's way.
-
-```
-oket v0.14
-safe mode: no plugin was loaded, and the last session was ignored
-
-unsaved work a crash left behind — enter takes it back:
-  /home/you/notes.md   6 edit(s)
-  (:recover drop <path> throws one away)
-
-plugins that took a start down, and are not loaded:
-  syntax
-  (:plug load <name> takes one again, once it is fixed)
-
-chords a plugin asked for that binds.conf answers itself:
-  alt+n   hello asked for it; it runs :ring files
-  (the plugin's own row is in the file, commented out, under its name)
-
-lines the config could not be read as anything:
-  binds.conf:12   ctrl+b f: a sequence is two chords and both carry a modifier
-
-new in this build — v0.14:
-  - The home page is the default document.
-  - Two-chord binds: `ctrl+b ctrl+f`, where both chords carry a modifier.
-  notes.md   the rest of them
-
-  /home/you/src   the directory you started in
-alt+f files   alt+t term   alt+c command line   f1 describes a chord
-```
-
-It is a document like any other, so `enter` over a row is one bind and the row's own field says
-which verb it wants: a path is `:recover`, a held-back plugin is `:plug load`, a file is
-`:open`. The working directory is a row on it rather than the thing a start opens, which is why
-there is no listing you did not ask for. `:home` asks for the page whenever you want it, and a
-start that restored a session says in the bar that there is something to read.
-
-It is the kernel's own document and not a plugin's, which is the one place the rule bends and
-it bends for a reason: the page reports quarantined plugins and `--no-plugins`, so a plugin
-drawing it would be missing at exactly the start that needs it.
-
-The notes are `notes.md` beside the binary, headed `## <version>`, newest first. The page shows
-the top section and offers the file for the rest.
-
-## Crashes, and the start after one
-
-Every document that is a file and takes typing is journaled: each splice is appended to a file
-of its own as it lands, so what recovery reads is bytes that were already on the platter and
-never in-memory state a crash is entitled to have corrupted. `kill -9` mid-edit, start again,
-and the work is offered back on the home page. A journal whose replay matches the file is
-dropped without asking: the work was saved before the crash. A clean exit removes its journals,
-because quitting is a decision and a crash is not.
-
-A plugin that dies where the fault net cannot unwind takes the process with it. The handler
-writes down its name — one `write`, to a descriptor opened while the process was still healthy —
-and the next start reads that, holds the plugin back and says so. `:plug load <name>` takes it
-again, which is you saying it is fixed. `--no-plugins` starts with none of them; `--safe` is
-that plus ignoring the session, for the start where what breaks you is the file the last one
-reopened.
-
-The ring can persist across restarts, off unless you ask:
-
-```
-# config.conf, beside the binary
-[session]
-restore = on
-```
-
-Two more the eye reads before the manual does:
-
-```conf
-[cursor] select = 90   # percent of the swap a selection carries; 100 is a hard reverse
-```
-
-A field some LINE would act on is drawn as a link — underlined, in the `link` token, and in
-`link.hover` for the live one: the row the caret is on, or the field under the pointer when a
-click would take it. Nothing declares a link. The lines are the ones already written down — the
-rows reachable in that document's context, and the table `:home enter` runs — so what is
-coloured and what a keystroke does cannot disagree. Name either token in a theme file.
-
-A session is a list of command lines, so restoring one is running them and there is nothing to
-version. A document with no file is not written down: a terminal's session ended with the
-process.
+A plugin that takes the process down is named by the fault handler and held back at the next
+start. `:plug load <name>` says you fixed it. `--safe` is `--no-plugins` plus ignoring the
+session.
 
 ## Build
 
 ```sh
-./download-deps.sh          # once: libvterm, glfw, stb, tree-sitter into vendor/
-./release.sh --local        # builds into build/
-./release.sh --local --asan # the same, kernel and plugins under AddressSanitizer
+./download-deps.sh               # once: libvterm, glfw, stb, tree-sitter into vendor/
+./release.sh --local             # into build/
+./release.sh --local --asan      # kernel and plugins under AddressSanitizer
+./release.sh --local --tarball   # and pack it into dist/
 
 odin test src/tests -define:GLFW_SHARED=false
 ```
 
-Write a plugin against the ASan build. A wild write is caught at the write, with a stack trace,
+Needs Odin and Zig; `zig cc` builds the vendored C and the plugins. `build/oket` is portable, so
+it keeps its own config and journal and never touches an installed copy's.
+
+Write plugins against the ASan build: a wild write is caught at the write, with a stack trace,
 instead of at the crash four frames later inside kernel code.
 
-Needs Odin and Zig. `zig cc` builds the vendored C and the plugins.
+## Special thanks
+
+**Ryan Fleury** and **[RAD Debugger](https://github.com/EpicGamesExt/raddebugger)**, for performant
+diff based doc editing and installation sequence.
+
+**[Helix](https://helix-editor.com/)**, `languages.toml` and theme format.
 
 ## Licence
 
