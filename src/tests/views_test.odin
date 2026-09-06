@@ -46,7 +46,7 @@ views_app :: proc(
 ) {
     a = plug_app(t, name, "plugins/edit", "plugins/fold", "plugins/popup") or_return
     if order != "" {
-        conf, _ := filepath.join({a.home, app.CONFIG_NAME}, context.temp_allocator)
+        conf, _ := filepath.join({a.home.config, app.CONFIG_NAME}, context.temp_allocator)
         body := order != "none" \
             ? fmt.tprintf("[edit]\nview = %s\n", order) \
             : "# --- fold ---\n# --- popup ---\n"
@@ -64,7 +64,7 @@ views_app :: proc(
             return {}, "", false
         }
     }
-    path, _ = filepath.join({a.home, "note.py"}, context.temp_allocator)
+    path, _ = filepath.join({home_dir(a.home), "note.py"}, context.temp_allocator)
     if err := os.write_entire_file(path, transmute([]u8)text); err != nil {
         testing.expectf(t, false, "cannot write %s: %v", path, err)
         close_plug_app(&a)
@@ -322,7 +322,7 @@ a_stage_asks_for_its_row_once :: proc(t: ^testing.T) {
     }
     defer close_plug_app(&a)
 
-    path, _ := filepath.join({a.home, app.CONFIG_NAME}, context.temp_allocator)
+    path, _ := filepath.join({a.home.config, app.CONFIG_NAME}, context.temp_allocator)
     raw, _ := os.read_entire_file(path, context.temp_allocator)
     body := string(raw)
     testing.expect(t, strings.contains(body, "view = fold, popup"), body)
@@ -347,7 +347,7 @@ a_stage_asks_for_its_row_once :: proc(t: ^testing.T) {
 @(private = "file")
 sliced_app :: proc(t: ^testing.T, name: string) -> (a: app.App, id: store.Id, ok: bool) {
     a = plug_app(t, name, "src/tests/boom") or_return
-    conf, _ := filepath.join({a.home, app.CONFIG_NAME}, context.temp_allocator)
+    conf, _ := filepath.join({a.home.config, app.CONFIG_NAME}, context.temp_allocator)
     body := fmt.tprintf("[%s]\nview = boom\n", app.kind_name(&a, app.KIND_HOME))
     if err := os.write_entire_file(conf, transmute([]u8)body); err != nil {
         testing.expectf(t, false, "cannot write %s: %v", conf, err)

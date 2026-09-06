@@ -27,7 +27,7 @@ SESSION_NAME :: "session"
 // panel is standing on go FIRST, because a line with no `@` aims the focused panel and one of
 // those running after the strip was built would drag it about.
 session_save :: proc(a: ^App) {
-    if !a.config.restore || a.home == "" {
+    if !a.config.restore || a.home.state == "" {
         return
     }
     b := strings.builder_make(context.temp_allocator)
@@ -66,7 +66,7 @@ session_panel :: proc(a: ^App, b: ^strings.Builder, i: int) {
 // Every line, as though it had been typed. Answers whether anything opened, so a start knows
 // if the ring is still empty.
 session_restore :: proc(a: ^App) -> bool {
-    if !a.config.restore || a.home == "" {
+    if !a.config.restore || a.home.state == "" {
         return false
     }
     raw, err := os.read_entire_file(session_path(a), context.temp_allocator)
@@ -100,6 +100,6 @@ session_line :: proc(a: ^App, b: ^strings.Builder, id: store.Id, slot, panel: in
 
 @(private = "file")
 session_path :: proc(a: ^App) -> string {
-    path, _ := filepath.join({a.home, SESSION_NAME}, context.temp_allocator)
+    path, _ := filepath.join({a.home.state, SESSION_NAME}, context.temp_allocator)
     return path
 }

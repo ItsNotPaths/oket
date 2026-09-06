@@ -39,7 +39,7 @@ syntax_app :: proc(t: ^testing.T, name: string) -> (a: app.App, ok: bool) {
     }
     // The grammar, built the way a user builds one: `tools/oket-grammar <name> <repo-or-dir>`,
     // pointed at the vendored checkout so the gate needs no network.
-    dir, _ := filepath.join({a.home, "grammars"}, context.temp_allocator)
+    dir, _ := filepath.join({a.home.data, "grammars"}, context.temp_allocator)
     script, _ := filepath.join({REPO, "tools", "oket-grammar"}, context.temp_allocator)
     src, _ := filepath.join({REPO, "vendor", "tree-sitter-json"}, context.temp_allocator)
     env := fmt.tprintf("OKET_GRAMMARS=%s", dir)
@@ -52,7 +52,7 @@ syntax_app :: proc(t: ^testing.T, name: string) -> (a: app.App, ok: bool) {
         close_plug_app(&a)
         return {}, false
     }
-    // Where to look. The plugin's own answer is beside the binary, which in a test is the test
+    // Where to look. The plugin's own answer is the data directory, which in a test is the test
     // runner — so the gate says it rather than moving the binary.
     app.cl_exec(&a, fmt.tprintf(":grammar dir %s", dir))
     if !testing.expect(t, strings.contains(a.message, dir), a.message) {
@@ -206,7 +206,7 @@ a_grammar_that_arrives_late_is_picked_up_by_the_chain :: proc(t: ^testing.T) {
     if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "syntax")), a.message) {
         return
     }
-    dir, _ := filepath.join({a.home, "grammars"}, context.temp_allocator)
+    dir, _ := filepath.join({a.home.data, "grammars"}, context.temp_allocator)
     _ = os.make_directory(dir)
     app.cl_exec(&a, fmt.tprintf(":grammar dir %s", dir))
 

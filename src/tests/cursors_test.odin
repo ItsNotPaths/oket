@@ -362,8 +362,8 @@ a_config_line_picks_what_a_split_leaves :: proc(t: ^testing.T) {
         return
     }
     defer close_app(&a)
-    a.home = strings.clone(dir)
-    defer delete(a.home)
+    app.home_set(&a.home, dir)
+    defer app.home_destroy(&a.home)
 
     path, _ := filepath.join({dir, app.CONFIG_NAME}, context.temp_allocator)
     body := "[cursor]\nsplit = carets\n"

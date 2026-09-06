@@ -23,7 +23,7 @@ close :: proc(a: ^app.App) {
     app.binds_requests_destroy(a)
     app.gripes_destroy(a) // a skipped row is remembered for the home page (§13)
     app.message_set(a, "")
-    delete(a.home)
+    app.home_destroy(&a.home)
 }
 
 @(private = "file")
@@ -122,7 +122,7 @@ a_requested_row_becomes_a_file_row :: proc(t: ^testing.T) {
 
     a := fixture()
     defer close(&a)
-    a.home = strings.clone(dir)
+    app.home_set(&a.home, dir)
 
     app.binds_request(&a, "browser", "surface", "click", "exec :open <path>")
     app.binds_sync(&a)
@@ -154,7 +154,7 @@ a_taken_chord_is_written_commented_and_reported :: proc(t: ^testing.T) {
 
     a := fixture()
     defer close(&a)
-    a.home = strings.clone(dir)
+    app.home_set(&a.home, dir)
 
     // wheel-down is a kernel default at Global, so a Global request for it collides.
     app.binds_request(&a, "noisy", "global", "wheel-down", "exec :open <path>")
@@ -186,7 +186,7 @@ a_shadowing_row_goes_in_live_with_a_note :: proc(t: ^testing.T) {
 
     a := fixture()
     defer close(&a)
-    a.home = strings.clone(dir)
+    app.home_set(&a.home, dir)
 
     // f1 is describe.key at Global; a surface row covers it there and nowhere else.
     app.binds_request(&a, "browser", "surface", "f1", "exec :help <path>")
@@ -239,7 +239,7 @@ two_owners_share_one_primer :: proc(t: ^testing.T) {
 
     a := fixture()
     defer close(&a)
-    a.home = strings.clone(dir)
+    app.home_set(&a.home, dir)
 
     app.binds_request(&a, "alpha", "global", "ctrl+@AB05 ctrl+@AC01", "exec :ls")
     app.binds_request(&a, "beta", "global", "ctrl+@AB05 ctrl+@AC04", "exec :ring")

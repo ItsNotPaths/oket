@@ -24,7 +24,7 @@ import "../txt"
 // the expensive half, debounced here, and the fault handler's whole job is one more fsync on
 // bytes that are already written.
 
-JOURNAL_DIR :: "journal" // beside the binary, next to binds.conf and plugins/
+JOURNAL_DIR :: "journal" // in the state directory, next to quarantine (path.odin)
 JOURNAL_EXT :: ".okjrnl"
 
 @(private = "file")
@@ -234,10 +234,10 @@ recover_drop :: proc(a: ^App, journal: string) -> bool {
 // Where journals live, "" when there is no home to put them in — which is what a test that
 // does not care about recovery gets for free.
 journal_dir :: proc(a: ^App) -> string {
-    if a.home == "" {
+    if a.home.state == "" {
         return ""
     }
-    dir, _ := filepath.join({a.home, JOURNAL_DIR}, context.temp_allocator)
+    dir, _ := filepath.join({a.home.state, JOURNAL_DIR}, context.temp_allocator)
     return dir
 }
 

@@ -30,7 +30,7 @@ edit_app :: proc(t: ^testing.T, name, text: string) -> (a: app.App, path: string
         close_plug_app(&a)
         return {}, "", false
     }
-    path, _ = filepath.join({a.home, "note.txt"}, context.temp_allocator)
+    path, _ = filepath.join({home_dir(a.home), "note.txt"}, context.temp_allocator)
     if err := os.write_entire_file(path, transmute([]u8)text); err != nil {
         testing.expectf(t, false, "cannot write %s: %v", path, err)
         close_plug_app(&a)
@@ -308,7 +308,7 @@ undo_reaches_a_plugins_edit :: proc(t: ^testing.T) {
 }
 
 // `:w` is the plugin's, because what a file IS on disk is what its opener knew. The kernel's
-// own verb is a dump beside the binary and knows no paths at all — the recovery floor, and the
+// own verb is a dump into the state directory and knows no paths at all — the recovery floor, and the
 // reason a document nothing opened can still get its bytes out.
 @(test)
 the_plugin_writes_the_file_and_the_kernel_only_dumps :: proc(t: ^testing.T) {
@@ -325,11 +325,11 @@ the_plugin_writes_the_file_and_the_kernel_only_dumps :: proc(t: ^testing.T) {
     on_disk, _ := os.read_entire_file(path, context.temp_allocator)
     testing.expect_value(t, string(on_disk), "one!\n")
 
-    // The kernel's floor, over a document no plugin owns: beside the binary, named for what the
+    // The kernel's floor, over a document no plugin owns: into the state directory, named for what the
     // document is called, and never over the file itself.
     app.ring_add(&a, scratch_doc(&a, "orphan.txt", "rescue me"))
     app.handle_chord(&a, chord("AC02", {.Ctrl})) // ctrl+s, which no [edit] row shadows here
-    dumped, _ := filepath.join({a.home, "orphan.txt.dump"}, context.temp_allocator)
+    dumped, _ := filepath.join({a.home.state, "orphan.txt.dump"}, context.temp_allocator)
     raw, err := os.read_entire_file(dumped, context.temp_allocator)
     testing.expectf(t, err == nil, "%s: %v (%s)", dumped, err, a.message)
     testing.expect_value(t, string(raw), "rescue me")
@@ -362,7 +362,7 @@ a_save_by_rename_is_taken_back :: proc(t: ^testing.T) {
     }
     defer close_plug_app(&a)
 
-    tmp, _ := filepath.join({a.home, "note.new"}, context.temp_allocator)
+    tmp, _ := filepath.join({home_dir(a.home), "note.new"}, context.temp_allocator)
     _ = os.write_entire_file(tmp, transmute([]u8)string("renamed\n"))
     _ = os.rename(tmp, path)
     testing.expect(t, io_settle(&a, focused_text, "renamed\n"), a.message)

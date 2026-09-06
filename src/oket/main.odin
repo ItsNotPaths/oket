@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import "core:os"
+import "core:strings"
 import "core:time"
 import "vendor:glfw"
 import "../gfx"
@@ -25,6 +26,41 @@ flag :: proc(name: string) -> bool {
         }
     }
     return false
+}
+
+// Every argument that is not a flag: what this start was told to open. A leading `-` is the
+// only test, which is why a file called `-x` is opened as `./-x` — the rule every other program
+// on the machine uses.
+args_paths :: proc(args: []string, allocator := context.allocator) -> []string {
+    out := make([dynamic]string, allocator)
+    for arg in args {
+        if !strings.has_prefix(arg, "-") && arg != "" {
+            append(&out, arg)
+        }
+    }
+    return out[:]
+}
+
+// The first directory named on the command line, else the working directory this start was
+// launched from. Not the LIVE working directory: that is a thing a shell step can move, and a
+// terminal opened after one had moved it would start somewhere the last one did not.
+start_dir :: proc(args: []string, allocator := context.allocator) -> string {
+    for path in args_paths(args, context.temp_allocator) {
+        if os.is_dir(path) {
+            return strings.clone(path_abs(path), allocator)
+        }
+    }
+    return os.get_working_directory(allocator) or_else ""
+}
+
+// Each one, as though it had been typed — the same shape a session has (session.odin), so an
+// argument and a restored line reach `:open` through one path. Answers whether anything landed.
+args_open :: proc(a: ^App, args: []string) -> (opened: bool) {
+    for path in args_paths(args, context.temp_allocator) {
+        cl_exec(a, fmt.tprintf(":open %s", sh_quote(path, context.temp_allocator)))
+        opened |= ring_focused(a) != nil
+    }
+    return
 }
 
 // A Wayland swap blocks on a frame callback that stops arriving once the window is off-screen,
@@ -95,6 +131,11 @@ main :: proc() {
     }
 
     // A session's reader thread, and the I/O worker, both have to reach the frame loop, which
+    // The environment the plugins and every shell step read their directories out of
+    // (path.odin). Said here rather than in app_init because it is PROCESS state: a test holds
+    // an App of its own and must not reach into this one's environment. Before app_init,
+    // because that is where a plugin loads and asks.
+    home_export()
     // is parked in WaitEvents. Before autoload: a plugin may start a job in its entry point,
     // and a completion nobody wakes for is a frame that never comes.
     wake.hook = proc() {glfw.PostEmptyEvent()}
@@ -117,7 +158,9 @@ main :: proc() {
     // a listing cannot say that a plugin is quarantined or that this start is a safe one.
     // A session that DID restore gets the news in the bar instead, because a page that stole
     // the focus from the files you left open would be the worse answer.
-    if a.start == .Safe || !session_restore(&a) {
+    // An argument beats both. This start was TOLD where to go, and a page offering the working
+    // directory is what a start told NOTHING is for.
+    if !args_open(&a, os.args[1:]) && (a.start == .Safe || !session_restore(&a)) {
         ring_add(&a, home_open(&a))
     } else if home_news(&a) {
         message_set(&a, "this start has something to report; :home says what")

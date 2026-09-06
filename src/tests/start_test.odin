@@ -29,7 +29,7 @@ a_quarantined_plugin_is_not_autoloaded :: proc(t: ^testing.T) {
     app.plug_init(&a)
 
     // What the fault handler leaves: one name, one `write`, no formatting (fault.odin).
-    quarantine, _ := filepath.join({a.home, app.QUARANTINE_FILE}, context.temp_allocator)
+    quarantine, _ := filepath.join({a.home.state, app.QUARANTINE_FILE}, context.temp_allocator)
     testing.expect_value(t, os.write_entire_file(quarantine, transmute([]u8)string("hello\n")),
                          nil)
 
@@ -57,7 +57,7 @@ the_report_is_read_by_the_next_start :: proc(t: ^testing.T) {
     if !testing.expect(t, ok, "no App") {
         return
     }
-    a.home = strings.clone(home)
+    app.home_set(&a.home, home)
     app.quarantine_open(&a)
     if !testing.expect(t, a.report != nil, "no fd for the handler to write to") {
         close_plug_app(&a)
@@ -73,7 +73,7 @@ the_report_is_read_by_the_next_start :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&b)
-    b.home = strings.clone(home)
+    app.home_set(&b.home, home)
     app.quarantine_open(&b)
     testing.expect(t, app.quarantined(&b, "browser"), "the next start read no report")
 }
@@ -93,7 +93,7 @@ the_home_page_offers_recovered_work :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    a.home = strings.clone(home)
+    app.home_set(&a.home, home)
 
     file, _ := filepath.join({home, "alpha.txt"}, context.temp_allocator)
     id := scratch_doc(&a, file, "xyz")
@@ -161,7 +161,7 @@ a_quiet_start_still_opens_the_page :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    a.home = strings.clone(home)
+    app.home_set(&a.home, home)
 
     testing.expect(t, !app.home_news(&a), "an untouched home had news")
     page := app.home_open(&a)
@@ -198,7 +198,7 @@ the_page_says_it_is_a_safe_start :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    a.home = strings.clone(home)
+    app.home_set(&a.home, home)
 
     page := app.home_open(&a)
     testing.expect(t, !strings.contains(doc_line_text(&a, page, 1), "safe mode"),
@@ -223,7 +223,7 @@ the_page_lists_what_is_wrong_with_the_binds :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    a.home = strings.clone(home)
+    app.home_set(&a.home, home)
 
     // A plugin asks; the file already answers that chord with something else, so the row it
     // asked for is not the row that fires (§8).
@@ -252,7 +252,7 @@ the_page_lists_what_is_wrong_with_the_binds :: proc(t: ^testing.T) {
     testing.expect_value(t, len(a.gripes), 1)
 }
 
-// What shipped, off notes.md beside the binary. The newest section and no more: the page is a
+// What shipped, off notes.md in the data directory. The newest section and no more: the page is a
 // start's report, and the file is one row away.
 @(test)
 the_page_shows_the_newest_notes :: proc(t: ^testing.T) {
@@ -265,7 +265,7 @@ the_page_shows_the_newest_notes :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    a.home = strings.clone(home)
+    app.home_set(&a.home, home)
 
     notes, _ := filepath.join({home, app.NOTES_NAME}, context.temp_allocator)
     b := strings.builder_make(context.temp_allocator)
@@ -314,7 +314,7 @@ recover_drop_throws_the_work_away :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    a.home = strings.clone(home)
+    app.home_set(&a.home, home)
 
     file, _ := filepath.join({home, "alpha.txt"}, context.temp_allocator)
     id := scratch_doc(&a, file, "xyz")
@@ -350,7 +350,7 @@ a_recover_rewrites_the_page_that_offered_it :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    a.home = strings.clone(home)
+    app.home_set(&a.home, home)
 
     append(&a.quarantined, strings.clone("hello"))
     page := app.home_open(&a)
@@ -375,7 +375,7 @@ a_session_restores_the_ring :: proc(t: ^testing.T) {
     if !testing.expect(t, ok, "no App") {
         return
     }
-    home := strings.clone(a.home, context.temp_allocator)
+    home := strings.clone(home_dir(a.home), context.temp_allocator)
     one, _ := filepath.join({home, "one"}, context.temp_allocator)
     two, _ := filepath.join({home, "two"}, context.temp_allocator)
     for dir in ([?]string{one, two}) {
@@ -406,7 +406,7 @@ a_session_restores_the_ring :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&b)
-    b.home = strings.clone(home)
+    app.home_set(&b.home, home)
     app.plug_init(&b)
     testing.expect(t, app.plug_load(&b, app.plug_path(&b, "browser")), b.message)
     app.config_load(&b)
@@ -426,7 +426,7 @@ a_session_restores_the_strip :: proc(t: ^testing.T) {
     if !testing.expect(t, ok, "no App") {
         return
     }
-    home := strings.clone(a.home, context.temp_allocator)
+    home := strings.clone(home_dir(a.home), context.temp_allocator)
     one, _ := filepath.join({home, "one"}, context.temp_allocator)
     two, _ := filepath.join({home, "two"}, context.temp_allocator)
     three, _ := filepath.join({home, "three"}, context.temp_allocator)
@@ -460,7 +460,7 @@ a_session_restores_the_strip :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&b)
-    b.home = strings.clone(home)
+    app.home_set(&b.home, home)
     app.plug_init(&b)
     testing.expect(t, app.plug_load(&b, app.plug_path(&b, "browser")), b.message)
     app.config_load(&b)
@@ -495,7 +495,7 @@ a_key_no_setting_owns_is_reported :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    a.home = strings.clone(home)
+    app.home_set(&a.home, home)
 
     config, _ := filepath.join({home, app.CONFIG_NAME}, context.temp_allocator)
     text := "[session]\nrestor = on\nrestore = yes\n"
@@ -519,7 +519,7 @@ a_gap_that_does_not_parse_keeps_the_default :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    a.home = strings.clone(home)
+    app.home_set(&a.home, home)
     config, _ := filepath.join({home, app.CONFIG_NAME}, context.temp_allocator)
 
     testing.expect_value(t,
@@ -548,7 +548,7 @@ a_session_is_not_written_unless_it_is_asked_for :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    a.home = strings.clone(home)
+    app.home_set(&a.home, home)
     app.config_load(&a)
     testing.expect(t, !a.config.restore, "the session was on with no config.conf at all")
 

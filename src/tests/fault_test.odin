@@ -28,7 +28,7 @@ boom_app :: proc(t: ^testing.T, name: string) -> (a: app.App, ok: bool) {
     }
     // Something in the ring, so "alone" is observable: the kernel has to still be drawing this
     // after the plugin is gone.
-    app.ring_add(&a, listing_doc(&a, a.home))
+    app.ring_add(&a, listing_doc(&a, home_dir(a.home)))
     return a, true
 }
 

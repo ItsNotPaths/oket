@@ -1,7 +1,6 @@
 package main
 
 import "core:os"
-import "core:path/filepath"
 import "core:strings"
 import "vendor:glfw"
 import "../gfx"
@@ -119,7 +118,13 @@ App :: struct {
     jump_at:      int,
     find:         string, // owned; the last search term, which is what F3 steps through
     paste:        Paste_Mark,
-    home:         string, // owned; where binds.conf lives, empty in a test
+    // One directory per kind of file, chosen by where the binary is (path.odin). Empty in a
+    // test that holds an App of its own, which is what every write site refuses on.
+    home:         Home,
+    // Where oket thinks it IS: the first directory on the command line, else the working
+    // directory it started in. Every terminal is spawned here, so two panels holding two shells
+    // cannot disagree about where they are.
+    dir:          string, // owned
     quit:         bool,
 }
 
@@ -138,7 +143,8 @@ Rect :: struct {
 app_init :: proc(a: ^App) {
     a.theme = gfx.DEFAULT_THEME
     a.hand = glfw.CreateStandardCursor(glfw.HAND_CURSOR)
-    a.home = filepath.dir(os.args[0]) // beside the binary
+    a.home = home_resolve()
+    a.dir = start_dir(os.args[1:])
     // Read once, here, so main and the home page cannot disagree about which start this is.
     switch {
     case flag(SAFE):
@@ -176,7 +182,8 @@ app_destroy :: proc(a: ^App) {
     clips_free(a) // the ring, not the selection: exiting must not empty the user's clipboard
     jumps_free(a)
     find_free(a)
-    delete(a.home)
+    home_destroy(&a.home)
+    delete(a.dir)
     glfw.DestroyCursor(a.hand)
     panels_destroy(a)
     menubar_destroy(a)

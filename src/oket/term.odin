@@ -40,11 +40,11 @@ Term :: struct {
     events: bool,
 }
 
-// Spawned at a nominal size; the first pump resizes it to the body. Heap-allocated because the
-// reader thread holds a pointer into it.
+// Spawned at a nominal size in `a.dir`; the first pump resizes it to the body. Heap-allocated
+// because the reader thread holds a pointer into it.
 term_open :: proc(a: ^App) -> (store.Id, bool) {
     tm := new(Term)
-    if !pty.terminal_spawn(&tm.t, 24, 80) {
+    if !pty.terminal_spawn(&tm.t, 24, 80, a.dir) {
         free(tm)
         message_set(a, "could not spawn a shell")
         return {}, false

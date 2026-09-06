@@ -242,7 +242,7 @@ hold_steer_release_opens_where_you_steered :: proc(t: ^testing.T) {
     }
 
     // One row to steer from, so point is on it with nothing to aim first.
-    dir, _ := filepath.join({a.home, "notes"}, context.temp_allocator)
+    dir, _ := filepath.join({home_dir(a.home), "notes"}, context.temp_allocator)
     path, _ := filepath.join({dir, "note.txt"}, context.temp_allocator)
     os.make_directory(dir)
     if err := os.write_entire_file(path, transmute([]u8)string("alpha\n")); err != nil {
@@ -292,7 +292,7 @@ the_chord_again_makes_the_panel_the_release_opens_into :: proc(t: ^testing.T) {
         return
     }
 
-    dir, _ := filepath.join({a.home, "notes"}, context.temp_allocator)
+    dir, _ := filepath.join({home_dir(a.home), "notes"}, context.temp_allocator)
     path, _ := filepath.join({dir, "note.txt"}, context.temp_allocator)
     os.make_directory(dir)
     if err := os.write_entire_file(path, transmute([]u8)string("alpha\n")); err != nil {

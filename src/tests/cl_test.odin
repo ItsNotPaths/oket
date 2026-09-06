@@ -128,7 +128,7 @@ exec_runs_a_bind_line_and_stage_aims_it :: proc(t: ^testing.T) {
     if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "browser")), a.message) {
         return
     }
-    dir := a.home
+    dir := home_dir(a.home)
     sub, _ := filepath.join({dir, "sub"}, context.temp_allocator)
     os.make_directory(sub)
     id, opened := app.files_open(&a, dir)

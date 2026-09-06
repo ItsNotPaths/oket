@@ -400,7 +400,7 @@ USAGE_RECOVER :: ":recover [drop] <path>"
 // --- the plugin seam (§7) ---
 
 // `:plug [load|unload|reload] <name>`, and bare `:plug` lists what is in. A plugin is one `.so`
-// under `plugins/` beside the binary; the name is its file's stem, and it is also the section
+// under `plugins/` in the data directory; the name is its file's stem, and it is also the section
 // header its bind requests land under in binds.conf.
 @(private = "file")
 builtin_plug :: proc(a: ^App, args: string, _: CL_Step) -> bool {
@@ -485,12 +485,12 @@ builtin_pluginify :: proc(a: ^App, args: string, _: CL_Step) -> bool {
     if abs == "" {
         abs = dir
     }
-    script, _ := filepath.join({a.home, PLUGINIFY_SCRIPT}, context.temp_allocator)
+    script, _ := filepath.join({a.home.data, PLUGINIFY_SCRIPT}, context.temp_allocator)
     if !os.exists(script) {
         message_set(a, fmt.tprintf(":pluginify: no build script at %s", script))
         return false
     }
-    out, _ := filepath.join({a.home, PLUGIN_DIR}, context.temp_allocator)
+    out, _ := filepath.join({a.home.data, PLUGIN_DIR}, context.temp_allocator)
     name := filepath.base(abs)
     // Reloaded rather than loaded when it is already in: rebuilding the plugin you are running
     // is the loop this verb exists for, and `:plug load` refuses a name it already has.

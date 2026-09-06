@@ -247,8 +247,8 @@ one_path_is_one_document :: proc(t: ^testing.T) {
     if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "edit")), a.message) {
         return
     }
-    note, _ := filepath.join({a.home, "note.txt"}, context.temp_allocator)
-    other, _ := filepath.join({a.home, "other.txt"}, context.temp_allocator)
+    note, _ := filepath.join({home_dir(a.home), "note.txt"}, context.temp_allocator)
+    other, _ := filepath.join({home_dir(a.home), "other.txt"}, context.temp_allocator)
     for path in ([?]string{note, other}) {
         if err := os.write_entire_file(path, transmute([]u8)string("alpha\n")); err != nil {
             testing.expectf(t, false, "cannot write %s: %v", path, err)
@@ -264,7 +264,7 @@ one_path_is_one_document :: proc(t: ^testing.T) {
 
     // The same file, spelled another way: `./x` and `x` are one file (path_abs), so this lands
     // back on the document that is already open rather than making a third slot.
-    app.cl_exec(&a, fmt.tprintf(":open %s/./note.txt", a.home))
+    app.cl_exec(&a, fmt.tprintf(":open %s/./note.txt", home_dir(a.home)))
     testing.expect_value(t, app.ring_slot(&a), 1)
     testing.expect_value(t, app.ring_focused(&a).doc, first)
     testing.expect(t, app.ring_get(&a, 3) == nil, "a second slot was opened on one file")

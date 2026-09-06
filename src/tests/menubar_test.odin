@@ -46,8 +46,7 @@ close :: proc(a: ^app.App) {
         delete(c.doc)
     }
     delete(a.cmds)
-    delete(a.home)
-    a.home = ""
+    app.home_destroy(&a.home)
     close_app(a)
 }
 
@@ -254,7 +253,7 @@ the_bar_is_the_lists_the_config_names :: proc(t: ^testing.T) {
     path, _ := filepath.join({dir, app.CONFIG_NAME}, context.temp_allocator)
     text := "[menu]\nbar = shell, file, extra\nshell = ring\n"
     testing.expect(t, os.write_entire_file(path, transmute([]u8)text) == nil)
-    a.home = strings.clone(dir)
+    app.home_set(&a.home, dir)
     app.config_load(&a)
 
     b := app.menubar_build(&a)

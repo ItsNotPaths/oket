@@ -496,13 +496,13 @@ a_browser_and_two_editors_at_once :: proc(t: ^testing.T) {
         }
     }
 
-    id, opened := app.files_open(&a, a.home)
+    id, opened := app.files_open(&a, home_dir(a.home))
     if !testing.expect(t, opened, a.message) {
         return
     }
     app.ring_add(&a, id)
     for file in ([?]string{"alpha.txt", "beta.txt"}) {
-        path, _ := filepath.join({a.home, file}, context.temp_allocator)
+        path, _ := filepath.join({home_dir(a.home), file}, context.temp_allocator)
         app.panel_open(&a)
         app.cl_exec(&a, fmt.tprintf(":open %s", path))
     }
@@ -628,15 +628,15 @@ a_panel_takes_a_file_whatever_it_held :: proc(t: ^testing.T) {
             return
         }
     }
-    path, _ := filepath.join({a.home, "alpha.txt"}, context.temp_allocator)
+    path, _ := filepath.join({home_dir(a.home), "alpha.txt"}, context.temp_allocator)
 
-    id, opened := app.files_open(&a, a.home)
+    id, opened := app.files_open(&a, home_dir(a.home))
     if !testing.expect(t, opened, a.message) {
         return
     }
     app.ring_add(&a, id)
     app.panel_open(&a)
-    second, _ := app.files_open(&a, a.home) // panel 2, a browser of its own
+    second, _ := app.files_open(&a, home_dir(a.home)) // panel 2, a browser of its own
     app.ring_add(&a, second)
     files := app.ring_lane(&a)
     app.panel_step(&a, -1) // and the keys back on panel 1
@@ -754,8 +754,8 @@ an_open_can_go_to_the_panel_that_has_it :: proc(t: ^testing.T) {
     if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "edit")), a.message) {
         return
     }
-    note, _ := filepath.join({a.home, "note.txt"}, context.temp_allocator)
-    other, _ := filepath.join({a.home, "other.txt"}, context.temp_allocator)
+    note, _ := filepath.join({home_dir(a.home), "note.txt"}, context.temp_allocator)
+    other, _ := filepath.join({home_dir(a.home), "other.txt"}, context.temp_allocator)
     for path in ([?]string{note, other}) {
         if err := os.write_entire_file(path, transmute([]u8)string("alpha\n")); err != nil {
             testing.expectf(t, false, "cannot write %s: %v", path, err)
@@ -788,7 +788,7 @@ an_open_can_go_to_the_panel_that_has_it :: proc(t: ^testing.T) {
     // Nothing is showing a file that is not open, so `@=` lands where you are: one row covers
     // the document you have up and the one you do not.
     app.panel_focus(&a, 0)
-    fresh, _ := filepath.join({a.home, "third.txt"}, context.temp_allocator)
+    fresh, _ := filepath.join({home_dir(a.home), "third.txt"}, context.temp_allocator)
     if err := os.write_entire_file(fresh, transmute([]u8)string("beta\n")); err != nil {
         testing.expectf(t, false, "cannot write %s: %v", fresh, err)
         return

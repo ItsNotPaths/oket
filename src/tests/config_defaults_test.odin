@@ -15,14 +15,14 @@ import app "../oket"
 config_at :: proc(t: ^testing.T, name: string) -> (a: app.App, dir: string, ok: bool) {
     dir = scratch(t, name) or_return
     a = bare_app() or_return
-    a.home = strings.clone(dir) // owned, the way app_init sets it
+    app.home_set(&a.home, dir) // owned, the way app_init sets it
     app.config_sync(&a)
     return a, dir, true
 }
 
 @(private = "file")
 config_text :: proc(a: ^app.App) -> string {
-    path, _ := filepath.join({a.home, "config.conf"}, context.temp_allocator)
+    path, _ := filepath.join({a.home.config, "config.conf"}, context.temp_allocator)
     raw, err := os.read_entire_file(path, context.temp_allocator)
     return err == nil ? string(raw) : ""
 }
@@ -63,7 +63,7 @@ every_printed_default_is_the_real_one :: proc(t: ^testing.T) {
         return
     }
     defer os.remove_all(dir)
-    defer delete(a.home)
+    defer app.home_destroy(&a.home)
     defer close_app(&a)
 
     text := config_text(&a)
@@ -122,7 +122,7 @@ the_defaults_block_is_asked_once :: proc(t: ^testing.T) {
         return
     }
     defer os.remove_all(dir)
-    defer delete(a.home)
+    defer app.home_destroy(&a.home)
     defer close_app(&a)
 
     path, _ := filepath.join({dir, "config.conf"}, context.temp_allocator)

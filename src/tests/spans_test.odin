@@ -188,8 +188,8 @@ a_config_line_is_the_z_order :: proc(t: ^testing.T) {
         return
     }
     defer close_spans_app(&a)
-    a.home = strings.clone(dir)
-    defer delete(a.home)
+    app.home_set(&a.home, dir)
+    defer app.home_destroy(&a.home)
     id := kinded_doc(&a, app.KIND_HOME)
 
     path, _ := filepath.join({dir, app.CONFIG_NAME}, context.temp_allocator)

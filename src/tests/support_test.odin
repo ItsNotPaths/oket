@@ -37,6 +37,13 @@ scratch :: proc(t: ^testing.T, name: string) -> (dir: string, ok: bool) {
     return dir, true
 }
 
+// The one directory a test's App keeps everything in. Portable points config, data and state at
+// the same folder (path.odin), so a test that only wants somewhere to write names this rather
+// than picking one of the three and meaning none of them.
+home_dir :: proc(h: app.Home) -> string {
+    return h.data
+}
+
 // A kernel with nothing in the ring. `home` stays empty: syncing binds.conf would write beside
 // the test binary, which races the parallel runner and is not this App's file to write.
 bare_app :: proc(cols := 50, rows := 4) -> (a: app.App, ok: bool) {
@@ -46,6 +53,9 @@ bare_app :: proc(cols := 50, rows := 4) -> (a: app.App, ok: bool) {
     a.config = app.config_default()
     a.config.tau, a.config.gap = 0, 0
     a.binds = app.binds_base()
+    // Where oket thinks it is, the way app_init sets it: the home page names it and a terminal
+    // is spawned in it, so an App without one is not one this suite can ask about.
+    a.dir, _ = os.get_working_directory(context.allocator)
     if !gfx.grid_init(&a.chrome, cols, rows) {
         return {}, false
     }
@@ -76,6 +86,7 @@ listing_app :: proc(t: ^testing.T, name: string) -> (a: app.App, dir: string, ok
 }
 
 close_app :: proc(a: ^app.App) {
+    delete(a.dir)
     app.tokens_destroy(a) // the kernel interns the two link tokens itself (routing.odin)
     app.views_destroy(a) // a built view holds a snapshot, the same as app_destroy
     app.config_requests_destroy(a)
@@ -169,14 +180,13 @@ plug_app :: proc(t: ^testing.T, name: string, plugins: ..string) -> (a: app.App,
         }
     }
     a = bare_app() or_return
-    a.home = strings.clone(home) // owned by the App, freed with it
+    app.home_set(&a.home, home) // owned by the App, freed with it
     return a, true
 }
 
 close_plug_app :: proc(a: ^app.App) {
     app.plug_destroy(a)
-    delete(a.home)
-    a.home = ""
+    app.home_destroy(&a.home)
     close_app(a)
 }
 

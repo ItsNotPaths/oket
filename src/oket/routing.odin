@@ -673,7 +673,7 @@ bind_expand :: proc(a: ^App, template: string) -> (string, bool) {
     return strings.to_string(b), true
 }
 
-// `file.dump` (§8): the focused document's bytes, beside the binary, under a name derived from
+// `file.dump` (§8): the focused document's bytes, into the state directory, under a name derived from
 // what it is called. The recovery floor and nothing more — writing a buffer BACK to its file is
 // the opener's, because what a file is on disk is what the opener knew and the kernel does not.
 dump_doc :: proc(a: ^App) -> bool {
@@ -683,15 +683,15 @@ dump_doc :: proc(a: ^App) -> bool {
         message_set(a, "file.dump: nothing is focused")
         return false
     }
-    if a.home == "" {
-        message_set(a, "file.dump: there is nowhere beside the binary to write")
+    if a.home.state == "" {
+        message_set(a, "file.dump: there is nowhere to write it")
         return false
     }
     name := filepath.base(doc_title(a, s.doc))
     if name == "" || name == "." || name == "/" {
         name = "document"
     }
-    path, _ := filepath.join({a.home, fmt.tprintf("%s.dump", name)}, context.temp_allocator)
+    path, _ := filepath.join({a.home.state, fmt.tprintf("%s.dump", name)}, context.temp_allocator)
     text := txt.doc_string(doc, context.temp_allocator)
     if err := os.write_entire_file(path, transmute([]u8)text); err != nil {
         message_set(a, fmt.tprintf("file.dump: cannot write %s: %v", path, err))

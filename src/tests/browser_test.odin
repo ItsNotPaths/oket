@@ -43,7 +43,7 @@ tree_app :: proc(t: ^testing.T, name: string) -> (a: app.App, root: string, ok: 
             return {}, "", false
         }
     }
-    root, _ = filepath.join({a.home, "tree"}, context.temp_allocator)
+    root, _ = filepath.join({home_dir(a.home), "tree"}, context.temp_allocator)
     sub, _ := filepath.join({root, "sub"}, context.temp_allocator)
     _ = os.make_directory(root)
     _ = os.make_directory(sub)

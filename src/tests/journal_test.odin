@@ -34,7 +34,7 @@ crash_app :: proc(t: ^testing.T, name, text: string) ->
     }
     // A space in the name on purpose: the page's `enter` fills a hole, and the quote pair a
     // hole adds has to come off again at the builtin.
-    path, _ = filepath.join({a.home, "my note.txt"}, context.allocator)
+    path, _ = filepath.join({home_dir(a.home), "my note.txt"}, context.allocator)
     if err := os.write_entire_file(path, transmute([]u8)text); err != nil {
         testing.expectf(t, false, "cannot write %s: %v", path, err)
         close_plug_app(&a)
@@ -47,7 +47,7 @@ crash_app :: proc(t: ^testing.T, name, text: string) ->
     }
     app.surface_draw(&a)
     app.docs_settle(&a) // the frame that starts the journal, based on what the file said
-    return a, path, strings.clone(a.home), true
+    return a, path, strings.clone(home_dir(a.home)), true
 }
 
 // The restart. A fresh App over a home that already has a journal in it, with the plugins that
@@ -55,7 +55,7 @@ crash_app :: proc(t: ^testing.T, name, text: string) ->
 @(private = "file")
 restart :: proc(home: string) -> (a: app.App, ok: bool) {
     a = bare_app() or_return
-    a.home = strings.clone(home)
+    app.home_set(&a.home, home)
     app.plug_init(&a)
     app.plug_autoload(&a)
     return a, true
@@ -156,7 +156,7 @@ only_editable_files_are_journaled :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    a.home = strings.clone(home)
+    app.home_set(&a.home, home)
 
     file, _ := filepath.join({home, "alpha.txt"}, context.temp_allocator)
     app.ring_add(&a, listing_doc(&a, home)) // a file, and not editable

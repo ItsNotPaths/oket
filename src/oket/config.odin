@@ -21,7 +21,7 @@ import "../txt"
 // Nine settings today, which is §4's tripwire: if this grows nesting, flat keys start encoding
 // structure in their names — `lang.odin.tab_width` — and that is a worse TOML. Revisit there.
 
-CONFIG_NAME :: "config.conf" // beside the binary, next to binds.conf
+CONFIG_NAME :: "config.conf" // in the config directory, next to binds.conf (path.odin)
 
 Config :: struct {
     restore: bool, // [session] restore = on — the ring, across restarts (session.odin)
@@ -166,10 +166,10 @@ SETTINGS := [?]Setting {
 config_load :: proc(a: ^App) {
     config_destroy(&a.config)
     a.config = config_default()
-    if a.home == "" {
+    if a.home.config == "" {
         return
     }
-    path, _ := filepath.join({a.home, CONFIG_NAME}, context.temp_allocator)
+    path, _ := filepath.join({a.home.config, CONFIG_NAME}, context.temp_allocator)
     raw, err := os.read_entire_file(path, context.temp_allocator)
     if err != nil {
         return
@@ -299,7 +299,7 @@ config_sync :: proc(a: ^App) {
     if a.home == "" {
         return
     }
-    path, _ := filepath.join({a.home, CONFIG_NAME}, context.temp_allocator)
+    path, _ := filepath.join({a.home.config, CONFIG_NAME}, context.temp_allocator)
     // The kernel's own block first, so a start with no plugins at all still leaves a file that
     // says what there is to set. Both writes are marker-keyed and asked once.
     wrote := config_defaults_write(a, path)

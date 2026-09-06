@@ -22,7 +22,7 @@ import "core:strings"
 // `:plug load <name>` clears it. An explicit load is the author saying they fixed it, and a
 // quarantine you cannot lift is a plugin directory you have to edit by hand to get back.
 
-QUARANTINE_FILE :: "quarantine" // beside the binary, next to binds.conf
+QUARANTINE_FILE :: "quarantine" // in the state directory: what a crash left, not yours to edit
 
 // Reads what earlier starts left, then hands the handler somewhere to write. Both halves are
 // the same file, and the read happens FIRST: the append fd is for the crash that has not
@@ -90,9 +90,9 @@ quarantine_clear :: proc(a: ^App, name: string) {
 
 @(private = "file")
 quarantine_path :: proc(a: ^App) -> string {
-    if a.home == "" {
+    if a.home.state == "" {
         return ""
     }
-    path, _ := filepath.join({a.home, QUARANTINE_FILE}, context.temp_allocator)
+    path, _ := filepath.join({a.home.state, QUARANTINE_FILE}, context.temp_allocator)
     return path
 }

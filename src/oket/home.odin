@@ -26,8 +26,8 @@ import "../txt"
 // would be missing at exactly the start that needs it. Everything it lists is a kernel table
 // with no seam to read it through.
 
-// Beside the binary, like binds.conf. Written by the release rather than by oket: notes are
-// what shipped, so nothing at runtime has an opinion about them.
+// In the data directory, like plugins/ and themes/. Written by the release rather than by
+// oket: notes are what shipped, so nothing at runtime has an opinion about them.
 NOTES_NAME :: "notes.md"
 
 // How many lines of the newest section the page shows before it stops and offers the file.
@@ -180,11 +180,11 @@ home_fill :: proc(a: ^App, id: store.Id) {
     home_binds(a, &p)
     home_notes(a, &p)
 
-    // The working directory as a row rather than as the start's document. `:open` on it is the
-    // browser's, so a start with no browser reports that instead of drawing an empty page.
-    if cwd, err := os.get_working_directory(context.temp_allocator); err == nil {
+    // Where oket thinks it is, as a row rather than as the start's document. `:open` on it is
+    // the browser's, so a start with no browser reports that instead of drawing an empty page.
+    if a.dir != "" {
         say(&p, "")
-        row(&p, "file", cwd, "   the directory you started in")
+        row(&p, "file", a.dir, "   the directory this start is in")
     }
     say(&p, "alt+space the menu   alt+f files   alt+t term   " +
              "alt+c command line   f1 describes a chord")
@@ -243,20 +243,20 @@ home_binds :: proc(a: ^App, p: ^Page) {
             // `at`, not `chord`: the span is where the line is, and what a row acts on is the
             // file beside it.
             row(p, "at", fmt.tprintf("%s:%d", g.file, g.line), fmt.tprintf("   %s", g.why))
-            at, _ := filepath.join({a.home, g.file}, context.temp_allocator)
+            at, _ := filepath.join({a.home.config, g.file}, context.temp_allocator)
             also(p, "file", at)
         }
     }
 }
 
-// What changed in the build you are running, off notes.md beside the binary. The newest section
+// What changed in the build you are running, off notes.md in the data directory. The newest section
 // and no more: the page is a start's report and not a changelog, and the file is one row away.
 @(private = "file")
 home_notes :: proc(a: ^App, p: ^Page) {
-    if a.home == "" {
+    if a.home.data == "" {
         return
     }
-    path, _ := filepath.join({a.home, NOTES_NAME}, context.temp_allocator)
+    path, _ := filepath.join({a.home.data, NOTES_NAME}, context.temp_allocator)
     raw, err := os.read_entire_file(path, context.temp_allocator)
     if err != nil {
         return

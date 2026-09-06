@@ -386,8 +386,8 @@ static int32_t reload_cmd(const oket_api *api, oket_self self, const oket_at *at
 }
 
 /* `:w [path]` — the buffer, back to its file. The kernel's own `file.dump` writes a copy
- * beside the binary and knows nothing about paths, which is what leaves this verb here: what a
- * file IS on disk is the opener's business, and the opener is this plugin. */
+ * into the state directory and knows nothing about paths, which is what leaves this verb here:
+ * what a file IS on disk is the opener's business, and the opener is this plugin. */
 static int32_t write_cmd(const oket_api *api, oket_self self, const oket_at *at,
                          const char *args, size_t args_len) {
     const oket_snapshot *s = at->snap;

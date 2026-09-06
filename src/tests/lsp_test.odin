@@ -49,7 +49,7 @@ lsp_app :: proc(t: ^testing.T, name: string) -> (a: app.App, ok: bool) {
 
 @(private = "file")
 script :: proc(a: ^app.App, name, body: string) -> string {
-    path, _ := filepath.join({a.home, name}, context.temp_allocator)
+    path, _ := filepath.join({home_dir(a.home), name}, context.temp_allocator)
     _ = os.write_entire_file(path, transmute([]u8)body)
     return path
 }

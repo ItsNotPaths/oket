@@ -23,12 +23,12 @@ import "../input"
 // point.
 //
 // Appended, never rewritten: a rewrite would have to re-emit what it read, and that eats
-// comments and ordering.
+// comments and ordering. In the config directory, next to config.conf (path.odin).
 
 BINDS_NAME :: "binds.conf"
 
 binds_path :: proc(a: ^App) -> string {
-    path, _ := filepath.join({a.home, BINDS_NAME}, context.temp_allocator)
+    path, _ := filepath.join({a.home.config, BINDS_NAME}, context.temp_allocator)
     return path
 }
 
@@ -377,7 +377,7 @@ binds_shadowed :: proc(a: ^App, ctx_name, chord_text: string) -> (string, bool) 
 binds_sync :: proc(a: ^App) {
     // No home is a test holding an App of its own. Syncing would write beside the test binary,
     // which races the parallel runner and is not this App's file to write.
-    if a.home == "" {
+    if a.home.config == "" {
         input.binds_destroy(&a.binds)
         a.binds = binds_base()
         return

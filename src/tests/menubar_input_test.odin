@@ -229,7 +229,7 @@ config_app :: proc(t: ^testing.T, name, body: string) -> (a: app.App, dir: strin
     a = primer_app() or_return
     path, _ := filepath.join({dir, app.CONFIG_NAME}, context.temp_allocator)
     testing.expect(t, os.write_entire_file(path, transmute([]u8)body) == nil)
-    a.home = strings.clone(dir) // owned by the App, and freed before close_app
+    app.home_set(&a.home, dir) // owned by the App, and freed before close_app
     app.config_load(&a)
     app.surface_fit(&a, 50, 20)
     return a, dir, true
@@ -250,7 +250,7 @@ a_constant_menubar_costs_one_row_at_the_start :: proc(t: ^testing.T) {
     }
     defer os.remove_all(dir)
     defer close_app(&a)
-    defer delete(a.home)
+    defer app.home_destroy(&a.home)
 
     testing.expect_value(t, app.menu_show(&a), app.Menu_Show.Constant)
     was := app.panel_focused(&a).body
@@ -315,7 +315,7 @@ a_click_on_the_bar_opens_a_menu_and_moves_no_caret :: proc(t: ^testing.T) {
     }
     defer os.remove_all(dir)
     defer close_app(&a)
-    defer delete(a.home)
+    defer app.home_destroy(&a.home)
     app.ring_add(&a, scratch_doc(&a, "a.txt", "hello\nworld"))
     app.surface_draw(&a)
 
@@ -470,7 +470,7 @@ the_menubar_takes_the_theme_the_other_way_round :: proc(t: ^testing.T) {
     }
     defer os.remove_all(dir)
     defer close_app(&a)
-    defer delete(a.home)
+    defer app.home_destroy(&a.home)
 
     // Said outright: the bar is drawn like every document, and nothing is derived.
     testing.expect_value(t, app.menu_palette(&a), app.Menu_Palette.Dark)
