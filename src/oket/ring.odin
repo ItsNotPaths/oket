@@ -329,8 +329,14 @@ ring_alt_lane :: proc(a: ^App) {
     }
 }
 
-// The slot becomes a gap; every other slot keeps its number. Focus falls to the lane's
-// alternate when it is live, else its lowest live slot, else out of the lane entirely.
+// The slot becomes a gap; every other slot keeps its number. AND THE PANEL GOES WITH IT: a panel
+// whose document you just closed is a panel you asked to be rid of, and one that went hunting for
+// something else to show would be answering a question nobody asked.
+//
+// The last panel cannot go, so it falls instead — to the lane's alternate, else its lowest live
+// slot, else out of the lane — and lands on a home page when there is nothing left anywhere. That
+// is `panel_open`'s rule for a panel with nothing on it (§13): the kernel screen is a recovery
+// floor, not somewhere a keystroke puts you.
 ring_close :: proc(a: ^App, id: int) {
     r := &a.ring
     s := ring_get(a, id)
@@ -347,10 +353,16 @@ ring_close :: proc(a: ^App, id: int) {
     if l.last == id {
         l.last = 0
     }
-    if p.prev.lane == p.at.lane && p.prev.slot == id {
+    if p.prev == (Spot{p.at.lane, id}) {
         p.prev = {}
     }
     if p.at.slot != id {
+        return
+    }
+    // Guarded rather than left to panel_close's refusal: that refusal is a message, and the last
+    // panel closing its last document is not a mistake to report.
+    if len(a.panels) > 1 {
+        panel_close(a)
         return
     }
     p.at.slot = 0
@@ -363,6 +375,9 @@ ring_close :: proc(a: ^App, id: int) {
         return
     }
     ring_lane_leave(a) // the lane emptied out, and standing on nothing is not a place
+    if ring_focused(a) == nil {
+        ring_add(a, home_open(a)) // nor is the recovery floor
+    }
 }
 
 // The lane you are in emptied out under you. Fall to the alternate spot, else the first live

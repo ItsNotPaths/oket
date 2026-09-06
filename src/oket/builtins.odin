@@ -43,7 +43,7 @@ BUILTINS := [?]Builtin {
      "print every live slot of every lane into N0",
      builtin_ls},
     {"close", "", "ring", ":close",
-     "close the focused slot; its number is never reused while others live",
+     "close the focused slot and the panel with it; its number is never reused while others live",
      builtin_close},
     {"find", "", "edit", USAGE_FIND,
      "select every match at once, so typing replaces them all; f3 steps through them one at a time",
