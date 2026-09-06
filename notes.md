@@ -6,6 +6,8 @@ type.
 
 ## unreleased
 
+- `alt+q` closes the panel along with the slot. The last panel standing lands on a home page
+  instead, so closing the last document no longer drops you on the glyph-check screen.
 - Hold `alt` and the ring is drawn down the side of the panel: the lane you are in, then its
   slots in the numbers `alt+1..9` uses. `[switcher] show = numbers` cuts it to the digits.
 - N0 is spelled `0` now and not `#`. The bind row is `ring.zero`, so a `ring.system` line in

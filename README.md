@@ -53,7 +53,7 @@ starts where N0's shell is standing.
 | `alt+0` | N0, the terminal oket runs things in, and where a command's output lands |
 | hold `alt` | the lane drawn down the side of the panel, so the numbers are on screen |
 | ``alt+` `` | back where you just were, across lanes |
-| `alt+q` | close this slot |
+| `alt+q` | close this slot, and the panel with it |
 | `alt+c` | the command line; `alt+;` with `:` typed, `alt+.` with `:ring ` |
 | `alt+space` | the menubar |
 | `f1` then any chord | what it does, and where it was bound |
