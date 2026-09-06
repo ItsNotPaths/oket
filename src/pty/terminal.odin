@@ -678,6 +678,18 @@ terminal_alive :: proc(t: ^Terminal) -> bool {
     return sync.atomic_load(&t.alive)
 }
 
+// Where the shell is standing now, so a session opened from this one starts there. Read off
+// /proc rather than asked for: no shell integration, no OSC 7, nothing for a `cd` to forget to
+// report. "" when the child is gone, the link will not read, or the directory was deleted —
+// /proc then reads "/path (deleted)", which is no place to spawn in.
+terminal_cwd :: proc(t: ^Terminal, allocator := context.temp_allocator) -> string {
+    if t.pid <= 0 || !terminal_alive(t) {
+        return ""
+    }
+    dir := os.read_link(fmt.tprintf("/proc/%d/cwd", t.pid), allocator) or_else ""
+    return os.is_dir(dir) ? dir : ""
+}
+
 // From the host's char feed. Shift is already baked into the codepoint, so the modifier is
 // none.
 terminal_input_rune :: proc(t: ^Terminal, r: rune) {

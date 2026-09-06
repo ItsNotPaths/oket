@@ -40,11 +40,27 @@ Term :: struct {
     events: bool,
 }
 
-// Spawned at a nominal size in `a.dir`; the first pump resizes it to the body. Heap-allocated
+// Where a session starts: N0's shell, wherever a `cd` in the command line has left it, and the
+// directory the start was given when there is no N0 to ask. N0 itself takes the fallback, which
+// is what stops this asking for a session while one is being made.
+@(private = "file")
+term_dir :: proc(a: ^App) -> string {
+    if !a.ring.system.live {
+        return a.dir
+    }
+    tm := term_of(a, a.ring.system.doc)
+    if tm == nil {
+        return a.dir
+    }
+    dir := pty.terminal_cwd(&tm.t)
+    return dir != "" ? dir : a.dir
+}
+
+// Spawned at a nominal size in `term_dir`; the first pump resizes it to the body. Heap-allocated
 // because the reader thread holds a pointer into it.
 term_open :: proc(a: ^App) -> (store.Id, bool) {
     tm := new(Term)
-    if !pty.terminal_spawn(&tm.t, 24, 80, a.dir) {
+    if !pty.terminal_spawn(&tm.t, 24, 80, term_dir(a)) {
         free(tm)
         message_set(a, "could not spawn a shell")
         return {}, false
