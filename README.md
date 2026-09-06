@@ -1,4 +1,4 @@
-<img align="right" width="150" src="assets/oketpus.png" alt="oket">
+<img align="left" width="150" src="assets/oketpus.png" alt="oket">
 
 # oket
 
