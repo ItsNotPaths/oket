@@ -5,8 +5,8 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 
-// `:oket status | install | uninstall` (INSTALL.md §4), and the `--install` / `--uninstall` /
-// `--status` forms install.sh reaches on a machine with no display.
+// `:oket status | install | uninstall | update` (INSTALL.md §4), and the `--install` /
+// `--uninstall` / `--status` forms install.sh reaches on a machine with no display.
 //
 // A release is a DIRECTORY, so installing it is a copy of several things and the binary is one
 // of them. Leaving it out is what creates the state where the payload is installed and the
@@ -57,8 +57,8 @@ install_target_destroy :: proc(t: ^Install_Target) {
 
 // --- install ---
 
-// Idempotent. A rerun after a rebuild replaces the binary and leaves every file it already
-// wrote alone, which is what makes this the develop loop as well as the install.
+// Idempotent. A rerun replaces the binary and the payload and leaves what is yours — config,
+// binds, state, grammars — alone, which is what makes this the develop loop, and `update`.
 install_run :: proc(a: ^App, t: Install_Target) -> (ok: bool, msg: string) {
     if t.bin == "" || t.dirs.data == "" {
         return false, "install: no $HOME, so there is nowhere to install to"
@@ -216,8 +216,9 @@ install_path_note :: proc(b: ^strings.Builder, dir: string) {
 // --- the copying ---
 
 // Staged beside the target and renamed over it. A rename is atomic, and it is the one way to
-// replace a binary that may be RUNNING: writing in place fails with ETXTBSY, while a rename
-// leaves the running process on the old inode until it exits.
+// replace a binary that may be RUNNING or a plugin that may be MAPPED: writing in place fails
+// with ETXTBSY or corrupts the mapping, while a rename leaves the running process on the old
+// inode until it exits.
 @(private = "file")
 publish :: proc(dst, src: string) -> os.Error {
     stage := fmt.tprintf("%s.tmp", dst)
@@ -230,20 +231,18 @@ publish :: proc(dst, src: string) -> os.Error {
     return nil
 }
 
-// A file or a whole directory, skipping anything already there. Answers how many files landed,
-// so the caller reports only what actually moved — 0 covers "no source", "already there" and a
-// copy that failed, none of which an install has anything to say about.
-@(private = "file")
+// A file or a whole directory, replacing anything already there: the payload is release-owned,
+// and skipping would leave release N's plugins under release N+1's binary. Each file goes
+// through publish, because the old copy may be a plugin the running process has mapped. Answers
+// how many files landed — 0 covers "no source" and a copy that failed. Not file-private: the
+// replacement rule is tested (install_test.odin).
 copy_tree :: proc(dst, src: string) -> (n: int) {
     if dst == "" || src == "" || dst == src || !os.exists(src) {
         return 0
     }
     if !os.is_dir(src) {
-        if os.exists(dst) {
-            return 0
-        }
         _ = os.make_directory_all(filepath.dir(dst)) // a slice of dst
-        return os.copy_file(dst, src) == nil ? 1 : 0
+        return publish(dst, src) == nil ? 1 : 0
     }
     f, err := os.open(src)
     if err != nil {
@@ -275,7 +274,11 @@ on_path :: proc(dir: string) -> bool {
 
 // --- the two doors ---
 
-USAGE_OKET :: ":oket status | install | uninstall"
+USAGE_OKET :: ":oket status | install | uninstall | update"
+
+// Fetch plus the install above, done where the user can watch: install.sh in N0, which
+// downloads the release and runs the new binary's `--install`. The kernel gets no HTTP client.
+UPDATE_LINE :: "curl -fsSL https://github.com/ItsNotPaths/oket/releases/latest/download/install.sh | sh"
 
 builtin_oket :: proc(a: ^App, args: string, _: CL_Step) -> bool {
     t := install_target()
@@ -285,6 +288,14 @@ builtin_oket :: proc(a: ^App, args: string, _: CL_Step) -> bool {
     switch strings.trim_space(args) {
     case "", "status":
         sys_println(a, install_status(a, t))
+        return true
+    case "update":
+        // install.sh installs, so a portable copy would come out Installed without being asked.
+        if a.home.mode == .Portable {
+            message_set(a, "update: this copy is portable; unpack the new tarball over it, or :oket install first")
+            return false
+        }
+        cl_exec(a, UPDATE_LINE)
         return true
     case "install":
         ok, msg = install_run(a, t)

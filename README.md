@@ -52,6 +52,7 @@ Or unpack the tarball and run it. Nothing is touched until you `:oket install`.
 | `:oket status` | the mode, and every path it chose |
 | `:oket install` | put the files where they go, then restart |
 | `:oket uninstall` | take them back out; settings, state and grammars stay |
+| `:oket update` | fetch the latest release and install it, in N0; then restart |
 
 Where a binary sits is where its files go. In a `bin` directory oket is installed and
 uses the XDG folders. Anywhere else it is portable and everything lives beside it.

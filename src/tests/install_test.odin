@@ -62,10 +62,9 @@ an_install_lays_down_every_directory :: proc(t: ^testing.T) {
     testing.expect(t, !there(root, "config", "binds.conf"), "an install wrote binds.conf")
 }
 
-// A rerun after a rebuild replaces the binary and leaves every file it already wrote alone,
-// which is what makes this the develop loop as well as the install.
+// A rerun replaces the binary and the payload; config.conf is the user's, and survives.
 @(test)
-a_second_install_overwrites_nothing :: proc(t: ^testing.T) {
+a_second_install_keeps_the_settings :: proc(t: ^testing.T) {
     root, ok := scratch(t, "oket-install-twice")
     if !ok {
         return
@@ -93,6 +92,29 @@ a_second_install_overwrites_nothing :: proc(t: ^testing.T) {
     after, err := os.read_entire_file(cfg, context.temp_allocator)
     testing.expect_value(t, err, nil)
     testing.expect(t, strings.contains(string(after), mine), "a rerun rolled the settings back")
+}
+
+// The payload is release-owned: a file already there is replaced, not skipped, or release N's
+// plugins would sit under release N+1's binary forever (§4).
+@(test)
+a_payload_file_is_replaced :: proc(t: ^testing.T) {
+    root, ok := scratch(t, "oket-install-payload")
+    if !ok {
+        return
+    }
+    src, _ := filepath.join({root, "release", "plugins"}, context.temp_allocator)
+    dst, _ := filepath.join({root, "data", "plugins"}, context.temp_allocator)
+    testing.expect_value(t, os.make_directory_all(src), nil)
+    testing.expect_value(t, os.make_directory_all(dst), nil)
+    fresh, _ := filepath.join({src, "edit.so"}, context.temp_allocator)
+    stale, _ := filepath.join({dst, "edit.so"}, context.temp_allocator)
+    testing.expect_value(t, os.write_entire_file(fresh, transmute([]u8)string("new")), nil)
+    testing.expect_value(t, os.write_entire_file(stale, transmute([]u8)string("old")), nil)
+
+    testing.expect_value(t, app.copy_tree(dst, src), 1)
+    after, err := os.read_entire_file(stale, context.temp_allocator)
+    testing.expect_value(t, err, nil)
+    testing.expect_value(t, string(after), "new")
 }
 
 // Exactly the list an install writes, and nothing else: the crash you are recovering from may be
