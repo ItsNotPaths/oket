@@ -126,14 +126,15 @@ a_grammar_colours_a_file_it_never_opened :: proc(t: ^testing.T) {
     testing.expect_value(t, key.hi, 7)
     testing.expect_value(t, num.lo, 9)
     testing.expect_value(t, num.hi, 11)
-    testing.expect(t, key.fg != a.theme[.Fg], "the key took the plain foreground")
-    testing.expect(t, num.fg != key.fg, "a number and a string key must not be one colour")
+    testing.expect(t, key.fg != u32(gfx.Token.Fg), "the key took the plain foreground")
+    testing.expect(t, num.fg != key.fg, "a number and a string key must not be one token")
 
-    // And through the one renderer: the cell under `1` of `12` carries the number's colour.
+    // And through the one renderer: the cell under `1` of `12` carries the number token's
+    // colour, resolved where every style value is — at the draw.
     app.surface_draw(&a)
     cell := gfx.grid_at(panel_grid(&a), 9 + gutter(&a, id), 0)
     if testing.expect(t, cell != nil, "nothing was drawn") {
-        testing.expect_value(t, cell.fg, num.fg)
+        testing.expect_value(t, cell.fg, app.token_color(&a, u16(num.fg)))
     }
 }
 

@@ -66,11 +66,11 @@ doc_styles :: proc(
                     line  = line,
                     lo    = cut_lo,
                     hi    = cut_hi,
-                    // A channel nobody set is the theme's. The store merged whoever did set it
-                    // and stopped there, because a store that filled a colour in would have
-                    // made every publisher opaque again.
-                    fg    = .Fg in sp.set ? sp.fg : a.theme[.Fg],
-                    bg    = .Bg in sp.set ? sp.bg : a.theme[.Bg],
+                    // A channel nobody set is the theme's, said as its TOKEN. The store merged
+                    // whoever did set it and stopped there, because a store that filled a
+                    // colour in would have made every publisher opaque again.
+                    fg    = .Fg in sp.set ? sp.fg : u32(gfx.Token.Fg),
+                    bg    = .Bg in sp.set ? sp.bg : u32(gfx.Token.Bg),
                     attrs = .Attrs in sp.set ? transmute(gfx.Attrs)sp.attrs : {},
                 })
             }

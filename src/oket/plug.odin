@@ -855,10 +855,10 @@ api_submit :: proc "c" (api: ^plug.Api, self: plug.Self, doc: plug.Doc, gen: u64
     }
 }
 
-// A publish, with its tokens RESOLVED against the palette on the way in (tokens.odin). The
-// seam speaks tokens and the store speaks colours, the same split plug_desc_take makes for a
-// descriptor: a plugin that named a colour would break every theme, and the renderer that
-// looked one up per cell would do it per frame instead of per publish.
+// A publish, its tokens carried through UNRESOLVED: the store holds ids and the renderer reads
+// them through the palette at draw time (view.odin's tint), so a theme switch never needs a
+// republish. A plugin still cannot name a colour — its token is a u16, and the literal bit only
+// the terminal writes sits above that range.
 //
 // WHO published is the caller, not a field it filled in, so a plugin cannot replace another's
 // runs however it is compiled. One token per run, and `set` says which channel it paints: a
@@ -870,13 +870,12 @@ plug_spans_take :: proc(a: ^App, plugin: int, pub: ^plug.Span_Pub) -> Maybe(stor
     }
     list := make([]store.Span, pub.nspans, context.temp_allocator)
     for sp, n in pub.spans[:pub.nspans] {
-        color := token_color(a, sp.tok)
         set := sp.set & desc.Chans{.Fg, .Bg, .Attrs} // untrusted byte: stray bits are not channels
         list[n] = {
             lo    = int(min(sp.lo, uint(max(int)))),
             hi    = int(min(sp.hi, uint(max(int)))),
-            fg    = .Fg in set ? color : {},
-            bg    = .Bg in set ? color : {},
+            fg    = .Fg in set ? u32(sp.tok) : 0,
+            bg    = .Bg in set ? u32(sp.tok) : 0,
             attrs = sp.attrs,
             set   = set,
         }

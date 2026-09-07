@@ -38,13 +38,14 @@ indent :: proc(d: ^desc.Descriptor, width, line: int) -> int {
 // A run of cells that draw in colours of their own. Byte offsets from the line's start, like a
 // Field, and sorted by line so a lookup is a binary search and a short scan.
 //
-// This is §5's `spans` at the one place that needs it now. The terminal publishes it —
-// libvterm's colours already resolved against the theme — so nothing below here knows what an
-// SGR is, and stage 11 moves where the runs are STORED rather than inventing the mechanism.
+// `fg` and `bg` are token ids (or literals under gfx.COLOR_LIT), resolved against the palette
+// only where a cell is written. Nothing below here knows what an SGR is, and nothing above
+// here holds a resolved colour — which is what makes a theme switch the next frame's business
+// and nobody's republish.
 Style :: struct {
     line:   int,
     lo, hi: int,
-    fg, bg: [3]f32,
+    fg, bg: u32,
     attrs:  gfx.Attrs,
 }
 
@@ -87,6 +88,9 @@ draw :: proc(
     // owned slice on it would alias. `View.point` stays what follow, the relative gutter and a
     // jump entry mean by "the caret". Empty draws the primary.
     carets: []txt.Cursor = nil,
+    // Every interned token resolved, indexed by id: what a Style's `fg` and `bg` mean. nil
+    // falls back to the theme's own five, which is all a document with no plugins ever names.
+    pal: [][3]f32 = nil,
 ) {
     gut := gutter_width(t, d, dv)
     body := w - gut
@@ -108,8 +112,8 @@ draw :: proc(
         put_number(g, th, d, v, x, y + i, gut, r)
         left := x + gut + ind
         run(g, left, y + i, src[clipped.lo:clipped.hi], body - ind, d.tab_width, th[.Fg], th[.Bg])
-        restyle(g, t, d, dv, left, y + i, body - ind, clipped, src, styles)
-        overstyle(g, d, left, y + i, body - ind, clipped, src, over)
+        restyle(g, th, pal, t, d, dv, left, y + i, body - ind, clipped, src, styles)
+        overstyle(g, th, pal, d, left, y + i, body - ind, clipped, src, over)
         if point {
             mark_point(g, t, d, dv, left, y + i, body - ind, clipped, src, select, on)
         }
@@ -180,6 +184,8 @@ col_span :: proc(t: ^txt.Text, dv: ^Derived, top, h: int) -> (lo, hi: int) {
 @(private)
 restyle :: proc(
     g: ^gfx.Grid,
+    th: gfx.Theme,
+    pal: [][3]f32,
     t: ^txt.Text,
     d: ^desc.Descriptor,
     dv: ^Derived,
@@ -195,7 +201,7 @@ restyle :: proc(
     dls, ols := line_offs(t, dv, r)
     for st in line_styles(styles, r.src) {
         for part in parts(dv, r, dls, ols + st.lo, ols + st.hi) {
-            paint(g, d, row, x, y, width, part[0] - r.lo, part[1] - r.lo, st)
+            paint(g, th, pal, d, row, x, y, width, part[0] - r.lo, part[1] - r.lo, st)
         }
     }
 }
@@ -206,6 +212,8 @@ restyle :: proc(
 @(private)
 overstyle :: proc(
     g: ^gfx.Grid,
+    th: gfx.Theme,
+    pal: [][3]f32,
     d: ^desc.Descriptor,
     x, y, width: int,
     r: Row,
@@ -214,20 +222,38 @@ overstyle :: proc(
 ) {
     row := src[r.lo:r.hi]
     for st in line_styles(over, r.line) {
-        paint(g, d, row, x, y, width, max(st.lo, r.lo) - r.lo, min(st.hi, r.hi) - r.lo, st)
+        paint(g, th, pal, d, row, x, y, width, max(st.lo, r.lo) - r.lo, min(st.hi, r.hi) - r.lo, st)
     }
+}
+
+// What a style value draws as, decided HERE and nowhere earlier: a literal is its own bits, a
+// token is the palette's, and a token the palette does not cover is the theme's — its own five
+// when no palette came at all.
+@(private = "file")
+tint :: proc(th: gfx.Theme, pal: [][3]f32, v: u32) -> [3]f32 {
+    switch {
+    case v & gfx.COLOR_LIT != 0:
+        return gfx.color_unpack(v)
+    case int(v) < len(pal):
+        return pal[v]
+    case v <= u32(max(gfx.Token)):
+        return th[gfx.Token(v)]
+    }
+    return th[.Fg]
 }
 
 // One run of a row's bytes, restyled in place. Cells, not bytes: a tab is one byte and eight of
 // these.
 @(private = "file")
-paint :: proc(g: ^gfx.Grid, d: ^desc.Descriptor, row: []u8, x, y, width, a, b: int, st: Style) {
+paint :: proc(g: ^gfx.Grid, th: gfx.Theme, pal: [][3]f32, d: ^desc.Descriptor, row: []u8,
+              x, y, width, a, b: int, st: Style) {
     if a >= b {
         return
     }
+    fg, bg := tint(th, pal, st.fg), tint(th, pal, st.bg)
     for cell in cell_of(row, a, d.tab_width) ..< min(cell_of(row, b, d.tab_width), width) {
         if c := gfx.grid_at(g, x + cell, y); c != nil {
-            c.fg, c.bg, c.attrs = st.fg, st.bg, st.attrs
+            c.fg, c.bg, c.attrs = fg, bg, st.attrs
         }
     }
 }

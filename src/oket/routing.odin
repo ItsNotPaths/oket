@@ -7,6 +7,7 @@ import "core:slice"
 import "core:strings"
 import "vendor:glfw"
 import "../desc"
+import "../gfx"
 import "../input"
 import "../store"
 import "../txt"
@@ -1104,7 +1105,7 @@ doc_links :: proc(a: ^App, d: ^desc.Descriptor, first, last: int,
     if len(names) == 0 {
         return nil
     }
-    fg, bg := token_color(a, token_intern(a, TOKEN_LINK)), a.theme[.Bg]
+    fg, bg := u32(token_intern(a, TOKEN_LINK)), u32(gfx.Token.Bg)
     out := make([dynamic]view.Style, allocator)
     for at in first ..< last {
         for name in names {
@@ -1166,7 +1167,7 @@ doc_link_over :: proc(a: ^App, p: ^Panel, d: ^desc.Descriptor, v: view.View, mar
         }
         line, lo, hi = at, first.lo, first.hi
     }
-    fg, bg := token_color(a, token_intern(a, TOKEN_LINK_OVER)), a.theme[.Bg]
+    fg, bg := u32(token_intern(a, TOKEN_LINK_OVER)), u32(gfx.Token.Bg)
     out := make([dynamic]view.Style, 0, 1, allocator)
     append(&out, view.Style{line, lo, hi, fg, bg, {.Underline}})
     return out[:]

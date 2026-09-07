@@ -100,7 +100,7 @@ panel_draw :: proc(a: ^App, p: ^Panel, marked: bool) {
         carets = doc.cursors[:]
     }
     view.draw(&p.grid, th, t, d, s.view, b.x, b.y, b.w, b.h,
-              styles, marked, dv, views_over(a, s.doc), a.config.select, carets)
+              styles, marked, dv, views_over(a, s.doc), a.config.select, carets, token_pal(a))
     if p.hover.on {
         // A columns document draws its FIELDS and not its bytes, so no style run reaches it —
         // the mark is the only way to underline a field there.

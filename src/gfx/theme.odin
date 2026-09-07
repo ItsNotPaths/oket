@@ -15,6 +15,21 @@ Token :: enum u8 {
 
 Theme :: [Token][3]f32
 
+// A style value on its way to the renderer: a token id, or a literal colour with this bit set.
+// Only the terminal writes literals — an SGR names a colour and no theme has an opinion about
+// it. Everything else names a token and the palette decides at draw time, which is what makes
+// a theme switch one palette swap and the next frame.
+COLOR_LIT :: u32(1) << 31
+
+color_pack :: proc(c: [3]f32) -> u32 {
+    q :: proc(v: f32) -> u32 {return u32(clamp(v, 0, 1) * 255 + 0.5)}
+    return COLOR_LIT | q(c.r) << 16 | q(c.g) << 8 | q(c.b)
+}
+
+color_unpack :: proc(v: u32) -> [3]f32 {
+    return {f32(v >> 16 & 255) / 255, f32(v >> 8 & 255) / 255, f32(v & 255) / 255}
+}
+
 // Percent toward black; 0 is the colour itself. Darker is the ONE direction derived colours go,
 // which is what keeps the token set at five: a shade needs no theme author to define it.
 shade :: proc(c: [3]f32, percent: int) -> [3]f32 {

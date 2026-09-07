@@ -8,6 +8,7 @@ import "../gfx"
 import "../input"
 import "../store"
 import "../txt"
+import "../view"
 import app "../oket"
 
 // The span store and the token table (§5, §9, VIEWS §8), which is what keeps tree-sitter out of
@@ -24,10 +25,10 @@ import app "../oket"
 SOURCE :: "let a = 1\nlet b = 2\n"
 
 @(private = "file")
-RED :: [3]f32{1, 0, 0}
+RED :: gfx.COLOR_LIT | 0xFF0000
 
 @(private = "file")
-BLUE :: [3]f32{0, 0, 1}
+BLUE :: gfx.COLOR_LIT | 0x0000FF
 
 @(private = "file")
 FG :: desc.Chans{.Fg}
@@ -52,7 +53,7 @@ merged :: proc(a: ^app.App, id: store.Id, lo, hi: int) -> []store.Span {
 }
 
 @(private = "file")
-fg :: proc(lo, hi: int, color: [3]f32) -> store.Span {
+fg :: proc(lo, hi: int, color: u32) -> store.Span {
     return {lo = lo, hi = hi, fg = color, set = FG}
 }
 
@@ -143,7 +144,7 @@ an_underline_over_a_colour_draws_as_both :: proc(t: ^testing.T) {
     defer txt.snapshot_release(snap)
     drawn := app.doc_styles(&a, id, nil, &snap.text, nil, 0, 4)
     testing.expect_value(t, drawn[1].fg, RED)
-    testing.expect_value(t, drawn[1].bg, a.theme[.Bg])
+    testing.expect_value(t, drawn[1].bg, u32(gfx.Token.Bg))
     testing.expect_value(t, drawn[1].attrs, gfx.Attrs{.Underline})
     testing.expect_value(t, drawn[0].attrs, gfx.Attrs{}) // outside the mark, and not underlined
 }
@@ -386,6 +387,38 @@ one_name_is_one_token :: proc(t: ^testing.T) {
     testing.expect_value(t, app.producer_intern(&a, "syntax"), who)
     testing.expect(t, app.producer_intern(&a, "lsp") != who, "two names took one bucket")
     testing.expect_value(t, app.producer_name(&a, who), "syntax")
+}
+
+// THE POINT OF STORING TOKENS. The store holds ids and the draw resolves them, so swapping the
+// theme retints what is already published — no producer republishes, and a resolver that crept
+// back upstream of the draw is what this fails on.
+@(test)
+a_theme_switch_retints_with_no_republish :: proc(t: ^testing.T) {
+    a, id, ok := spans_app(t)
+    if !ok {
+        return
+    }
+    defer close_spans_app(&a)
+    app.ring_add(&a, id)
+
+    alert := [?]store.Span{fg(0, 3, u32(gfx.Token.Alert))}
+    testing.expect(t, publish(&a, id, "syntax", 0, 9, alert[:]))
+    app.surface_draw(&a)
+
+    snap := store.store_snapshot(&a.docs, id)
+    defer txt.snapshot_release(snap)
+    d := store.store_descriptor(&a.docs, id)
+    defer desc.release(d)
+    gut := view.gutter_width(&snap.text, d)
+    cell := gfx.grid_at(panel_grid(&a), gut, 0)
+    if !testing.expect(t, cell != nil, "nothing was drawn") {
+        return
+    }
+    testing.expect_value(t, cell.fg, a.theme[.Alert])
+
+    a.theme[.Alert] = {0, 1, 0}
+    app.surface_draw(&a)
+    testing.expect_value(t, gfx.grid_at(panel_grid(&a), gut, 0).fg, a.theme[.Alert])
 }
 
 // Spans ride a transaction, so the runs and the bytes they cover land at ONE generation: a

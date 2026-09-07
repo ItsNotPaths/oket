@@ -276,7 +276,7 @@ a_session_publishes_its_colours_as_style_runs :: proc(t: ^testing.T) {
         runs += 1
         testing.expect_value(t, st.lo, 0)
         testing.expect_value(t, st.hi, 3) // "red", and the plain tail publishes nothing
-        testing.expect(t, st.fg != a.theme[.Fg], "the run kept the theme's foreground")
+        testing.expect(t, st.fg & gfx.COLOR_LIT != 0, "an SGR colour must land as a literal")
     }
     testing.expect_value(t, runs, 1)
 }
@@ -410,7 +410,8 @@ the_renderer_paints_a_style_run :: proc(t: ^testing.T) {
     red := [3]f32{1, 0, 0}
     snap := txt.doc_snapshot(&doc)
     defer txt.snapshot_release(snap)
-    view.draw(&g, th, &snap.text, d, {}, 0, 0, 10, 1, {{line = 0, lo = 2, hi = 4, fg = red}})
+    view.draw(&g, th, &snap.text, d, {}, 0, 0, 10, 1,
+              {{line = 0, lo = 2, hi = 4, fg = gfx.color_pack(red)}})
     testing.expect_value(t, gfx.grid_at(&g, 1, 0).fg, th[.Fg])
     testing.expect_value(t, gfx.grid_at(&g, 2, 0).fg, red)
     testing.expect_value(t, gfx.grid_at(&g, 3, 0).fg, red)

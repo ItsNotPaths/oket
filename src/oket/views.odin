@@ -164,7 +164,7 @@ views_build :: proc(a: ^App, id: store.Id, names: []string, gen, point: u64) -> 
             r.hi, _ = view.view_off(&step, r.hi)
         }
         for sp in spans {
-            append(&runs, view_run_take(a, sp, nt.size))
+            append(&runs, view_run_take(sp, nt.size))
         }
         dv = any ? view.compose(step, dv, al) : step
         t, any = nt, true
@@ -177,7 +177,7 @@ views_build :: proc(a: ^App, id: store.Id, names: []string, gen, point: u64) -> 
     }
     p.text, p.dv = t^, dv
     p.hidden = view.hidden(&p.dv, al)
-    p.over = view_styles(a, &p.text, runs[:], al)
+    p.over = view_styles(&p.text, runs[:], al)
     a.views[id] = p
     return p.latch
 }
@@ -235,18 +235,18 @@ View_Run :: struct {
     st:     view.Style,
 }
 
-// The token RESOLVED against the palette, the way a submitted span is: the seam speaks tokens
-// and the renderer speaks colours (plug.odin). A channel nobody claimed stays the theme's.
+// The token carried through UNRESOLVED, the way a submitted span is (plug.odin): `p.over`
+// outlives frames, and a colour written here would sit stale across a theme switch. A channel
+// nobody claimed is the theme's, said as its token.
 @(private = "file")
-view_run_take :: proc(a: ^App, sp: plug.Span, size: int) -> View_Run {
-    color := token_color(a, sp.tok)
+view_run_take :: proc(sp: plug.Span, size: int) -> View_Run {
     set := sp.set & {.Fg, .Bg, .Attrs} // untrusted byte: stray bits are not channels
     return {
         lo = clamp(int(min(sp.lo, uint(max(int)))), 0, size),
         hi = clamp(int(min(sp.hi, uint(max(int)))), 0, size),
         st = {
-            fg    = .Fg in set ? color : a.theme[.Fg],
-            bg    = .Bg in set ? color : a.theme[.Bg],
+            fg    = .Fg in set ? u32(sp.tok) : u32(gfx.Token.Fg),
+            bg    = .Bg in set ? u32(sp.tok) : u32(gfx.Token.Bg),
             attrs = .Attrs in set ? transmute(gfx.Attrs)sp.attrs : {},
         },
     }
@@ -257,7 +257,6 @@ view_run_take :: proc(a: ^App, sp: plug.Span, size: int) -> View_Run {
 // to stay last.
 @(private = "file")
 view_styles :: proc(
-    a: ^App,
     t: ^txt.Text,
     runs: []View_Run,
     alloc: mem.Allocator,

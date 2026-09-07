@@ -6,7 +6,8 @@ import "../plug"
 
 // How a name becomes a colour. A plugin names a style TOKEN and never an RGB value, because a
 // plugin that names a colour breaks every theme (§5). The table interns names, the palette says
-// what an unmapped one looks like, and the seam resolves an id to a colour on the way in.
+// what an unmapped one looks like, and the RENDERER resolves an id to a colour at draw time —
+// the store holds ids, so a theme switch is this table's business and nobody republishes.
 
 // A name a plugin interned, and what the palette said it looks like. Ids below TOKEN_BASE are
 // gfx.Token's own five and are seeded here, so `register_token("accent")` is the accent the
@@ -109,6 +110,17 @@ token_color :: proc(a: ^App, tok: u16) -> [3]f32 {
         return a.tokens[tok].color
     }
     return a.theme[.Fg]
+}
+
+// Every interned token resolved, base five included: what `view.draw` reads a style value out
+// of. Rebuilt per frame from the one source rather than cached, so it cannot drift from the
+// table — a thousand entries at the cap, and most sessions intern a fraction of that.
+token_pal :: proc(a: ^App, allocator := context.temp_allocator) -> [][3]f32 {
+    pal := make([][3]f32, len(a.tokens), allocator)
+    for i in 0 ..< len(pal) {
+        pal[i] = token_color(a, u16(i))
+    }
+    return pal
 }
 
 tokens_destroy :: proc(a: ^App) {

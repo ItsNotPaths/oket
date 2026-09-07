@@ -18,16 +18,17 @@ import "../desc"
 // keys, and the order it is read in is the caller's answer (`store_spans`).
 Producer :: distinct u16
 
-// One run, and what it draws as. The colour is RESOLVED: a plugin names a style TOKEN and the
-// seam resolves it against the theme on the way in, the same way it converts a descriptor. The
-// terminal is the kernel and publishes what libvterm gave it, which is a colour SGR named and
-// no theme can have an opinion about.
+// One run, and what it draws as. The colour is NOT resolved: `fg` and `bg` are token ids the
+// renderer reads through the palette at draw time (gfx.COLOR_LIT marks the literal form), so a
+// theme switch is a palette swap and the next frame — never a republish. The terminal is the
+// kernel and writes what libvterm gave it as literals, which is a colour an SGR named and no
+// theme can have an opinion about.
 //
 // `set` is which of the three a run has an opinion about. A field it does not set is not black
 // and not the theme's — it is whatever is under it, decided at merge time.
 Span :: struct {
     lo, hi: int,
-    fg, bg: [3]f32,
+    fg, bg: u32, // a token id, or a literal under gfx.COLOR_LIT
     attrs:  u8, // the renderer's attribute bits, carried and never read here
     set:    desc.Chans,
 }

@@ -3,6 +3,7 @@ package main
 import "core:strings"
 import "core:unicode/utf8"
 import "../desc"
+import "../gfx"
 import "../input"
 import vt "../libvterm"
 import "../plug"
@@ -225,43 +226,45 @@ term_line :: proc(a: ^App, tm: ^Term, n: int, b: ^strings.Builder, base, keep: i
             break
         }
         at := base + strings.builder_len(b^)
-        st := term_style(a, tm, cell, at)
+        st := term_style(tm, cell, at)
         if !open || st.fg != run.fg || st.bg != run.bg || st.attrs != run.attrs {
-            term_close_run(a, tm, &run, at)
+            term_close_run(tm, &run, at)
             run, open = st, true
         }
         r := rune(cell.chars[0])
         strings.write_rune(b, r >= 0x20 ? r : ' ')
         col += max(int(cell.width), 1)
     }
-    term_close_run(a, tm, &run, base + strings.builder_len(b^))
+    term_close_run(tm, &run, base + strings.builder_len(b^))
 }
 
 // A run reaches the styles only if it has cells in it and says something the theme does not
 // already say — a screen of plain output publishes nothing at all.
 @(private = "file")
-term_close_run :: proc(a: ^App, tm: ^Term, run: ^store.Span, at: int) {
+term_close_run :: proc(tm: ^Term, run: ^store.Span, at: int) {
     run.hi = at
-    plain := run.fg == a.theme[.Fg] && run.bg == a.theme[.Bg] && run.attrs == 0
+    plain := run.fg == u32(gfx.Token.Fg) && run.bg == u32(gfx.Token.Bg) && run.attrs == 0
     if run.hi > run.lo && !plain {
         append(&tm.spans, run^)
     }
     run.lo = at
 }
 
-// libvterm's colours resolved against the theme, so the renderer never sees an SGR. Reverse is
-// the swap and not an attribute: the caret and the selection are the renderer's own reverse, and
-// two of them over one cell cancel out.
+// An SGR-named colour goes in as a LITERAL — no theme has an opinion about it — and a default
+// goes in as the theme's own token, so a theme switch retints plain shell text with everything
+// else. The renderer never sees an SGR either way. Reverse is the swap and not an attribute:
+// the caret and the selection are the renderer's own reverse, and two of them over one cell
+// cancel out.
 @(private = "file")
-term_style :: proc(a: ^App, tm: ^Term, cell: vt.ScreenCell, at: int) -> store.Span {
+term_style :: proc(tm: ^Term, cell: vt.ScreenCell, at: int) -> store.Span {
     // All three channels, always: a cell is a resolved colour on a resolved background, and a
     // terminal that left one to whoever is below it would draw somebody else's paint inside a
     // TUI's own.
     st := store.Span{lo = at, set = {.Fg, .Bg, .Attrs}}
     fg, fdef := pty.terminal_color(&tm.t, cell.fg)
     bg, bdef := pty.terminal_color(&tm.t, cell.bg)
-    st.fg = fdef ? a.theme[.Fg] : fg
-    st.bg = bdef ? a.theme[.Bg] : bg
+    st.fg = fdef ? u32(gfx.Token.Fg) : gfx.color_pack(fg)
+    st.bg = bdef ? u32(gfx.Token.Bg) : gfx.color_pack(bg)
     if cell.attrs.reverse {
         st.fg, st.bg = st.bg, st.fg
     }
