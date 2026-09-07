@@ -18,7 +18,7 @@ import "../txt"
 // silently does nothing is the failure the input design exists to prevent (§8), and it is the
 // rule binds.conf follows for a bad row.
 //
-// Ten settings today, which is §4's tripwire: if this grows nesting, flat keys start encoding
+// Eleven settings today, which is §4's tripwire: if this grows nesting, flat keys start encoding
 // structure in their names — `lang.odin.tab_width` — and that is a worse TOML. Revisit there.
 
 CONFIG_NAME :: "config.conf" // in the config directory, next to binds.conf (path.odin)
@@ -34,6 +34,9 @@ Config :: struct {
     font_px: int, // [font] size = 18 — the face size to bake at; 0 is the display's own
     split:   txt.Split, // [cursor] split = selections — what cursor.split_lines leaves per line
     switcher: Switcher_Show, // [switcher] show = titles — what the alt column carries
+    // [theme] name = gruvbox — which themes/<name>.toml colours everything (theme.odin). Owned
+    // when set; "" IS the default name, so the field never holds a literal a destroy would free.
+    theme:   string,
     // The two ordered lists, both keyed by KIND and not by document, because both answers are
     // about the vocabulary a kind is written in:
     //
@@ -188,6 +191,15 @@ SETTINGS := [?]Setting {
     {"switcher", "show", "titles",
      "what the column under a held alt carries: titles or numbers",
      proc(c: ^Config, value: string) {c.switcher = conf_switcher(value)}},
+    {"theme", "name", THEME_DEFAULT,
+     "which themes/<name>.toml colours everything; the default is baked in",
+     proc(c: ^Config, value: string) {
+         delete(c.theme)
+         c.theme = {}
+         if v := strings.trim_space(value); v != THEME_DEFAULT {
+             c.theme = strings.clone(v)
+         }
+     }},
 }
 
 config_load :: proc(a: ^App) {
@@ -225,6 +237,8 @@ config_names :: proc(c: ^Config, kind, key: string) -> []string {
 }
 
 config_destroy :: proc(c: ^Config) {
+    delete(c.theme)
+    c.theme = {}
     for o in c.order {
         delete(o.kind)
         delete(o.key)
@@ -381,6 +395,7 @@ config_requests_destroy :: proc(a: ^App) {
 // The file first, then what was requested, then a re-read only if that changed anything. One
 // path in, so a requested row and a typed row are indistinguishable once they are in.
 config_sync :: proc(a: ^App) {
+    defer theme_sync(a) // any of the reads below may have moved [theme] name
     config_load(a)
     // No home is a test holding an App of its own. Writing would land beside the test binary,
     // which races the parallel runner and is not this App's file to write.

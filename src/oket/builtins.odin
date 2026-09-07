@@ -522,6 +522,7 @@ builtin_set :: proc(a: ^App, args: string, _: CL_Step) -> bool {
         return false
     }
     panels_relayout(a) // gap, tau, behind: the strip reads the config at fit time
+    theme_sync(a) // [theme] name loads its file here, not per frame
     return true
 }
 

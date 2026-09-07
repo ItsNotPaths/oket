@@ -88,6 +88,7 @@ listing_app :: proc(t: ^testing.T, name: string) -> (a: app.App, dir: string, ok
 close_app :: proc(a: ^app.App) {
     delete(a.dir)
     app.tokens_destroy(a) // the kernel interns the two link tokens itself (routing.odin)
+    app.theme_destroy(a) // the applied name and any loaded scopes, the same as app_destroy
     app.views_destroy(a) // a built view holds a snapshot, the same as app_destroy
     app.config_requests_destroy(a)
     app.config_destroy(&a.config)

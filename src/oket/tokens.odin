@@ -38,43 +38,6 @@ BASE_TOKENS := [gfx.Token]string {
     .Alert  = "alert",
 }
 
-// What a name looks like when no theme named it. Only the part before the first dot has to
-// match, so `function.builtin` and `function` share a colour until a theme separates them, and
-// a vocabulary oket has never heard of still draws.
-//
-// This is the palette a theme file replaces (§4). Until one lands it is the whole answer.
-@(private = "file", rodata)
-DEFAULT_SYNTAX := [?]struct {
-    name:  string,
-    color: [3]f32,
-} {
-    {"keyword", {0.78, 0.47, 0.87}},
-    {"string", {0.60, 0.76, 0.47}},
-    {"char", {0.60, 0.76, 0.47}},
-    {"escape", {0.60, 0.76, 0.47}},
-    {"comment", {0.42, 0.45, 0.50}},
-    {"number", {0.82, 0.60, 0.40}},
-    {"float", {0.82, 0.60, 0.40}},
-    {"boolean", {0.82, 0.60, 0.40}},
-    {"constant", {0.82, 0.60, 0.40}},
-    {"type", {0.90, 0.75, 0.48}},
-    {"constructor", {0.90, 0.75, 0.48}},
-    {"function", {0.38, 0.69, 0.94}},
-    {"method", {0.38, 0.69, 0.94}},
-    {"operator", {0.34, 0.71, 0.76}},
-    {"property", {0.55, 0.72, 0.85}},
-    {"label", {0.55, 0.72, 0.85}},
-    {"diagnostic", {0.95, 0.45, 0.40}},
-    // A field a mouse chord would act on, and the same field under the pointer or the caret
-    // (routing.odin). Two names rather than one, because `link.hover` would otherwise resolve
-    // to `link` by the dot rule and a link would look the same whether or not it was live.
-    {"link", {0.38, 0.62, 0.92}},
-    {"link.hover", {0.55, 0.79, 1.00}},
-    {"punctuation", {0.55, 0.57, 0.62}},
-    {"bracket", {0.55, 0.57, 0.62}},
-    {"delimiter", {0.55, 0.57, 0.62}},
-}
-
 // The id for `name`, the same id for the same name whoever asks: the theme maps names, so two
 // plugins naming "keyword" get one colour and neither has to know about the other. Fg's id on
 // refusal, because a token that draws in the foreground is a worse answer than the right colour
@@ -95,13 +58,13 @@ token_intern :: proc(a: ^App, name: string) -> u16 {
     def := Token_Def {
         name = strings.clone(name),
     }
-    def.color, def.themed = token_palette(name)
+    def.color, def.themed = theme_lookup(a, name)
     append(&a.tokens, def)
     return u16(len(a.tokens) - 1)
 }
 
 // What to paint a token in. The base five come from the theme itself, so switching one moves
-// them; the rest carry the colour the palette gave them when they were interned.
+// them; the rest carry what theme_lookup last said — at intern, and again at a switch.
 token_color :: proc(a: ^App, tok: u16) -> [3]f32 {
     if tok < plug.TOKEN_BASE {
         return a.theme[gfx.Token(tok)]
@@ -145,22 +108,3 @@ tokens_seed :: proc(a: ^App) {
     }
 }
 
-// The exact name first, then one dotted segment shorter, and so on: `markup.heading.1` takes
-// what `markup.heading` says before what `markup` does. That fallback is what lets a palette of
-// twenty keys colour a query of three hundred capture names.
-@(private = "file")
-token_palette :: proc(name: string) -> (color: [3]f32, themed: bool) {
-    key := name
-    for {
-        for entry in DEFAULT_SYNTAX {
-            if entry.name == key {
-                return entry.color, true
-            }
-        }
-        dot := strings.last_index_byte(key, '.')
-        if dot <= 0 {
-            return {}, false
-        }
-        key = key[:dot]
-    }
-}

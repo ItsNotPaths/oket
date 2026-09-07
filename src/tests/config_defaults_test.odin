@@ -75,7 +75,7 @@ every_printed_default_is_the_real_one :: proc(t: ^testing.T) {
 
     // A file of nothing but the printed defaults has to read back as the defaults themselves.
     body, rows := uncommented(text, 0)
-    testing.expect_value(t, rows, 14) // a new setting extends BOTH passes below, and this count
+    testing.expect_value(t, rows, 15) // a new setting extends BOTH passes below, and this count
     _ = os.write_entire_file(path, transmute([]u8)body)
     app.config_load(&a)
     testing.expect_value(t, a.config.restore, want.restore)
@@ -88,6 +88,7 @@ every_printed_default_is_the_real_one :: proc(t: ^testing.T) {
     testing.expect_value(t, a.config.wheel, want.wheel)
     testing.expect_value(t, a.config.double_ms, want.double_ms)
     testing.expect_value(t, a.config.switcher, want.switcher)
+    testing.expect_value(t, a.config.theme, want.theme) // the printed name reads back as the "" default
 
     // And not one of them was reported as unknown: the block names only real settings. That
     // covers the LIST rows too, which have no Config field to compare — an unrecognised

@@ -71,6 +71,10 @@ App :: struct {
     // Style-token names, interned (tokens.odin). A span carries an id; the palette says what
     // the id looks like, so a plugin never names a colour.
     tokens:       [dynamic]Token_Def,
+    // The loaded theme (theme.odin): the file's scopes, and the name last applied so a sync is
+    // a compare. Empty scopes is the baked palette.
+    scopes:       map[string]Theme_Entry,
+    theme_on:     string, // owned
     // Who publishes style runs, interned by name (spans.odin). The store keys its buckets by
     // the id; config ranks them by the name.
     producers:    [dynamic]string,
@@ -169,6 +173,7 @@ app_destroy :: proc(a: ^App) {
     io_destroy(a) // before the plugins: their close runs with no completion still arriving
     plug_destroy(a)
     tokens_destroy(a)
+    theme_destroy(a)
     producers_destroy(a)
     views_destroy(a)
     config_requests_destroy(a)
