@@ -2,7 +2,6 @@ package tests
 
 import "core:os"
 import "core:path/filepath"
-import "core:strings"
 import "core:testing"
 import "../desc"
 import "../gfx"
