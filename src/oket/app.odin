@@ -92,6 +92,10 @@ App :: struct {
     view_rev:     u64, // bumped when a plugin or the config moves, which invalidates every chain
     cl:           Cmdline,
     chain:        Chain,
+    // `:do`'s pending lines, each run as its own chain once the current one ends. On the App
+    // and not the Chain, because a queued line's parse clears the chain and must not eat the
+    // lines behind it (chain.odin).
+    queue:        [dynamic]string,
     job:          Job,
     sys_seq:      u64, // the last injection into N0; a report carrying another is stale
     binds:        [dynamic]input.Bind,
@@ -171,6 +175,7 @@ app_destroy :: proc(a: ^App) {
     config_destroy(&a.config)
     gripes_destroy(a)
     chain_clear(a)
+    queue_destroy(a)
     cl_destroy(a)
     ring_destroy(a)
     terms_destroy(a)

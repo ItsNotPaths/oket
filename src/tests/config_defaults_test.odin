@@ -75,7 +75,7 @@ every_printed_default_is_the_real_one :: proc(t: ^testing.T) {
 
     // A file of nothing but the printed defaults has to read back as the defaults themselves.
     body, rows := uncommented(text, 0)
-    testing.expect_value(t, rows, 13) // a new setting extends BOTH passes below, and this count
+    testing.expect_value(t, rows, 14) // a new setting extends BOTH passes below, and this count
     _ = os.write_entire_file(path, transmute([]u8)body)
     app.config_load(&a)
     testing.expect_value(t, a.config.restore, want.restore)
@@ -98,6 +98,10 @@ every_printed_default_is_the_real_one :: proc(t: ^testing.T) {
     // parsed into a field, so the printed default is right only if the behaviour is unchanged.
     testing.expect_value(t, app.menu_palette(&a), app.Menu_Palette.Invert)
     testing.expect_value(t, app.menu_show(&a), app.Menu_Show.Hidden)
+
+    // The alias row the same way: the printed line has to parse back as the shipped one.
+    testing.expect_value(t, app.config_alias_line(&a.config, "panel.equalize"),
+                         app.ALIASES_DEFAULT[0].line)
 
     // Off by one, ON PURPOSE. Every reader's fallback is the default, so a printed number the
     // reader cannot parse would fall back to the right answer above; bumped, it has to ARRIVE

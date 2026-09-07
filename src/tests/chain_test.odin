@@ -1,5 +1,6 @@
 package tests
 
+import "core:fmt"
 import "core:strings"
 import "core:testing"
 import "core:time"
@@ -23,6 +24,10 @@ run_line :: proc(a: ^app.App, line: string) {
         store.store_drain(&a.docs)
         time.sleep(2 * time.Millisecond)
     }
+    // A builtin-only line goes idle without a single pump, and what it printed into N0 is
+    // still in the VT: one more pump lands it in the store for the assertions to read.
+    app.term_pump(a)
+    store.store_drain(&a.docs)
 }
 
 // The split is the shell's own reading of an operator: never inside quotes, after a backslash,
@@ -30,9 +35,10 @@ run_line :: proc(a: ^app.App, line: string) {
 @(test)
 the_chain_splits_the_way_a_shell_would :: proc(t: ^testing.T) {
     segs :: proc(line: string) -> string {
+        marks := [app.CL_Op]string{.And = "&", .Pipe = "|", .Or = "!"}
         out := make([dynamic]string, context.temp_allocator)
         for s in app.cl_split_chain(line) {
-            append(&out, strings.concatenate({s.piped ? "|" : "&", s.text}, context.temp_allocator))
+            append(&out, strings.concatenate({marks[s.op], s.text}, context.temp_allocator))
         }
         return strings.join(out[:], " ", context.temp_allocator)
     }
@@ -47,8 +53,8 @@ the_chain_splits_the_way_a_shell_would :: proc(t: ^testing.T) {
     testing.expect_value(t, segs("echo $(a && b)"), "&echo $(a && b)")
     testing.expect_value(t, segs("echo `a | b`"), "&echo `a | b`")
 
-    // `||` is the shell's or-else and `|&` its pipe-with-stderr. One `|` alone is ours.
-    testing.expect_value(t, segs("false || echo x"), "&false || echo x")
+    // `||` is a step operator like `&&`; `|&` is the shell's pipe-with-stderr and stays whole.
+    testing.expect_value(t, segs("false || echo x"), "&false  ! echo x")
     testing.expect_value(t, segs("a |& b"), "&a |& b")
 
     // A comment ends the line and is dropped: a step is injected with its exit report after it
@@ -86,8 +92,17 @@ adjacent_shell_steps_stay_one_command :: proc(t: ^testing.T) {
     app.cl_parse(&a, ":sel | sort -u | tr a b | :put")
     testing.expect_value(t, len(a.chain.steps), 3)
     testing.expect_value(t, a.chain.steps[1].text, "sort -u | tr a b")
-    testing.expect(t, a.chain.steps[1].piped)
-    testing.expect(t, a.chain.steps[2].piped)
+    testing.expect_value(t, a.chain.steps[1].op, app.CL_Op.Pipe)
+    testing.expect_value(t, a.chain.steps[2].op, app.CL_Op.Pipe)
+
+    // `||` coalesces between shell steps like the others, so bash keeps its own or-else; at a
+    // builtin boundary it is ours.
+    app.cl_parse(&a, "make || echo failed")
+    testing.expect_value(t, len(a.chain.steps), 1)
+    testing.expect_value(t, a.chain.steps[0].text, "make || echo failed")
+    app.cl_parse(&a, ":close || :np")
+    testing.expect_value(t, len(a.chain.steps), 2)
+    testing.expect_value(t, a.chain.steps[1].op, app.CL_Op.Or)
 }
 
 // The headline: a document's text out through a shell pipeline and back in at point, with the
@@ -227,4 +242,228 @@ an_unknown_builtin_stops_the_chain :: proc(t: ^testing.T) {
 
     testing.expect(t, strings.contains(a.message, "not a builtin"), a.message)
     testing.expect(t, app.ring_focused(&a) != nil, "the chain stopped before :close")
+}
+
+// `||` runs its step on a failure and skips it on a success, and a skipped step carries the
+// verdict forward — the shell's own flat reading, at step level. A failure an `||` answers is
+// not surfaced: the arm that runs is the response.
+@(test)
+an_or_step_answers_a_failure_and_a_success_skips_it :: proc(t: ^testing.T) {
+    a, ok := bare_app(60, 6)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+    app.ring_add(&a, scratch_doc(&a, "note", "x"))
+
+    run_line(&a, "(exit 3) || :width 50")
+    testing.expect_value(t, a.panels[0].size, app.WIDTH_FULL / 2)
+    testing.expect(t, app.ring_slot(&a) != app.SLOT_ZERO, "a rescued failure surfaced N0")
+
+    run_line(&a, "echo ok || :width 25")
+    testing.expect_value(t, a.panels[0].size, app.WIDTH_FULL / 2) // the arm was skipped
+
+    // A failed BUILTIN is rescued the same way, and the arm may be a SHELL step.
+    run_line(&a, ":nope || :width 100")
+    testing.expect_value(t, a.panels[0].size, app.WIDTH_FULL)
+    run_line(&a, ":nope || echo rescued")
+    testing.expect(t, strings.contains(doc_text(&a, app.sys_slot(&a).doc), "rescued"),
+                   "the shell arm never ran")
+
+    // `||` opening the line answers a failure that never happened, so nothing runs.
+    run_line(&a, "|| :width 25")
+    testing.expect_value(t, a.panels[0].size, app.WIDTH_FULL)
+}
+
+// `:get` puts state on the feed, address first — and with the chain already branching on a
+// step's exit, that is a conditional with no new syntax.
+@(test)
+get_feeds_state_a_shell_step_can_branch_on :: proc(t: ^testing.T) {
+    a, ok := bare_app(60, 6)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+    app.ring_add(&a, scratch_doc(&a, "note", "x"))
+
+    run_line(&a, ":get panel | grep -q '^1$' && :width 50")
+    testing.expect_value(t, a.panels[0].size, app.WIDTH_FULL / 2)
+
+    run_line(&a, ":get panel | grep -q '^7$' && :width 100")
+    testing.expect_value(t, a.panels[0].size, app.WIDTH_FULL / 2) // the grep said no
+
+    // Unpiped, it prints into N0 like `:ls` and surfaces it.
+    run_line(&a, ":get panels")
+    testing.expect(t, strings.contains(doc_text(&a, app.sys_slot(&a).doc), "1 "), "no listing in N0")
+    testing.expect_value(t, app.ring_slot(&a), app.SLOT_ZERO)
+}
+
+// `:set` is one config.conf row, typed, through the same door the file's rows come in — so a
+// key the file would refuse is refused here too, with the same kind of report.
+@(test)
+set_changes_a_setting_for_the_session :: proc(t: ^testing.T) {
+    a, ok := bare_app(60, 6)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    run_line(&a, ":set strip.gap 9")
+    testing.expect_value(t, a.config.gap, 9)
+
+    run_line(&a, ":set nope.x 1")
+    testing.expect(t, strings.contains(a.message, "not a setting"), a.message)
+
+    // An ordered-list key routes to the order table, not a Config field.
+    run_line(&a, ":set menu.bar edit, view")
+    names := app.config_names(&a.config, "menu", "bar")
+    testing.expect_value(t, len(names), 2)
+    testing.expect_value(t, names[0], "edit")
+}
+
+// `:do` is the loop: the shell generates command lines, and each runs as its own chain after
+// this one ends. A line that fails does not take the queue with it — per-item failure is the
+// item's, like xargs — and the transcript of what ran lands in N0.
+@(test)
+do_runs_the_piped_lines_after_the_chain :: proc(t: ^testing.T) {
+    a, ok := bare_app(60, 6)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+    app.ring_add(&a, scratch_doc(&a, "note", "x"))
+
+    run_line(&a, `printf ':width 50\n:width 30\n' | :do`)
+    testing.expect_value(t, a.panels[0].size, app.WIDTH_FULL / 3)
+    testing.expect(t, strings.contains(doc_text(&a, app.sys_slot(&a).doc), "> :width 50"),
+                   "no transcript in N0")
+
+    run_line(&a, `printf ':nope\n:width 100\n' | :do`)
+    testing.expect_value(t, a.panels[0].size, app.WIDTH_FULL) // the queue outlived :nope
+
+    // A queued line may pipe into `:do` itself: the queue is the App's, so its parse eats
+    // nothing behind it.
+    run_line(&a, `printf 'printf ":width 25\\n" | :do\n' | :do`)
+    testing.expect_value(t, a.panels[0].size, app.WIDTH_FULL / 4)
+
+    // The cap, at its edge: QUEUE_MAX lines go in, one more refuses the batch whole.
+    run_line(&a, fmt.tprintf("seq %d | sed 's/.*/:width 50/' | :do", app.QUEUE_MAX))
+    testing.expect_value(t, a.panels[0].size, app.WIDTH_FULL / 2)
+    run_line(&a, fmt.tprintf("seq %d | sed 's/.*/:width 100/' | :do", app.QUEUE_MAX + 1))
+    testing.expect(t, strings.contains(a.message, "cap"), a.message)
+    testing.expect_value(t, a.panels[0].size, app.WIDTH_FULL / 2)
+}
+
+// `@*` acts on every panel; `#*` empties the lane; and an OPEN refuses both, because an open
+// needs one place.
+@(test)
+a_star_names_every_panel_or_every_slot :: proc(t: ^testing.T) {
+    a, ok := bare_app(60, 6)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+    one := scratch_doc(&a, "one", "x")
+    app.ring_add(&a, one)
+    app.ring_add(&a, scratch_doc(&a, "two", "y"))
+    app.panel_make(&a, 1)
+
+    run_line(&a, ":width 50 @*")
+    for p in a.panels {
+        testing.expect_value(t, p.size, app.WIDTH_FULL / 2)
+    }
+
+    run_line(&a, ":open nowhere #*")
+    testing.expect(t, strings.contains(a.message, "one place"), a.message)
+
+    // `:close #1` closes a slot you are not standing on; `#*` takes the rest of the lane.
+    lane := app.ring_lane(&a)
+    run_line(&a, ":close #1")
+    testing.expect(t, app.lane_get(&a.ring, lane, 1) == nil, "slot 1 survived :close #1")
+    testing.expect_value(t, app.ring_slot(&a), 2)
+    run_line(&a, ":close #*")
+    testing.expect_value(t, app.lane_first(&a.ring, lane), 0)
+}
+
+// An alias is a NAMED LINE, expanded at parse so the chain that runs is one you could have
+// typed: it sequences with `&&`, keeps the operator it was called with, refuses arguments and
+// cycles, and a builtin's name stays the builtin's.
+@(test)
+an_alias_is_a_named_line_that_composes :: proc(t: ^testing.T) {
+    a, ok := bare_app(60, 6)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+    id := scratch_doc(&a, "note", "hello")
+    app.ring_add(&a, id)
+
+    testing.expect(t, app.config_set_line(&a.config, "alias", "half", ":width 50"),
+                   "the alias row was refused")
+    run_line(&a, ":half")
+    testing.expect_value(t, a.panels[0].size, app.WIDTH_FULL / 2)
+    run_line(&a, ":width 100 && :half")
+    testing.expect_value(t, a.panels[0].size, app.WIDTH_FULL / 2) // ran second, after the &&
+
+    // The body's first step takes the operator the NAME was called with, so a pipe into an
+    // alias is a pipe into its body.
+    app.config_set_line(&a.config, "alias", "up", "tr a-z A-Z | :put")
+    run_line(&a, ":sel | :up")
+    testing.expect_value(t, doc_text(&a, id), "HELLO")
+
+    // The body expands FLAT, not as a subshell: a failure inside it is the chain's own
+    // verdict, so the CALLER's `||` answers it.
+    app.config_set_line(&a.config, "alias", "risky", ":nope && :width 30")
+    run_line(&a, ":risky || :width 25")
+    testing.expect_value(t, a.panels[0].size, app.WIDTH_FULL / 4)
+
+    run_line(&a, ":half 3")
+    testing.expect(t, strings.contains(a.message, "takes no arguments"), a.message)
+    app.config_set_line(&a.config, "alias", "loop", ":loop")
+    run_line(&a, ":loop")
+    testing.expect(t, strings.contains(a.message, "too deep"), a.message)
+    testing.expect(t, !app.config_set_line(&a.config, "alias", "close", ":q"),
+                   "an alias took a builtin's name")
+
+    // A plugin's registered name wins the clash SILENTLY: the alias never expands, and the
+    // step goes to the plugin unchanged.
+    append(&a.cmds, app.Plug_Cmd{name = "fake.cmd", owner = 0})
+    app.config_set_line(&a.config, "alias", "fake.cmd", ":width 25")
+    app.cl_parse(&a, ":fake.cmd")
+    testing.expect_value(t, len(a.chain.steps), 1)
+    testing.expect_value(t, a.chain.steps[0].text, "fake.cmd")
+    delete(a.cmds) // the fake row's strings are literals; close_app never walks a.cmds
+}
+
+// The shipped vocabulary: `:panel.equalize` walks the strip through `:get`, awk and `:do`,
+// and a file row with the same name replaces the shipped line.
+@(test)
+the_default_equalize_gives_every_panel_an_equal_share :: proc(t: ^testing.T) {
+    a, ok := bare_app(60, 6)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+    app.ring_add(&a, scratch_doc(&a, "note", "x"))
+    app.panel_make(&a, 1)
+    app.panel_make(&a, 2)
+
+    run_line(&a, ":panel.equalize")
+    for p in a.panels {
+        testing.expect_value(t, p.size, app.WIDTH_FULL / 3)
+    }
+
+    app.config_set_line(&a.config, "alias", "panel.equalize", ":width 100")
+    run_line(&a, ":panel.equalize")
+    testing.expect_value(t, a.panels[a.focus].size, app.WIDTH_FULL)
+
+    // A queued line goes through the same parse, so `:do` lines expand aliases too.
+    app.config_set_line(&a.config, "alias", "panel.equalize", ":width 50")
+    run_line(&a, `printf ':panel.equalize\n' | :do`)
+    testing.expect_value(t, a.panels[a.focus].size, app.WIDTH_FULL / 2)
+
+    // The override is this session's: a re-read of the file brings the shipped line back.
+    app.config_load(&a)
+    testing.expect_value(t, app.config_alias_line(&a.config, "panel.equalize"),
+                         app.ALIASES_DEFAULT[0].line)
 }

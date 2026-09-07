@@ -132,8 +132,9 @@ sh_pump :: proc(a: ^App) {
     a.job.live = false // the staging survives until the next step: `cat` is still reading it
     // §11: a failure surfaces N0. Except where the chain was reading this step's output, which
     // means the answer lands in the document you are looking at and being thrown to a terminal
-    // is the wrong place to be told.
-    if code != 0 {
+    // is the wrong place to be told. And except where an `||` ahead answers the failure: the
+    // arm that runs IS the response, so there is nothing to surface over it.
+    if code != 0 && !chain_rescued(a) {
         if captured {
             message_set(a, fmt.tprintf("the shell step exited %d", code))
         } else {

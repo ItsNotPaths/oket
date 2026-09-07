@@ -42,9 +42,18 @@ BUILTINS := [?]Builtin {
     {"ls", "", "ring", ":ls",
      "print every live slot of every lane into N0",
      builtin_ls},
-    {"close", "", "ring", ":close",
-     "close the focused slot and the panel with it; its number is never reused while others live",
+    {"close", "", "ring", USAGE_CLOSE,
+     "close the focused slot and the panel with it, or slot N, or the whole lane; a number is never reused while others live",
      builtin_close},
+    {"get", "", "ring", USAGE_GET,
+     "put a piece of oket's state on the next step's stdin; alone, print it into N0",
+     builtin_get},
+    {"set", "", "file", USAGE_SET,
+     "change one config.conf setting for this session; the file is not written",
+     builtin_set},
+    {"do", "", "edit", ":do",
+     "run what was piped into it, one command line per line, after this chain ends",
+     builtin_do},
     {"find", "", "edit", USAGE_FIND,
      "select every match at once, so typing replaces them all; f3 steps through them one at a time",
      builtin_find},
@@ -102,21 +111,67 @@ cl_builtin :: proc(a: ^App, step: CL_Step) -> bool {
     if slot, registered := plug_cmd_named(a, name); registered {
         return plug_command(a, slot, args)
     }
+    // An alias only lands here unexpanded: it was given arguments, or it hit the depth cap.
+    if config_alias_line(&a.config, name) != "" {
+        if args != "" {
+            message_set(a, fmt.tprintf("%s: an alias takes no arguments", name))
+        } else {
+            message_set(a, fmt.tprintf("%s: alias expansion is too deep (a cycle?)", name))
+        }
+        return false
+    }
     message_set(a, fmt.tprintf("%s: not a builtin (drop the : to run it in the shell)", name))
     return false
 }
 
 // ring.close as a command line. alt+q already does exactly this, and a plugin that opened a
-// document will have no other way to end it (stage 7).
+// document will have no other way to end it (stage 7). `#N` closes a slot you are not on, and
+// `#*` empties the lane — the slot axis only: what panel stands where is `ring_close`'s own
+// fallout, not an argument here.
 @(private = "file")
-builtin_close :: proc(a: ^App, _: string, _: CL_Step) -> bool {
-    if ring_focused(a) == nil {
+builtin_close :: proc(a: ^App, args: string, _: CL_Step) -> bool {
+    target, bad, aimed := target_parse(args)
+    if !aimed || target.how != .Here {
+        message_set(a, fmt.tprintf(":close: %s is not a slot (%s)", bad != "" ? bad : args,
+                                   USAGE_CLOSE))
+        return false
+    }
+    if target.slots {
+        return close_lane(a)
+    }
+    slot := target.slot != 0 ? target.slot : ring_slot(a)
+    if ring_get(a, slot) == nil {
+        why := ":close: nothing is focused"
+        if target.slot != 0 {
+            why = fmt.tprintf(":close: #%d holds nothing", slot)
+        }
+        message_set(a, why)
+        return false
+    }
+    ring_close(a, slot)
+    return true
+}
+
+// The `#*` arm: every live slot of the focused lane.
+@(private = "file")
+close_lane :: proc(a: ^App) -> bool {
+    lane := ring_lane(a)
+    if lane < 0 || lane >= len(a.ring.lanes) {
         message_set(a, ":close: nothing is focused")
         return false
     }
-    ring_close(a, ring_slot(a))
+    for i := len(a.ring.lanes[lane].slots); i > 0; i -= 1 {
+        if ring_lane(a) != lane {
+            break // the lane emptied out and focus fell elsewhere; the rest are gaps
+        }
+        if lane_get(&a.ring, lane, i) != nil {
+            ring_close(a, i)
+        }
+    }
     return true
 }
+
+USAGE_CLOSE :: ":close [#slot|#*]"
 
 // `panel.open` as a command line, which is what the picker's second `tab+enter` runs: a panel
 // to the right of the one the keys are aimed at, and the aim goes with it.
@@ -161,6 +216,10 @@ builtin_open :: proc(a: ^App, args: string, _: CL_Step) -> bool {
     target, bad, aimed := target_parse(rest)
     if !aimed {
         message_set(a, fmt.tprintf(":open: %s is not a slot or a panel (%s)", bad, USAGE_OPEN))
+        return false
+    }
+    if target.how == .All || target.slots {
+        message_set(a, ":open: * names every one, and an open needs one place")
         return false
     }
     id, ok := open_path(a, path)
@@ -213,6 +272,15 @@ builtin_width :: proc(a: ^App, args: string, _: CL_Step) -> bool {
     if len(pcts) == 0 {
         message_set(a, USAGE_WIDTH)
         return false
+    }
+    // `@*` sizes the strip, one panel at a time: each cycles its own list, so a mixed strip
+    // steps every panel to its own next stop rather than to one shared answer.
+    if target.how == .All {
+        panels_ready(a)
+        for i in 0 ..< len(a.panels) {
+            panel_width(a, i, pcts[:])
+        }
+        return true
     }
     i, live := target_panel(a, target)
     if !live {
@@ -360,7 +428,7 @@ builtin_sel :: proc(a: ^App, _: string, _: CL_Step) -> bool {
 // shell-command-on-region, as a chain step: `:sel | sort -u | :put`.
 @(private = "file")
 builtin_put :: proc(a: ^App, _: string, step: CL_Step) -> bool {
-    if !step.piped || !a.chain.fed {
+    if !chain_piped(a, step) {
         message_set(a, ":put: nothing was piped into it")
         return false
     }
@@ -378,6 +446,115 @@ builtin_put :: proc(a: ^App, _: string, step: CL_Step) -> bool {
     doc := store.store_doc(&a.docs, s.doc)
     txt.doc_insert_text(doc, a.chain.feed) // one edit per cursor, replacing its range
     s.view.point = doc.cursors[doc.primary]
+    return true
+}
+
+// `:get <what>`: a piece of oket's state, one line per thing, the ADDRESS first so an awk or a
+// grep downstream has a stable first field. Piped, it is the feed; alone, it prints into N0
+// like `:ls`. The verb is what makes a chain conditional without new syntax: the chain already
+// branches on a step's exit, so `:get kind | grep -q term && ...` is an if.
+@(private = "file")
+builtin_get :: proc(a: ^App, args: string, _: CL_Step) -> bool {
+    _, what := first_arg(args)
+    b := strings.builder_make(context.temp_allocator)
+    switch what {
+    case "panel":
+        panels_ready(a)
+        fmt.sbprintf(&b, "%d\n", a.focus + 1)
+    case "panels":
+        panels_ready(a)
+        for &p, i in a.panels {
+            if s := panel_slot(a, &p); s != nil {
+                fmt.sbprintf(&b, "%d %s %s\n", i + 1, kind_name(a, doc_kind(a, s.doc)),
+                             doc_title(a, s.doc))
+            } else {
+                fmt.sbprintf(&b, "%d -\n", i + 1)
+            }
+        }
+    case "slot":
+        fmt.sbprintf(&b, "%s\n", slot_tag(ring_slot(a)))
+    case "slots":
+        if l := lane_current(a); l != nil {
+            for s, i in l.slots {
+                if s.live {
+                    fmt.sbprintf(&b, "%d %s\n", i + 1, doc_title(a, s.doc))
+                }
+            }
+        }
+    case "kind":
+        if s := ring_focused(a); s != nil {
+            fmt.sbprintf(&b, "%s\n", kind_name(a, doc_kind(a, s.doc)))
+        }
+    case "file":
+        if s := ring_focused(a); s != nil {
+            fmt.sbprintf(&b, "%s\n", doc_file(a, s.doc))
+        }
+    case:
+        message_set(a, USAGE_GET)
+        return false
+    }
+    out := strings.to_string(b)
+    chain_feed(a, out)
+    if !chain_wants_feed(a) {
+        sys_print(a, out)
+        ring_show_system(a)
+    }
+    return true
+}
+
+USAGE_GET :: ":get panel|panels|slot|slots|kind|file"
+
+// `:set <section>.<key> <value>`: one config.conf row, typed. It goes through the door the
+// file's rows come in (config_set_line), so what it can say and what the file can say cannot
+// drift. Session-only — the file is the durable half, and this verb never writes it.
+@(private = "file")
+builtin_set :: proc(a: ^App, args: string, _: CL_Step) -> bool {
+    key := first_field(args)
+    value := strings.trim_space(args[len(key):])
+    dot := strings.index_byte(key, '.')
+    if dot <= 0 || dot + 1 >= len(key) || value == "" {
+        message_set(a, USAGE_SET)
+        return false
+    }
+    section, name := key[:dot], key[dot + 1:]
+    if !config_set_line(&a.config, section, name, value) {
+        message_set(a, fmt.tprintf(":set: %s", config_refusal(section, name)))
+        return false
+    }
+    panels_relayout(a) // gap, tau, behind: the strip reads the config at fit time
+    return true
+}
+
+USAGE_SET :: ":set <section>.<key> <value>"
+
+// `:do` reads the feed as COMMAND LINES and queues them to run after this chain ends — xargs
+// for builtins, and the loop the chain itself refuses to grow syntax for: the shell generates
+// text, text is commands, and `:get panels | awk ... | :do` walks the strip. Queued rather
+// than run here, because a line's parse clears the chain it would be standing in. Lines are
+// literal — no holes — since the generator had the values and focus moves as lines run.
+@(private = "file")
+builtin_do :: proc(a: ^App, _: string, step: CL_Step) -> bool {
+    if !chain_piped(a, step) {
+        message_set(a, ":do: nothing was piped into it")
+        return false
+    }
+    n := 0
+    rest := a.chain.feed
+    for line in strings.split_lines_iterator(&rest) {
+        if strings.trim_space(line) != "" {
+            n += 1
+        }
+    }
+    if len(a.queue) + n > QUEUE_MAX {
+        message_set(a, fmt.tprintf(":do: %d lines is past the queue's cap (%d)", n, QUEUE_MAX))
+        return false
+    }
+    rest = a.chain.feed
+    for line in strings.split_lines_iterator(&rest) {
+        if l := strings.trim_space(line); l != "" {
+            append(&a.queue, strings.clone(l))
+        }
+    }
     return true
 }
 

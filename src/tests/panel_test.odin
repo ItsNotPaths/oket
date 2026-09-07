@@ -632,16 +632,25 @@ two_sigils_and_a_bare_number :: proc(t: ^testing.T) {
         // Last sigil wins, and `@=` is on the same axis as `@N`: neither survives the other.
         {"@= @2", {panel = 2, how = .Nth}},
         {"@2 @=", {how = .Showing}},
+        // `*` is an exact form on either axis, and last-wins holds against it both ways.
+        {"@*", {how = .All}},
+        {"#*", {slots = true}},
+        {"#* #2", {slot = 2}},
+        {"#2 #*", {slots = true}},
     }) {
         target, _, ok := app.target_parse(row.text)
         testing.expectf(t, ok, "%q is not an address", row.text)
         testing.expectf(t, target == row.target, "%q parsed as %v", row.text, target)
     }
-    for text in ([?]string{"x", "@", "#", "@0", "@+0", "#0", "-1", "#-1", "@2x", "@=x", "#="}) {
+    for text in ([?]string{"x", "@", "#", "@0", "@+0", "#0", "-1", "#-1", "@2x", "@=x", "#=",
+                           "*"}) {
         _, bad, ok := app.target_parse(text)
         testing.expectf(t, !ok, "%q was taken for an address", text)
         testing.expect_value(t, bad, text)
     }
+
+    // The picker rewrites only a BARE `@`; `@*` is already an address and keeps its aim.
+    testing.expect_value(t, app.target_aim(":width 50 @*", 2), ":width 50 @*")
 }
 
 // A `#` is a comment where the shell would see one and a slot where a builtin would, so a ring

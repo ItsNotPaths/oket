@@ -47,6 +47,9 @@ Config :: struct {
     // `[menu]` keeps its lists here too, keyed by the section rather than by the key, because
     // every key in that section is one (menubar.odin).
     order:   [dynamic]Kind_Order,
+    // `[alias] name = line` — a new verb whose body is a chain (chain.odin expands it at
+    // parse). File rows override ALIASES_DEFAULT; builtins and plugin commands win a clash.
+    aliases: [dynamic]Alias,
 }
 
 // One of those lists, as the file said it. Every string is owned, because the rows the parser
@@ -62,6 +65,25 @@ Kind_Order :: struct {
 // table below is a rodata list of pairs.
 @(private = "file", rodata)
 ORDERED := [?]string{"spans", "view"}
+
+ALIAS_SECTION :: "alias"
+
+// A named line: `:name` runs it, expanded at parse so `:name && :ls` composes like anything
+// typed. The naming rung between a bind row and a plugin — the body is still chain and bash.
+Alias :: struct {
+    name: string,
+    line: string,
+    doc:  string, // the generated file's comment; "" on a file-defined row
+}
+
+// The vocabulary oket ships. In code, not in the file, for the reason the settings block is
+// commented: a release changing one must reach people who already have the file.
+@(rodata)
+ALIASES_DEFAULT := [?]Alias {
+    {"panel.equalize",
+     `:get panels | awk 'END { for (i = 1; i <= NR; i++) print ":width " int(100 / NR) " @" i }' | :do`,
+     "every panel to an equal share of the strip"},
+}
 
 // The zero value is not the default: a gap of nothing puts two documents against each other.
 // A strip of one has no gap in it either way, so this changes nothing until a panel is opened.
@@ -135,6 +157,7 @@ SHAPES := [?]string {
     "[menu] <name> = <namespace>...   what one menu holds; `bar` above says which menus exist",
     "[<kind>] spans = <plugin>...     who draws over whom in that kind, lowest first",
     "[<kind>] view  = <plugin>...     the view pipeline for that kind, in order",
+    "[alias] <name> = <line>          a new verb: `:name` runs the line; builtins keep a clashing name",
 }
 
 @(private = "file", rodata)
@@ -185,8 +208,7 @@ config_load :: proc(a: ^App) {
     }
     for row in rows {
         if !config_set(&a.config, row) {
-            conf_complain(a, CONFIG_NAME, row.line,
-                          fmt.tprintf("[%s] %s is not a setting", row.section, row.key))
+            conf_complain(a, CONFIG_NAME, row.line, config_refusal(row.section, row.key))
         }
     }
 }
@@ -213,10 +235,72 @@ config_destroy :: proc(c: ^Config) {
     }
     delete(c.order)
     c.order = nil
+    for al in c.aliases { // doc is never cloned, so it is not freed
+        delete(al.name)
+        delete(al.line)
+    }
+    delete(c.aliases)
+    c.aliases = nil
+}
+
+// A refused row shadows a builtin: `:close` meaning something else is invisible state, so the
+// name stays the kernel's and the row is complained about (config_load, builtin_set). Plugin
+// commands cannot be checked here — no App — so they win at EXPANSION instead (chain.odin).
+@(private = "file")
+config_alias :: proc(c: ^Config, row: conf.Row) -> bool {
+    if _, shadows := builtin_named(row.key); shadows {
+        return false
+    }
+    for &al in c.aliases {
+        if al.name == row.key {
+            delete(al.line)
+            al.line = strings.clone(row.value)
+            return true
+        }
+    }
+    append(&c.aliases, Alias{strings.clone(row.key), strings.clone(row.value), ""})
+    return true
+}
+
+// The line an alias name stands for, "" for no alias. The file's row wins over the shipped
+// default, which is how a user rewrites `panel.equalize` without touching code.
+config_alias_line :: proc(c: ^Config, name: string) -> string {
+    for al in c.aliases {
+        if al.name == name {
+            return al.line
+        }
+    }
+    for al in ALIASES_DEFAULT {
+        if al.name == name {
+            return al.line
+        }
+    }
+    return ""
+}
+
+// `:set` runs one row through the same door the file's rows come in (builtins.odin), so a
+// typed setting and a read one are indistinguishable once they are in. The change is this
+// session's: nothing here writes config.conf.
+config_set_line :: proc(c: ^Config, section, key, value: string) -> bool {
+    return config_set(c, conf.Row{section = section, key = key, value = value})
+}
+
+// Why config_set said no, worded once for both doors (config_load, builtin_set): the only row
+// an `[alias]` section refuses is one shadowing a builtin. Temp-allocated.
+config_refusal :: proc(section, key: string) -> string {
+    if section == ALIAS_SECTION {
+        return fmt.tprintf("[alias] %s shadows a builtin", key)
+    }
+    return fmt.tprintf("[%s] %s is not a setting", section, key)
 }
 
 @(private = "file")
 config_set :: proc(c: ^Config, row: conf.Row) -> bool {
+    // Before the ORDERED check: an alias may be CALLED `view` or `spans`, and its value is a
+    // line, never a comma list.
+    if row.section == ALIAS_SECTION {
+        return config_alias(c, row)
+    }
     // `[menu]` is lists all the way down (MENU.md §2): every key in it names a menu, so the
     // SECTION is what says the value is a list, where the two above are said by the key.
     if row.section == MENU_SECTION || slice.contains(ORDERED[:], row.key) {
@@ -349,7 +433,11 @@ config_defaults_write :: proc(a: ^App, path: string) -> bool {
         }
         fmt.sbprintf(&b, "# %s\n# %s = %s\n", l.doc, l.key, l.def)
     }
-    strings.write_string(&b, "\n# And three forms whose name is yours to pick, so no row above\n")
+    strings.write_string(&b, "\n[alias]\n")
+    for al in ALIASES_DEFAULT {
+        fmt.sbprintf(&b, "# %s\n# %s = %s\n", al.doc, al.name, al.line)
+    }
+    strings.write_string(&b, "\n# And four forms whose name is yours to pick, so no row above\n")
     strings.write_string(&b, "# can stand for them:\n")
     for shape in SHAPES {
         fmt.sbprintf(&b, "#   %s\n", shape)

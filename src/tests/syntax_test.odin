@@ -432,14 +432,17 @@ a_row_carries_its_whole_registry_entry :: proc(t: ^testing.T) {
     if !testing.expect(t, filled, a.message) {
         return
     }
-    steps := app.cl_split_chain(line)
+    // Through cl_parse rather than the raw split: `||` is a step operator, so `|| true` is
+    // its own segment until the coalesce puts it back inside the shell step.
+    app.cl_parse(&a, line)
+    steps := a.chain.steps
     if !testing.expect_value(t, len(steps), 3) {
         return
     }
-    testing.expect(t, strings.contains(steps[0].text, ":gr.build rust"), steps[0].text)
+    testing.expect(t, strings.contains(steps[0].text, "gr.build rust"), steps[0].text)
     testing.expect(t, strings.has_suffix(strings.trim_space(steps[1].text), "|| true"),
                    steps[1].text)
-    testing.expect(t, strings.contains(steps[2].text, ":grammar ready rust"), steps[2].text)
+    testing.expect(t, strings.contains(steps[2].text, "grammar ready rust"), steps[2].text)
 }
 
 // A BUILD IS A CHAIN, and the row is what says one is out. The first step marks it and the bar

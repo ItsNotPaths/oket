@@ -98,6 +98,7 @@ close_app :: proc(a: ^app.App) {
     app.job_destroy(a)
     app.io_destroy(a) // the worker thread, joined, the same way app_destroy ends one
     app.chain_clear(a)
+    app.queue_destroy(a)
     app.cl_destroy(a)
     app.ring_destroy(a)
     app.terms_destroy(a)

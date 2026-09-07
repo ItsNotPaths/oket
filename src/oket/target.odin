@@ -13,6 +13,7 @@ import "../store"
 //   N     an alias for #N, because that is what `:open <path> 3` meant before there were panels
 //   @=    the panel already showing it, and the one you are in when no panel is
 //   @     the panel the picker was steered to, which only a gesture can name (§6)
+//   @*    every panel, #* every live slot of the lane — for verbs that ACT (`:width`, `:close`)
 //
 // The two sigils are §3's two axes and a line may carry one of each: `#N` says which slot holds
 // the document, `@N` says which panel stands on it. Neither renumbers the other.
@@ -32,12 +33,14 @@ Panel_Addr :: enum {
     Nth,     // `@N`: panel N, counted from the left
     Step,    // `@±N`: N panels from the focused one
     Showing, // `@=`: the panel this document is already in
+    All,     // `@*`: every panel on the strip — for a verb that ACTS, never for an open
 }
 
 Target :: struct {
     slot:  int, // `#N`. 0: wherever the document's own lane has room for it
     panel: int, // the N of `@N` or `@±N`; unread otherwise
     how:   Panel_Addr,
+    slots: bool, // `#*`: every live slot of the focused lane; `slot` is unread
 }
 
 // The arguments past the one a builtin takes for itself, in any order, and the last of a sigil
@@ -53,10 +56,20 @@ target_parse :: proc(args: string) -> (t: Target, bad: string, ok: bool) {
         if panel || field[0] == '#' {
             body = field[1:]
         }
-        // The one address that is not a number. Written before the parse rather than as a
-        // case inside it, because there is no integer it could stand for.
+        // The two addresses that are not numbers. Written before the parse rather than as
+        // cases inside it, because there is no integer either could stand for. `*` is a SET,
+        // by exact form and never by pattern: a selector that wants matching goes through the
+        // shell (`:get panels | grep ... | :do`), which already has one.
         if panel && body == "=" {
             t.panel, t.how = 0, .Showing
+            continue
+        }
+        if body == "*" && field != body { // a bare `*` aliases nothing
+            if panel {
+                t.panel, t.how = 0, .All
+            } else {
+                t.slot, t.slots = 0, true
+            }
             continue
         }
         n, num := strconv.parse_int(body, 10)
@@ -69,7 +82,7 @@ target_parse :: proc(args: string) -> (t: Target, bad: string, ok: bool) {
         if panel {
             t.panel, t.how = n, step ? Panel_Addr.Step : .Nth
         } else {
-            t.slot = n
+            t.slot, t.slots = n, false
         }
     }
     return t, "", true
@@ -111,6 +124,7 @@ target_reach :: proc(a: ^App, t: Target, doc: store.Id) -> int {
         case:
             return i
         }
+    case .All: // a reach aims ONE panel; the builtin that means every one refuses it first
     }
     return a.focus
 }
@@ -129,6 +143,7 @@ target_panel :: proc(a: ^App, t: Target) -> (int, bool) {
         i := a.focus + t.panel
         return i, i >= 0 && i < len(a.panels)
     case .Showing: // `@=` is an answer about a document, and there is none to ask about
+    case .All: // `@*` is every panel; the builtin loops the strip itself (builtin_width)
     }
     return a.focus, false
 }
