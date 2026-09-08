@@ -2,6 +2,7 @@ package main
 
 import "core:mem"
 import "core:slice"
+import "core:strings"
 import "../gfx"
 import "../plug"
 import "../store"
@@ -29,16 +30,17 @@ import "../view"
 // One document's built view. By pointer, because a stage's text borrows the blocks of the stage
 // before it and the arena holding them must not move under a map rehash.
 Pipeline :: struct {
-    snap:   ^txt.Snapshot, // the original, HELD: every derived text points into its blocks
-    text:   txt.Text, // what is drawn
-    dv:     view.Derived, // and the map back to the original, every stage folded into one
-    hidden: []txt.Range, // §7's export to motion, and the whole of it
-    over:   []view.Style, // what the stages painted over their own output
-    gen:    u64, // the generation it was built against
-    point:  u64, // and the carets, which move without one
-    rev:    u64, // the plugin set and the config it was built under
-    latch:  bool, // a stage said "not finished, call me again"
-    arena:  mem.Dynamic_Arena,
+    snap:    ^txt.Snapshot, // the original, HELD: every derived text points into its blocks
+    text:    txt.Text, // what is drawn
+    dv:      view.Derived, // and the map back to the original, every stage folded into one
+    hidden:  []txt.Range, // §7's export to motion, and the whole of it
+    over:    []view.Style, // what the stages painted over their own output
+    gen:     u64, // the generation it was built against
+    point:   u64, // and the carets, which move without one
+    rev:     u64, // the plugin set and the config it was built under
+    ghosted: bool, // a preedit rode this build — its target follows focus, which no key above moves
+    latch:   bool, // a stage said "not finished, call me again"
+    arena:   mem.Dynamic_Arena,
 }
 
 // Every open document whose kind names stages, rebuilt where the generation, the config or the
@@ -47,21 +49,37 @@ Pipeline :: struct {
 views_settle :: proc(a: ^App) -> (latched: bool) {
     ids := store.store_ids(&a.docs)
     views_prune(a, ids)
+    pid := preedit_id(a)
     for id in ids {
         names := config_names(&a.config, kind_name(a, doc_kind(a, id)), "view")
+        ghost := id == pid ? a.preedit : ""
         gen, live := store.store_gen(&a.docs, id)
-        if len(names) == 0 || !live {
+        if (len(names) == 0 && ghost == "") || !live {
             views_forget(a, id)
             continue
         }
         point := views_point(a, id)
         if p, held := a.views[id];
-           held && p.gen == gen && p.point == point && p.rev == a.view_rev && !p.latch {
+           held && p.gen == gen && p.point == point && p.rev == a.view_rev &&
+           p.ghosted == (ghost != "") && !p.latch {
             continue
         }
-        latched |= views_build(a, id, names, gen, point)
+        latched |= views_build(a, id, names, gen, point, ghost)
     }
     return
+}
+
+// The document the platform IME's preedit ghosts into: where the commit would land (IME.md §8).
+// Preedit changes bump `view_rev` (preedit_set), which is the key the ghost rides.
+@(private = "file")
+preedit_id :: proc(a: ^App) -> store.Id {
+    if a.preedit == "" {
+        return {}
+    }
+    if s := active(a); s != nil {
+        return s.doc
+    }
+    return {}
 }
 
 // The document to DRAW, and the map back to the original. Both nil when no stage had anything to
@@ -128,7 +146,8 @@ pipeline_free :: proc(p: ^Pipeline) {
 // that re-decides everything per keystroke is what §11 warns authors about, and the kernel
 // deciding for them would mean holding a stage's output against edits it has not seen.
 @(private = "file")
-views_build :: proc(a: ^App, id: store.Id, names: []string, gen, point: u64) -> (latched: bool) {
+views_build :: proc(a: ^App, id: store.Id, names: []string, gen, point: u64,
+                    ghost: string) -> (latched: bool) {
     snap := store.store_snapshot(&a.docs, id)
     if snap == nil {
         return false
@@ -137,7 +156,7 @@ views_build :: proc(a: ^App, id: store.Id, names: []string, gen, point: u64) -> 
     p := new(Pipeline)
     mem.dynamic_arena_init(&p.arena)
     al := mem.dynamic_arena_allocator(&p.arena)
-    p.snap, p.gen, p.point, p.rev = snap, gen, point, a.view_rev
+    p.snap, p.gen, p.point, p.rev, p.ghosted = snap, gen, point, a.view_rev, ghost != ""
 
     t, dv, any := &snap.text, view.Derived{}, false
     runs := make([dynamic]View_Run, 0, 8, al)
@@ -156,18 +175,25 @@ views_build :: proc(a: ^App, id: store.Id, names: []string, gen, point: u64) -> 
         }
         // The stage's own runs are over its OUTPUT, so they are collected AFTER the derive that
         // makes that output, and everything already collected is carried forward through it.
-        nt := new(txt.Text, al)
-        step: view.Derived
-        nt^, step = view.derive(t, edits, al)
-        for &r in runs {
-            r.lo, _ = view.view_off(&step, r.lo)
-            r.hi, _ = view.view_off(&step, r.hi)
-        }
+        nt, step := chain_derive(t, edits, runs[:], al)
         for sp in spans {
             append(&runs, view_run_take(sp, nt.size))
         }
         dv = any ? view.compose(step, dv, al) : step
         t, any = nt, true
+    }
+    // The preedit is the kernel's own last stage (IME.md §8): a ghost is an insert, so the
+    // uncommitted composition rides the pipeline and needs no drawing code at all.
+    if ghost != "" {
+        if off, on := ghost_off(a, id, t, any ? &dv : nil); on {
+            text := transmute([]u8)strings.clone(ghost, al)
+            nt, step := chain_derive(t, []view.Edit{{off, off, text}}, runs[:], al)
+            append(&runs, View_Run{off, off + len(text),
+                                   {fg = u32(gfx.Token.Fg), bg = u32(gfx.Token.Bg),
+                                    attrs = {.Underline}}})
+            dv = any ? view.compose(step, dv, al) : step
+            t, any = nt, true
+        }
     }
     if !any {
         // Nothing folded, nothing inserted: the document IS the drawn one, and a map whose runs
@@ -180,6 +206,36 @@ views_build :: proc(a: ^App, id: store.Id, names: []string, gen, point: u64) -> 
     p.over = view_styles(&p.text, runs[:], al)
     a.views[id] = p
     return p.latch
+}
+
+// One more link of the chain: the edits derived over what it produced so far, and every run
+// already collected moved into the new space.
+@(private = "file")
+chain_derive :: proc(t: ^txt.Text, edits: []view.Edit, runs: []View_Run,
+                     al: mem.Allocator) -> (^txt.Text, view.Derived) {
+    nt := new(txt.Text, al)
+    step: view.Derived
+    nt^, step = view.derive(t, edits, al)
+    for &r in runs {
+        r.lo, _ = view.view_off(&step, r.lo)
+        r.hi, _ = view.view_off(&step, r.hi)
+    }
+    return nt, step
+}
+
+// The view offset the ghost lands at: the primary caret's byte, through the chain so far.
+// False in a hidden run — motion never leaves the caret there, but a stage may fold over it.
+@(private = "file")
+ghost_off :: proc(a: ^App, id: store.Id, t: ^txt.Text, dv: ^view.Derived) -> (int, bool) {
+    doc := store.store_doc(&a.docs, id)
+    if doc == nil {
+        return 0, false
+    }
+    at, on := view.view_pos(dv, t, doc.cursors[doc.primary].head)
+    if !on {
+        return 0, false
+    }
+    return txt.text_off(t, at), true
 }
 
 // One stage, through the fault net like every other call into a plugin (§10). What it wrote into

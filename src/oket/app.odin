@@ -112,6 +112,8 @@ App :: struct {
     held:         input.Code,
     mouse:        input.Mouse_State,
     hand:         ^sdl.Cursor, // the pointer over a field a click would act on
+    preedit:      string, // owned; the platform IME's uncommitted text, "" outside composition
+    ime_area:     sdl.Rect, // the caret rect last handed to SDL, so a still frame says nothing
     // Where the command line's row was drawn, past the prompt, in chrome cells. A document's
     // own rectangle is its panel's (panel.odin), because a cell number counts from one grid.
     bar:          Rect,
@@ -195,6 +197,7 @@ app_destroy :: proc(a: ^App) {
     home_destroy(&a.home)
     delete(a.dir)
     sdl.DestroyCursor(a.hand)
+    delete(a.preedit)
     panels_destroy(a)
     menubar_destroy(a)
     gfx.grid_destroy(&a.chrome)

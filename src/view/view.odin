@@ -675,6 +675,56 @@ mark_caret :: proc(
 
 // --- the mouse (§8) ---
 
+// The cell the caret at `p` is drawn in — the walk mark_caret takes, exported, so a platform
+// IME's candidate window docks where the caret is marked (IME.md §8). False off screen or in a
+// hidden run. Cell to pixel is the window layer's multiplication; nothing here knows a pixel.
+caret_cell :: proc(
+    t: ^txt.Text,
+    d: ^desc.Descriptor,
+    v: View,
+    x, y, w, h: int,
+    p: txt.Pos,
+    dv: ^Derived = nil,
+) -> (
+    cx, cy: int,
+    ok: bool,
+) {
+    gut := gutter_width(t, d, dv)
+    body := w - gut
+    if body <= 0 || h <= 0 {
+        return 0, 0, false
+    }
+    at, on := view_pos(dv, t, p)
+    if !on {
+        return 0, 0, false
+    }
+    if columnar(d) {
+        // A listing marks the whole row, so the row's first cell is the anchor.
+        if at.line < v.top || at.line >= v.top + h {
+            return 0, 0, false
+        }
+        return x + gut, y + at.line - v.top, true
+    }
+    rs := rows(t, d, v.top, body, h, dv)
+    for r, i in rs {
+        if at.line != r.line {
+            continue
+        }
+        src := txt.text_line(t, r.line, context.temp_allocator)
+        c := scrolled(r, src, v.left, d.tab_width)
+        if at.col < c.lo || at.col > c.hi {
+            continue
+        }
+        ind := indent(d, body, r.src)
+        cell := cell_of(src[c.lo:c.hi], at.col - c.lo, d.tab_width)
+        if cell >= body - ind {
+            continue // past the edge, where mark_caret marks nothing: a wrap boundary's caret is the next row's
+        }
+        return x + gut + ind + cell, y + i, true
+    }
+    return 0, 0, false
+}
+
 // Where a cell lands: the document position, and the field the descriptor names there. One walk,
 // because a click wants both and hover wants the name. Pixel to cell is the window layer's
 // division; nothing here knows what a pixel is.

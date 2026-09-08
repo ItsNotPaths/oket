@@ -108,6 +108,7 @@ close_app :: proc(a: ^app.App) {
     app.binds_requests_destroy(a)
     input.pending_set(&a.pending) // an armed picker owns its line, the same as app_destroy
     app.message_set(a, "")
+    delete(a.preedit) // owned by preedit_set, the same as app_destroy
     app.clips_free(a)
     app.jumps_free(a)
     app.find_free(a)

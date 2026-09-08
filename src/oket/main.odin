@@ -217,6 +217,7 @@ main :: proc() {
         latched := plug_pump(&a) | settled
 
         surface_draw(&a)
+        ime_area_update(&a) // after the draw laid out, so a moved caret re-docks the candidates
 
         gfx.gl_clear(w, h, chrome_bg(&a))
         surface_paint(&a, w, h)

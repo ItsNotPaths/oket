@@ -501,3 +501,55 @@ both_stages_get_the_chords_they_asked_for :: proc(t: ^testing.T) {
                         "%s asked for %s, which is already %s", c.owner, c.chord, c.held)
     }
 }
+
+// --- the preedit half: the kernel's own stage (IME.md §8) ---
+
+// The platform IME's uncommitted text is a ghost: on screen at the caret, never in the
+// document, and gone the moment the composition ends. No plugin is loaded — the stage is the
+// kernel's, so it must ghost into a document no `view =` line names.
+@(test)
+the_preedit_ghosts_into_the_view_and_never_the_document :: proc(t: ^testing.T) {
+    a, ok := bare_app()
+    if !testing.expect(t, ok) {
+        return
+    }
+    defer close_app(&a)
+    id := scratch_doc(&a, "note.txt", "hello\n")
+    app.ring_add(&a, id)
+
+    app.preedit_set(&a, "にほ")
+    app.docs_settle(&a)
+    testing.expect(t, strings.contains(drawn(&a, id), "にほ"), "the ghost is not drawn")
+    testing.expect_value(t, doc_text(&a, id), "hello")
+
+    app.preedit_set(&a, "")
+    app.docs_settle(&a)
+    dt, _ := app.views_of(&a, id)
+    testing.expect(t, dt == nil, "an empty preedit left a pipeline behind")
+}
+
+// The ghost's target follows focus, and focus moves none of a pipeline's other keys — a staged
+// document left behind would keep drawing the ghost, so its presence is a key of its own.
+@(test)
+the_ghost_follows_focus_out_of_a_staged_document :: proc(t: ^testing.T) {
+    a, _, ok := views_app(t, "oket-views-preedit-focus", BLOCK)
+    if !ok {
+        return
+    }
+    defer close_plug_app(&a)
+    first := app.ring_focused(&a).doc
+
+    app.preedit_set(&a, "にほ")
+    app.docs_settle(&a)
+    testing.expect(t, strings.contains(drawn(&a, first), "にほ"), "no ghost where focus is")
+
+    other, _ := filepath.join({home_dir(a.home), "other.py"}, context.temp_allocator)
+    if err := os.write_entire_file(other, string(BLOCK)); err != nil {
+        testing.expectf(t, false, "cannot write %s: %v", other, err)
+        return
+    }
+    app.cl_exec(&a, fmt.tprintf(":open %s", other))
+    app.docs_settle(&a)
+    testing.expect(t, !strings.contains(drawn(&a, first), "にほ"),
+                   "the ghost stayed in the document focus left")
+}

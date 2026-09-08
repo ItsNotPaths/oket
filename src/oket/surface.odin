@@ -109,6 +109,47 @@ panel_draw :: proc(a: ^App, p: ^Panel, marked: bool) {
     }
 }
 
+// The focused caret's cell in framebuffer pixels — the same origin math surface_paint draws
+// with, so what the platform IME docks to is where the caret is marked (IME.md §8).
+caret_px :: proc(a: ^App, win_w, win_h: i32) -> (x, y: int, ok: bool) {
+    ox, oy := gfx.painter_origin(&a.painter, win_w, win_h, a.chrome.cols, a.chrome.rows)
+    cw, ch := gfx.painter_cell(&a.painter)
+    if cl_active(a) {
+        cx, cy, on := doc_caret_cell(a, a.cl.doc, a.cl.view, a.bar.x, a.bar.y, a.bar.w, 1)
+        return ox + cx * cw, oy + cy * ch, on
+    }
+    p := panel_focused(a)
+    s := panel_slot(a, p)
+    if s == nil {
+        return 0, 0, false
+    }
+    b := p.body
+    cx, cy, on := doc_caret_cell(a, s.doc, s.view, b.x, b.y, b.w, b.h)
+    if !on {
+        return 0, 0, false
+    }
+    it := strip.span(a.strip, panel_widths(a), a.focus)
+    return ox + int(it.x) + cx * cw, oy + menu_rows(a) * ch + cy * ch, true
+}
+
+@(private = "file")
+doc_caret_cell :: proc(a: ^App, id: store.Id, v: view.View,
+                       x, y, w, h: int) -> (cx, cy: int, ok: bool) {
+    snap := store.store_snapshot(&a.docs, id)
+    if snap == nil {
+        return 0, 0, false
+    }
+    defer txt.snapshot_release(snap)
+    doc := store.store_doc(&a.docs, id)
+    if doc == nil {
+        return 0, 0, false
+    }
+    d := store.store_descriptor(&a.docs, id)
+    defer desc.release(d)
+    t, dv := views_text(a, id, &snap.text)
+    return view.caret_cell(t, d, v, x, y, w, h, doc.cursors[doc.primary].head, dv)
+}
+
 // The frame, on the GPU: the chrome, then every panel over it. A panel's origin is the chrome's
 // corner plus what the strip says, which is pixels and not cells — that is the whole of what a
 // gap, a half width and a camera cost here (§7).

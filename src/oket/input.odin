@@ -54,12 +54,15 @@ input_event :: proc(a: ^App, ev: ^sdl.Event) {
         for r in string(ev.text.text) {
             text_input(a, r)
         }
+    case .TEXT_EDITING:
+        preedit_set(a, string(ev.edit.text))
     case .WINDOW_FOCUS_LOST:
         // The window has lost the keyboard, so the release of whatever is down will be
         // delivered somewhere else. A `held` nobody clears would qualify every chord after it.
         a.held = 0
         pick_drop(a)
         switcher_drop(a) // alt's release will be delivered elsewhere, so the column ends here
+        preedit_set(a, "") // and the composition went with the keyboard
     case .MOUSE_BUTTON_DOWN, .MOUSE_BUTTON_UP:
         button_event(a, &ev.button)
     case .MOUSE_MOTION:
@@ -214,6 +217,40 @@ mods_of :: proc(mod: sdl.Keymod) -> (m: input.Mods) {
 @(private = "file")
 mods_now :: proc() -> input.Mods {
     return mods_of(sdl.GetModState())
+}
+
+// The uncommitted composition, drawn as a ghost by the view pipeline (IME.md §8). The commit
+// arrives as TEXT_INPUT like any typed text, so nothing else changes hands.
+preedit_set :: proc(a: ^App, text: string) {
+    if a.preedit == text {
+        return
+    }
+    delete(a.preedit)
+    a.preedit = text != "" ? strings.clone(text) : ""
+    views_dirty(a) // the ghost is view state, and the rev is the key it rides
+}
+
+// The caret's cell, handed to SDL once per change: the candidate window docks at the caret
+// instead of a screen corner (IME.md §8).
+ime_area_update :: proc(a: ^App) {
+    fw, fh, ww, wh: c.int
+    sdl.GetWindowSizeInPixels(a.window, &fw, &fh)
+    sdl.GetWindowSize(a.window, &ww, &wh)
+    px, py, on := caret_px(a, fw, fh)
+    if !on {
+        return
+    }
+    cw, ch := gfx.painter_cell(&a.painter)
+    // Framebuffer pixels back to window coordinates: the inverse of cell_at's scale.
+    sx := fw > 0 ? f64(ww) / f64(fw) : 1
+    sy := fh > 0 ? f64(wh) / f64(fh) : 1
+    r := sdl.Rect{i32(f64(px) * sx), i32(f64(py) * sy),
+                  i32(f64(cw) * sx + 1), i32(f64(ch) * sy + 1)}
+    if r == a.ime_area {
+        return
+    }
+    a.ime_area = r
+    _ = sdl.SetTextInputArea(a.window, &r, 0)
 }
 
 // The pointer arrives in window coordinates and the grids are laid out in framebuffer pixels,
