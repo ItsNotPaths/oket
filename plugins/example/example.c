@@ -1,22 +1,28 @@
-/* Completion, as a view stage (VIEWS §5, stage 7). The other half of the DESIGN GATE, and the
- * one the pipeline exists for.
+/* The example plugin: the smallest whole one, twice over.
  *
- * A popup is positioned against WHAT THE USER SEES. It reads the caret out of the snapshot it
- * was handed — which is the fold stage's output, not the file — so the box lands under the row
- * on screen whether or not a fold above it deleted lines. Nothing here maps a coordinate, and
- * nothing here can: original offsets never appear in the stage at all. That is the whole of §5's
- * argument, and it is why the stages are a pipeline instead of a fan.
+ * The SURFACE half (§7, stage 7) registers a kind, a command and a bind request; it opens
+ * documents of that kind and fills them in; it counts the chords routed to it; and it frees its
+ * instance in `close`. Unloading walks the ledger backwards and leaves the kernel as it was.
  *
- *     alt+/          gather the words that carry on from the one point is inside, and show them
- *     alt+/ again    the next candidate
- *     alt+shift+/    put the picked one in, which is an ORDINARY submit against the document
+ * The COMPLETION half (VIEWS §5, stage 7) is a view stage. A popup is positioned against WHAT
+ * THE USER SEES: it reads the caret out of the snapshot it was handed — the fold stage's
+ * output, not the file — so the box lands under the row on screen whether or not a fold above
+ * it deleted lines. Nothing here maps a coordinate, and nothing here can: original offsets
+ * never appear in the stage at all. That is the whole of §5's argument, and it is why the
+ * stages are a pipeline instead of a fan.
  *
- * THE SCAN IS IN THE COMMAND, NOT THE STAGE (§11). A stage that re-read the file every frame
- * would defeat the zero-copy the derived table exists for; this one walks the buffer once, when
- * the chord asks, and the stage after it only draws the list.
+ * Note what is NOT here. No draw call, because plugins do not draw (§12): each half produces a
+ * document, a descriptor or a stage's edits, and the kernel's one renderer draws them. No
+ * generation bookkeeping, because oket_set reads the newest one (§6). No `enter` handler for
+ * the surface, because `enter` over a row is a binds.conf line reading the `<name>` field this
+ * file records — data the kernel reads, not a callback it makes (§5).
  *
- *     :pluginify plugins/popup        build it and load it
- *     [edit] view = fold, popup       in config.conf; the ORDER is the pipeline
+ *     :pluginify plugins/example      build it and load it
+ *     alt+h                           open the surface, once the requested row is in binds.conf
+ *     alt+/                           gather the words that carry on from the one point is in
+ *     alt+/ again                     the next candidate
+ *     alt+shift+/                     put the picked one in: an ORDINARY submit
+ *     [edit] view = fold, example     in config.conf; the ORDER is the pipeline
  */
 #include <stdarg.h>
 #include <stdio.h>
@@ -24,6 +30,116 @@
 #include <string.h>
 
 #include "oket_helpers.h"
+
+/* --- the surface --- */
+
+static oket_kind EXAMPLE;
+
+/* Per-document state. A kind that remembered nothing would not need this at all; this one is
+ * here to prove close() gets it back. */
+typedef struct {
+    unsigned chords;
+    unsigned foreign; /* generations somebody ELSE moved */
+} example;
+
+static void render(const oket_api *api, oket_self self, oket_doc doc, example *e) {
+    static const char *const ROWS[][2] = {
+        {"kind", "a document the kernel draws with its own renderer"},
+        {"seam", "six messages, and reads are not one of them"},
+        {"undo", "the kernel's, so ctrl+z reaches a foreign splice"},
+    };
+    oket_build b;
+    oket_descriptor d;
+    char count[32];
+    size_t i;
+
+    memset(&b, 0, sizeof b);
+    oket_build_column(&b, "name", 8, OKET_ALIGN_LEFT);
+    oket_build_column(&b, "note", 60, OKET_ALIGN_LEFT);
+    for (i = 0; i < sizeof ROWS / sizeof *ROWS; i++) {
+        oket_build_cell(&b, "name", ROWS[i][0], strlen(ROWS[i][0]));
+        oket_build_cell(&b, "note", ROWS[i][1], strlen(ROWS[i][1]));
+        oket_build_row(&b);
+    }
+    oket_build_cell(&b, "name", "keys", 4);
+    i = (size_t)snprintf(count, sizeof count, "%u chord(s), %u foreign write(s)",
+                         e->chords, e->foreign);
+    oket_build_cell(&b, "note", count, i);
+
+    memset(&d, 0, sizeof d);
+    d.kind = EXAMPLE;
+    d.render = OKET_RENDER_TEXT;
+    d.selection = OKET_SELECT_LINE;
+    /* `raw`, so a chord no row claims reaches event() below rather than going quiet (§8). */
+    d.input = OKET_INPUT_RAW;
+    d.tab_width = 4;
+    oket_build_desc(&b, &d);
+    oket_set(api, self, doc, b.text, b.oom ? 0 : b.len, &d);
+    oket_build_free(&b);
+}
+
+static void *open_example(const oket_api *api, oket_self self, oket_doc doc,
+                          const char *args, size_t args_len) {
+    example *e = calloc(1, sizeof *e);
+    (void)args;
+    (void)args_len;
+    if (e != NULL) {
+        render(api, self, doc, e);
+    }
+    return e;
+}
+
+static void close_example(const oket_api *api, oket_self self, oket_doc doc, void *inst) {
+    (void)api;
+    (void)self;
+    (void)doc;
+    free(inst);
+}
+
+static int32_t event(const oket_api *api, oket_self self, const oket_at *at,
+                     oket_event ev, const char *text, size_t len) {
+    example *e = at->inst;
+
+    if (e == NULL) {
+        return 0;
+    }
+    /* Somebody else spliced our document — a formatter, a sort addon, `:put`. Nothing here
+     * needs repairing, so it is only counted; a REPL would re-read its editable span here. The
+     * kernel does not report our OWN writes, so counting one cannot start a loop. */
+    if (ev == OKET_EVENT_MOVED) {
+        e->foreign++;
+        return 0;
+    }
+    if (ev == OKET_EVENT_CHORD && oket_chord_is(text, len, "@ESC")) {
+        return 0; /* declined, so the kernel reports it rather than swallowing it */
+    }
+    e->chords++;
+    render(api, self, at->doc, e);
+    return 1;
+}
+
+/* Reads the document under point through the snapshot it was handed — by pointer, with no call
+ * back into the kernel — and echoes the line the caret is on. */
+static int32_t say(const oket_api *api, oket_self self, const oket_at *at,
+                   const char *args, size_t args_len) {
+    char line[256];
+    size_t n;
+
+    if (args_len > 0) {
+        api->message(api, self, args, args_len);
+        return 0;
+    }
+    if (at->snap == NULL || at->snap->ncursors == 0) {
+        api->message(api, self, LIT("example"));
+        return 0;
+    }
+    n = oket_line_copy(at->snap, (size_t)at->snap->cursors[at->snap->primary].head.line,
+                       line, sizeof line);
+    api->message(api, self, line, n);
+    return 0;
+}
+
+/* --- completion --- */
 
 #define CANDS_MAX 8
 #define WORD_MAX 64
@@ -50,7 +166,15 @@ static void popup_close(void) {
     POP.prefix_len = 0;
 }
 
-/* --- gathering --- */
+static int popup_showing(oket_doc doc) {
+    return POP.on && POP.doc == doc && POP.ncands > 0;
+}
+
+/* --- gathering ---
+ *
+ * THE SCAN IS IN THE COMMAND, NOT THE STAGE (§11). A stage that re-read the file every frame
+ * would defeat the zero-copy the derived table exists for; this one walks the buffer once, when
+ * the chord asks, and the stage after it only draws the list. */
 
 static int word_byte(char c) {
     return oket_class_of((uint32_t)(unsigned char)c) == OKET_CLASS_WORD;
@@ -215,7 +339,7 @@ static void popup_box(const oket_api *api, oket_self self, const oket_at *at) {
 static int32_t popup_view(const oket_api *api, oket_self self, const oket_at *at,
                           oket_view_out *out) {
     oket_view_clear(&EDITS, &MARKS);
-    if (POP.on && POP.doc == at->doc && POP.ncands > 0 && at->snap->ncursors > 0) {
+    if (popup_showing(at->doc) && at->snap->ncursors > 0) {
         popup_box(api, self, at);
     }
     oket_view_fill(out, &EDITS, &MARKS);
@@ -238,7 +362,7 @@ static int32_t complete_cmd(const oket_api *api, oket_self self, const oket_at *
         return 0;
     }
     if (args_len == 6 && memcmp(args, "accept", 6) == 0) {
-        if (!POP.on || POP.doc != at->doc || POP.ncands == 0 || !caret_word(s, &lo, &hi)) {
+        if (!popup_showing(at->doc) || !caret_word(s, &lo, &hi)) {
             popup_close();
             return 1;
         }
@@ -253,7 +377,7 @@ static int32_t complete_cmd(const oket_api *api, oket_self self, const oket_at *
     }
     /* Open, or step to the next candidate. Asking again is how the list is walked, so there is
      * no mode to be in and no second tier of binds while one is up. */
-    if (POP.on && POP.doc == at->doc && POP.ncands > 0) {
+    if (popup_showing(at->doc)) {
         POP.pick = (POP.pick + 1) % POP.ncands;
         return 0;
     }
@@ -288,6 +412,20 @@ static int32_t popup_moved(const oket_api *api, oket_self self, const oket_at *a
 }
 
 OKET_MAIN {
+    static const oket_kind_spec SPEC = {
+        LIT("example"),
+        LIT("surface"), /* rows, not characters: a listing is not a text field */
+        {open_example, close_example, event},
+    };
+    EXAMPLE = api->register_kind(api, self, &SPEC);
+    if (EXAMPLE == 0) {
+        return 1; /* the ledger reverts nothing, because nothing went on */
+    }
+    api->register_command(api, self, LIT("example"), LIT("echo the line under point"), say);
+    /* ASKED FOR, never claimed (§8): this becomes a row in binds.conf and the file decides
+     * from then on. A chord already taken is written commented out, not stolen. */
+    api->request_bind(api, self, LIT("global"), LIT("alt+h"), LIT("exec :ring example"));
+
     BOX = api->register_token(api, self, LIT("punctuation"));
     PICKED = api->register_token(api, self, LIT("accent"));
     api->register_view(api, self, popup_view);
@@ -299,8 +437,8 @@ OKET_MAIN {
      * dabbrev: the words already in the buffer. alt+w is the strip's width toggle. */
     api->request_bind(api, self, LIT("text"), LIT("alt+@AB10"), LIT("complete"));
     api->request_bind(api, self, LIT("text"), LIT("alt+shift+@AB10"), LIT("complete accept"));
-    /* The pipeline is a config line, never a load order (§5). Popup goes AFTER fold, which is
-     * what makes the box land under the row on screen. */
-    api->request_config(api, self, LIT("edit"), LIT("view"), LIT("popup"));
+    /* The pipeline is a config line, never a load order (§5). This stage goes AFTER fold, which
+     * is what makes the box land under the row on screen. */
+    api->request_config(api, self, LIT("edit"), LIT("view"), LIT("example"));
     return 0;
 }

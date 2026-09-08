@@ -17,7 +17,7 @@ import "../view"
 //   - NOTHING HERE REACHES THE DOCUMENT. A view edit is never submitted, never journalled and
 //     never saved. `store_submit` is untouched, so the platter records original splices and only
 //     original splices (§6).
-//   - The chain is CONFIG, keyed by kind: `[edit] view = fold, popup`. A stage that ran because
+//   - The chain is CONFIG, keyed by kind: `[edit] view = fold, example`. A stage that ran because
 //     its plugin was loaded would make load order the layout (§9).
 //   - It is built at SETTLE TIME, once, after the drain — not per frame and not per draw. The
 //     generation it was built against is the cache key, so a frame that moved nothing rebuilds

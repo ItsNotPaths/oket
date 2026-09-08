@@ -30,19 +30,19 @@ a_quarantined_plugin_is_not_autoloaded :: proc(t: ^testing.T) {
 
     // What the fault handler leaves: one name, one `write`, no formatting (fault.odin).
     quarantine, _ := filepath.join({a.home.state, app.QUARANTINE_FILE}, context.temp_allocator)
-    testing.expect_value(t, os.write_entire_file(quarantine, transmute([]u8)string("hello\n")),
+    testing.expect_value(t, os.write_entire_file(quarantine, transmute([]u8)string("example\n")),
                          nil)
 
     app.quarantine_open(&a)
-    testing.expect(t, app.quarantined(&a, "hello"), "the sweep did not read the report")
+    testing.expect(t, app.quarantined(&a, "example"), "the sweep did not read the report")
     app.plug_autoload(&a)
-    testing.expect_value(t, app.plug_find(&a, "hello"), -1)
-    testing.expect(t, strings.contains(a.message, "hello"), a.message)
+    testing.expect_value(t, app.plug_find(&a, "example"), -1)
+    testing.expect(t, strings.contains(a.message, "example"), a.message)
 
     // An explicit load is the author saying they fixed it, so the name leaves the list and the
     // file: a quarantine you cannot lift is a plugins directory you have to edit by hand.
-    testing.expect(t, app.plug_load(&a, app.plug_path(&a, "hello")), a.message)
-    testing.expect(t, !app.quarantined(&a, "hello"), "the quarantine outlived the load")
+    testing.expect(t, app.plug_load(&a, app.plug_path(&a, "example")), a.message)
+    testing.expect(t, !app.quarantined(&a, "example"), "the quarantine outlived the load")
     testing.expect(t, !os.exists(quarantine), "the last name left, and the file stayed")
 }
 

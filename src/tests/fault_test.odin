@@ -158,21 +158,21 @@ a_document_smashed_under_a_dispatch_is_caught :: proc(t: ^testing.T) {
     }
     defer close_plug_app(&a)
     app.plug_init(&a)
-    if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "hello")), a.message) {
+    if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "example")), a.message) {
         return
     }
-    kind, _ := app.kind_named(&a, "hello")
+    kind, _ := app.kind_named(&a, "example")
     id, opened := app.kind_fresh(&a, kind)
     testing.expect(t, opened, "the kind opened nothing")
     app.ring_add(&a, id)
 
     // A wild store, standing in for the one a plugin walking off a snapshot would make.
     store.store_doc(&a.docs, id).magic = 0
-    app.cl_exec(&a, ":hello")
+    app.cl_exec(&a, ":example")
 
-    testing.expect(t, app.plug_find(&a, "hello") < 0, "corrupting a document cost nothing")
+    testing.expect(t, app.plug_find(&a, "example") < 0, "corrupting a document cost nothing")
     bar := app.bar_text(&a)
-    testing.expect(t, strings.contains(bar, "hello"), bar)
+    testing.expect(t, strings.contains(bar, "example"), bar)
     testing.expect(t, strings.contains(bar, "corrupt"), bar)
 }
 
@@ -189,7 +189,7 @@ autoload_takes_every_so_in_the_plugin_directory :: proc(t: ^testing.T) {
 
     app.plug_autoload(&a)
 
-    testing.expect(t, app.plug_find(&a, "hello") >= 0, a.message)
-    _, named := app.kind_named(&a, "hello")
+    testing.expect(t, app.plug_find(&a, "example") >= 0, a.message)
+    _, named := app.kind_named(&a, "example")
     testing.expect(t, named, "it loaded without registering")
 }

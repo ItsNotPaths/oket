@@ -12,11 +12,11 @@ import "../txt"
 import "../view"
 import app "../oket"
 
-// VIEWS.md stage 7's gate, and it is a DESIGN gate: a fold plugin and a popup plugin, ordered by
+// VIEWS.md stage 7's gate, and it is a DESIGN gate: a fold stage and a popup stage, ordered by
 // a config line, both real. If a stage could not be expressed as edits against what it was
 // handed, the model in §5 would be redesigned rather than patched.
 //
-// The subjects are plugins/fold and plugins/popup, built by plugins/stage.sh like any other. The
+// The subjects are plugins/fold and plugins/example, built by plugins/stage.sh like any other. The
 // question each test asks is whether a view is EDITS: whether a document derived from a stage's
 // output draws, moves and saves as the document it came from, and whether a stage that reads
 // what the user sees can be written without reaching around the pipeline.
@@ -38,18 +38,18 @@ views_app :: proc(
     // The `view` line the file starts with. "" leaves config.conf absent, so the stages write
     // their own row the way a first load does; "none" writes the owner markers alone, which is
     // the file saying both have been offered and neither is wanted.
-    order := "fold, popup",
+    order := "fold, example",
 ) -> (
     a: app.App,
     path: string,
     ok: bool,
 ) {
-    a = plug_app(t, name, "plugins/edit", "plugins/fold", "plugins/popup") or_return
+    a = plug_app(t, name, "plugins/edit", "plugins/fold", "plugins/example") or_return
     if order != "" {
         conf, _ := filepath.join({a.home.config, app.CONFIG_NAME}, context.temp_allocator)
         body := order != "none" \
             ? fmt.tprintf("[edit]\nview = %s\n", order) \
-            : "# --- fold ---\n# --- popup ---\n"
+            : "# --- fold ---\n# --- example ---\n"
         if err := os.write_entire_file(conf, transmute([]u8)body); err != nil {
             testing.expectf(t, false, "cannot write %s: %v", conf, err)
             close_plug_app(&a)
@@ -58,7 +58,7 @@ views_app :: proc(
     }
     app.plug_init(&a)
     app.config_sync(&a)
-    for plugin in ([?]string{"edit", "fold", "popup"}) {
+    for plugin in ([?]string{"edit", "fold", "example"}) {
         if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, plugin)), a.message) {
             close_plug_app(&a)
             return {}, "", false
@@ -325,14 +325,14 @@ a_stage_asks_for_its_row_once :: proc(t: ^testing.T) {
     path, _ := filepath.join({a.home.config, app.CONFIG_NAME}, context.temp_allocator)
     raw, _ := os.read_entire_file(path, context.temp_allocator)
     body := string(raw)
-    testing.expect(t, strings.contains(body, "view = fold, popup"), body)
+    testing.expect(t, strings.contains(body, "view = fold, example"), body)
     named := app.config_names(&a.config, "edit", "view")
     testing.expect_value(t, len(named), 2)
-    testing.expect_value(t, strings.join(named, ",", context.temp_allocator), "fold,popup")
+    testing.expect_value(t, strings.join(named, ",", context.temp_allocator), "fold,example")
 
     // The marker is the record that it was asked, so a name the user then deletes stays
     // deleted. Loading again writes nothing.
-    edited, _ := strings.replace_all(body, "view = fold, popup", "view = popup",
+    edited, _ := strings.replace_all(body, "view = fold, example", "view = example",
                                      context.temp_allocator)
     testing.expect_value(t, os.write_entire_file(path, transmute([]u8)edited), nil)
     app.config_sync(&a)
@@ -497,7 +497,7 @@ both_stages_get_the_chords_they_asked_for :: proc(t: ^testing.T) {
     // inside text documents. The editor's three shadows are deliberate — it is replacing those
     // verbs for its own kind — and a fold or a popup has no business replacing anything.
     for c in a.clashes {
-        testing.expectf(t, c.owner != "fold" && c.owner != "popup",
+        testing.expectf(t, c.owner != "fold" && c.owner != "example",
                         "%s asked for %s, which is already %s", c.owner, c.chord, c.held)
     }
 }

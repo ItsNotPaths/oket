@@ -34,7 +34,7 @@ Both orders are config, per kind, so every plugin-owned panel sets its own:
 ```conf
 [plugin-name] layer = post-processing-plugin-1, post-processing-plugin-2
 [edit] spans = syntax, lsp     # who colours over whom
-[edit] view  = fold, popup     # the pipeline, in order
+[edit] view  = fold, example   # the pipeline, in order
 ```
 
 Neither the spans nor the stages reach the file.
@@ -168,7 +168,7 @@ transparent: an unmodified key after one clears it and does what it always did.
 [session] restore = on   # the ring, across restarts
 [switcher] show = titles # what a held alt draws: titles or numbers
 [edit]    spans = syntax, lsp     # who colours over whom, lowest first
-[edit]    view  = fold, popup     # the view pipeline, in order
+[edit]    view  = fold, example   # the view pipeline, in order
 [menu]    bar   = file, edit, view, panel
 ```
 
@@ -222,7 +222,7 @@ OKET_MAIN {
 ```
 
 ```sh
-./plugins/stage.sh plugins/hello build/plugins   # or `:pluginify plugins/hello` while it runs
+./plugins/stage.sh plugins/example build/plugins # or `:pluginify plugins/example` while it runs
 ```
 
 A chord is requested: the row lands in `binds.conf` and the file decides after

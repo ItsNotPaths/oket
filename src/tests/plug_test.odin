@@ -14,7 +14,7 @@ import app "../oket"
 // Stage 7's gate (§13): a plugin registers, opens, renders and unloads clean; the ledger
 // reverts everything; and a helper call inlines into the plugin under -flto.
 //
-// The subject is plugins/hello, built by plug_app in support_test.odin.
+// The subject is plugins/example, built by plug_app in support_test.odin.
 
 // The whole gate in one pass: it registers, it opens, what it opened renders through the
 // kernel's own renderer, and unloading reverts every registration.
@@ -27,19 +27,19 @@ a_plugin_registers_opens_renders_and_unloads :: proc(t: ^testing.T) {
     defer close_plug_app(&a)
     app.plug_init(&a)
 
-    if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "hello")), a.message) {
+    if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "example")), a.message) {
         return
     }
 
     // --- register ---
-    kind, named := app.kind_named(&a, "hello")
+    kind, named := app.kind_named(&a, "example")
     testing.expect(t, named, "the kind it registered is not in the table")
     testing.expect(t, int(kind) > len(app.KINDS), "a plugin kind appends PAST the kernel's own")
-    testing.expect_value(t, app.kind_name(&a, kind), "hello")
-    _, is_cmd := app.plug_cmd_named(&a, "hello")
-    testing.expect(t, is_cmd, ":hello did not register")
+    testing.expect_value(t, app.kind_name(&a, kind), "example")
+    _, is_cmd := app.plug_cmd_named(&a, "example")
+    testing.expect(t, is_cmd, ":example did not register")
     // Asked for, not claimed: the row is text in the user's file and the file decides (§8).
-    row := strings.contains(read_binds(&a), "alt+h = exec :ring hello")
+    row := strings.contains(read_binds(&a), "alt+h = exec :ring example")
     testing.expect(t, row, "the requested bind never reached binds.conf")
 
     // --- open, and render ---
@@ -66,10 +66,10 @@ a_plugin_registers_opens_renders_and_unloads :: proc(t: ^testing.T) {
     testing.expect(t, strings.contains(drawn, "kind"), drawn)
 
     // --- unload, and the ledger ---
-    testing.expect(t, app.plug_unload(&a, app.plug_find(&a, "hello")))
-    _, still_named := app.kind_named(&a, "hello")
+    testing.expect(t, app.plug_unload(&a, app.plug_find(&a, "example")))
+    _, still_named := app.kind_named(&a, "example")
     testing.expect(t, !still_named, "the ledger left a kind behind")
-    _, still_cmd := app.plug_cmd_named(&a, "hello")
+    _, still_cmd := app.plug_cmd_named(&a, "example")
     testing.expect(t, !still_cmd, "the ledger left a command behind")
     testing.expect(t, !store.store_is_open(&a.docs, id), "the ledger left a document open")
     // The id stays valid and resolves to nothing. Reusing it would route a keystroke into
@@ -92,10 +92,10 @@ a_raw_chord_reaches_the_plugin :: proc(t: ^testing.T) {
     }
     defer close_plug_app(&a)
     app.plug_init(&a)
-    if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "hello")), a.message) {
+    if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "example")), a.message) {
         return
     }
-    kind, _ := app.kind_named(&a, "hello")
+    kind, _ := app.kind_named(&a, "example")
     id, _ := app.kind_fresh(&a, kind)
     app.ring_add(&a, id)
 
@@ -122,10 +122,10 @@ a_foreign_write_lands_and_the_owner_is_told :: proc(t: ^testing.T) {
     }
     defer close_plug_app(&a)
     app.plug_init(&a)
-    if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "hello")), a.message) {
+    if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "example")), a.message) {
         return
     }
-    kind, _ := app.kind_named(&a, "hello")
+    kind, _ := app.kind_named(&a, "example")
     id, _ := app.kind_fresh(&a, kind)
     app.ring_add(&a, id)
     app.plug_pump(&a) // the plugin's own `open` write, which it is NOT told about
@@ -153,10 +153,10 @@ a_dropped_write_of_our_own_still_reports_the_move :: proc(t: ^testing.T) {
     }
     defer close_plug_app(&a)
     app.plug_init(&a)
-    if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "hello")), a.message) {
+    if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "example")), a.message) {
         return
     }
-    kind, _ := app.kind_named(&a, "hello")
+    kind, _ := app.kind_named(&a, "example")
     id, _ := app.kind_fresh(&a, kind)
     app.ring_add(&a, id)
     app.plug_pump(&a)
@@ -186,14 +186,14 @@ a_registered_command_runs_from_the_command_line :: proc(t: ^testing.T) {
     }
     defer close_plug_app(&a)
     app.plug_init(&a)
-    if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "hello")), a.message) {
+    if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "example")), a.message) {
         return
     }
     app.ring_add(&a, scratch_doc(&a, "note", "alpha\nbeta\ngamma"))
     doc := store.store_doc(&a.docs, app.ring_focused(&a).doc)
     doc.cursors[doc.primary] = {anchor = {1, 0}, head = {1, 0}}
 
-    app.cl_exec(&a, ":hello")
+    app.cl_exec(&a, ":example")
     testing.expect_value(t, a.message, "beta")
 }
 
@@ -207,14 +207,14 @@ a_reload_refuses_the_handle_the_last_load_had :: proc(t: ^testing.T) {
     }
     defer close_plug_app(&a)
     app.plug_init(&a)
-    if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "hello")), a.message) {
+    if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "example")), a.message) {
         return
     }
-    i := app.plug_find(&a, "hello")
+    i := app.plug_find(&a, "example")
     stale := app.plug_self(&a, i)
 
-    testing.expect(t, app.plug_reload(&a, "hello"), a.message)
-    testing.expect_value(t, app.plug_find(&a, "hello"), i) // the slot is reused
+    testing.expect(t, app.plug_reload(&a, "example"), a.message)
+    testing.expect_value(t, app.plug_find(&a, "example"), i) // the slot is reused
     testing.expect(t, app.plug_self(&a, i) != stale, "the generation did not move")
 }
 
@@ -230,7 +230,7 @@ helpers_inline_and_the_rest_are_stripped :: proc(t: ^testing.T) {
     defer close_plug_app(&a)
 
     state, out, errs, err := os.process_exec(
-        {command = {"nm", app.plug_path(&a, "hello")}},
+        {command = {"nm", app.plug_path(&a, "example")}},
         context.temp_allocator,
     )
     if err != nil || !state.success {
@@ -239,14 +239,15 @@ helpers_inline_and_the_rest_are_stripped :: proc(t: ^testing.T) {
     }
     syms := string(out)
     testing.expect(t, strings.contains(syms, "oket_main"), "the entry point is missing")
-    // Used, and gone: hello.c calls all four, so what is left of them is inlined code.
+    // Used, and gone: example.c calls all four, so what is left of them is inlined code.
     for gone in ([?]string{"oket_line_copy", "oket_copy", "oket_run", "oket_set"}) {
         testing.expectf(t, !strings.contains(syms, gone), "%s did not inline", gone)
     }
     // Never called, and gone: nothing declares which helpers it wants, and the linker is what
-    // decides. This is the half that would cost a shared library nothing to keep.
+    // decides. This is the half that would cost a shared library nothing to keep — the whole
+    // list core included, which example.c never touches.
     for gone in ([?]string{"oket_word_right", "oket_pair_close", "oket_col_bytes",
-                           "oket_batch_edit", "oket_cursor_span"}) {
+                           "oket_list_publish", "oket_cursor_span"}) {
         testing.expectf(t, !strings.contains(syms, gone), "%s was not stripped", gone)
     }
 }

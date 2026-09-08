@@ -168,7 +168,7 @@ plug_app :: proc(t: ^testing.T, name: string, plugins: ..string) -> (a: app.App,
     home := scratch(t, name) or_return
     out, _ := filepath.join({home, app.PLUGIN_DIR}, context.temp_allocator)
     script, _ := filepath.join({REPO, "plugins", "stage.sh"}, context.temp_allocator)
-    wanted := plugins if len(plugins) > 0 else {"plugins/hello"}
+    wanted := plugins if len(plugins) > 0 else {"plugins/example"}
 
     for plugin in wanted {
         src, _ := filepath.join({REPO, plugin}, context.temp_allocator)

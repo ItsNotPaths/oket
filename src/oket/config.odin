@@ -41,7 +41,7 @@ Config :: struct {
     // about the vocabulary a kind is written in:
     //
     //     [<kind>] spans = treesitter, lsp, rainbow   who draws over whom, lowest first (§8)
-    //     [<kind>] view  = fold, popup                the view pipeline, in order (§5)
+    //     [<kind>] view  = fold, example              the view pipeline, in order (§5)
     //
     // A publisher `spans` does not name draws on top of the ones it does (producers.odin). A
     // plugin `view` does not name is not in the pipeline at all — a stage that ran because it
