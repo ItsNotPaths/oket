@@ -381,6 +381,114 @@ void oket_view_fill(oket_view_out *out, const oket_batch *edits, const oket_span
  * wants. Either may be NULL. Free them for real with oket_batch_free / oket_spans_free. */
 void oket_view_clear(oket_batch *edits, oket_spans *spans);
 
+/* --- a list of rows (the browser/picker core) ---
+ *
+ * What the file browser, the theme picker and the grammar list share: a document whose lines
+ * are rows, a ctrl+f filter, and typing that edits the NAME of the row under point. A plugin
+ * supplies count/match/row callbacks and keeps its own row state; the core owns the filter,
+ * the publish scaffold, and the clamped typing/erase machinery.
+ *
+ * A row that takes no typing sets `fixed`, which is how a picker's rows "rename to nothing":
+ * the shared edit path lands on them and does nothing, the same as the browser's `..`.
+ *
+ * ONE LIST KIND PER PLUGIN, like register_view: the spec and its verbs are plugin-level
+ * statics, which per-plugin linking makes private state. */
+
+#define OKET_LIST_FILTER_CAP 48
+
+/* One published line, behind any head row. `idx` is the plugin's own row index; the name
+ * fields are what the edit machinery clamps into. `tail` is punctuation after the name (a
+ * directory's slash) that the name span excludes. */
+typedef struct {
+    int32_t idx;
+    int32_t name_off; /* bytes from line start to the name */
+    int32_t name_len; /* as published */
+    uint8_t fixed;    /* takes no typing and no erase */
+    uint8_t tail;
+    uint8_t _pad[2];
+} oket_list_row;
+
+typedef struct oket_list oket_list;
+
+typedef struct {
+    const char *name;      /* the kind, and the binds.conf section */
+    const char *prefix;    /* verbs register as <prefix>.filter/.erase/.erase.fwd/.clear */
+    uint8_t     selection; /* oket_selection */
+    uint8_t     pin;       /* a caret the core places lands at the end of the name */
+    int32_t     tab_width;
+    int32_t (*count)(void *ctx);
+    int     (*match)(void *ctx, int32_t i, const char *filter, size_t n);
+    /* Build one row's cells and fields, and fill `r`. The core ends the row. A row that takes
+     * typing must put its name LAST on the line: the edit machinery reads the name's end off
+     * the line's own end. */
+    void    (*row)(void *ctx, oket_build *b, oket_list_row *r, int32_t i);
+    /* Line 0, or NULL for a list with no head row — the filter then reports through the echo
+     * line instead. Called once per publish, before any row. */
+    size_t  (*head)(void *ctx, char *out, size_t cap, const oket_list *l, int32_t shown);
+    void    (*filtered)(void *ctx); /* the filter changed; may be NULL */
+} oket_list_spec;
+
+struct oket_list {
+    oket_doc    doc;
+    void       *ctx;
+    const char *file; /* the descriptor's file; the plugin sets it or leaves NULL */
+    char        filter[OKET_LIST_FILTER_CAP]; /* NUL-terminated at nfilter */
+    size_t      nfilter;
+    int         filtering; /* ctrl+f: typed runes go to the filter until esc */
+    oket_list_row *rows;   /* the published rows, in line order after any head */
+    size_t      nrows, rows_cap;
+    oket_list  *next;
+};
+
+/* Stores the spec, registers the four shared verbs and asks for their binds (ctrl+f,
+ * backspace, esc). Call once, after register_kind. */
+void oket_list_register(const oket_api *api, oket_self self, const oket_list_spec *spec,
+                        oket_kind kind);
+
+/* Allocates and remembers one open list. Publishes nothing: set `file` and call
+ * oket_list_publish yourself. NULL when nothing was registered or memory ran out. */
+oket_list *oket_list_open(const oket_api *api, oket_self self, oket_doc doc, void *ctx);
+void oket_list_close(oket_list *l);
+
+/* The list behind a call, or NULL when the document is not one of this plugin's. */
+oket_list *oket_list_of(const oket_at *at);
+
+/* The scaffold: head, the rows the filter lets through, the descriptor, one regen. */
+void oket_list_publish(const oket_api *api, oket_self self, oket_list *l);
+
+/* Every open list, republished where it stands. What a change under all of them ends with. */
+void oket_list_repaint(const oket_api *api, oket_self self);
+
+/* Publish, and point on the first row: what every change to the filter ends with. */
+void oket_list_refilter(const oket_api *api, oket_self self, oket_list *l);
+
+/* One collapsed caret at `line`, clamped to the rows; `pin` lands it at the end of the name. */
+void oket_list_point(const oket_api *api, oket_self self, oket_list *l, size_t line);
+
+/* The line point is on. */
+size_t oket_list_line(const oket_snapshot *s);
+
+/* The row behind a line, or NULL for the head and anything outside. */
+const oket_list_row *oket_list_at(const oket_list *l, size_t line);
+
+/* The line a plugin row is published at, or -1 when the filter hides it. */
+ptrdiff_t oket_list_row_line(const oket_list *l, int32_t idx);
+
+/* The name span of one row IN THE DOCUMENT — where an edit is allowed and nowhere else. The
+ * end is wherever the line now ends, minus `tail`. */
+void oket_list_name_span(const oket_snapshot *s, const oket_list *l, size_t line,
+                         size_t *lo, size_t *hi);
+
+/* The name as the document has it now, copied out. What a harvest reads. */
+size_t oket_list_name(const oket_snapshot *s, const oket_list *l, size_t line,
+                      char *dst, size_t cap);
+
+/* An oket_event_fn. Filtering routes TEXT to the filter; otherwise it is spliced into the name
+ * of each cursor's row, clamped, with fixed rows skipped. A plugin with nothing of its own to
+ * handle puts this straight in the vt. */
+int32_t oket_list_event(const oket_api *api, oket_self self, const oket_at *at,
+                        oket_event ev, const char *text, size_t len);
+
 /* --- chords --- */
 
 /* Whether a chord handed to OKET_EVENT_CHORD is the one named. The spelling is the PHYSICAL one
