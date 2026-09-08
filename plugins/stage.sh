@@ -71,4 +71,4 @@ mkdir -p "$OUT"
 # `zig cc` is two words, so $CC has to word-split as well as the flag lists do.
 # shellcheck disable=SC2086
 ${CC:-zig cc} -shared $CFLAGS $LDFLAGS -o "$OUT/$NAME.so" \
-    "$SRC"/*.c "$HELPERS"/oket_helpers.c $FLAGS
+    "$SRC"/*.c "$HELPERS"/*.c $FLAGS

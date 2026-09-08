@@ -5,7 +5,7 @@
  * a plugin that disagree about a column lay the same line out differently, and
  * ones that disagree about a class end a word in different places.
  *
- * Included by oket_helpers.c and nowhere else. */
+ * Included by oket_text.c and nowhere else. */
 #ifndef OKET_UNICODE_H
 #define OKET_UNICODE_H
 

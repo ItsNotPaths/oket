@@ -134,7 +134,7 @@ def main():
                 " * a plugin that disagree about a column lay the same line out differently, and\n"
                 " * ones that disagree about a class end a word in different places.\n"
                 " *\n"
-                " * Included by oket_helpers.c and nowhere else. */\n"
+                " * Included by oket_text.c and nowhere else. */\n"
                 "#ifndef OKET_UNICODE_H\n"
                 "#define OKET_UNICODE_H\n\n"
                 "#include <stdint.h>\n\n"

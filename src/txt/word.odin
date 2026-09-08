@@ -96,7 +96,7 @@ Char_Class :: enum {
 }
 
 // Public, and reading generated tables rather than `core:unicode`, because the editor plugin
-// classifies the same bytes through oket_helpers.c. One tool writes both tables, so the two
+// classifies the same bytes through oket_text.c. One tool writes both tables, so the two
 // cannot drift; `core:unicode` would have moved with the toolchain instead.
 class_of :: proc(r: rune) -> Char_Class {
     switch {
