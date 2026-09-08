@@ -143,7 +143,11 @@ cl_draw :: proc(a: ^App, g: ^gfx.Grid, th: gfx.Theme) {
     d := store.store_descriptor(&a.docs, a.cl.doc)
     defer desc.release(d)
     view.follow_col(&a.cl.view, view.point_col(&snap.text, d, a.cl.view), b.w)
-    view.draw(g, line, &snap.text, d, a.cl.view, b.x, b.y, b.w, 1, select = a.config.select)
+    // Through the pipeline like a panel (VIEWS.md §5): the line has no stages of its own, but
+    // the preedit ghost is one, and a composition typed at the prompt has to show there.
+    t, dv := views_text(a, a.cl.doc, &snap.text)
+    view.draw(g, line, t, d, a.cl.view, b.x, b.y, b.w, 1,
+              dv = dv, over = views_over(a, a.cl.doc), select = a.config.select)
 }
 
 // How much darker than a document the bar's row is. Deeper than the chrome between two panels,
