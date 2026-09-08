@@ -4,6 +4,27 @@ Newest first. A section is one release, headed `## <version>`. The home page sho
 section at every start, so keep it short and keep the first lines the ones that change what you
 type.
 
+## 0.3
+
+- `:oket update` fetches the latest release and installs it, in N0. Then it restarts.
+- `ctrl+f` filters a list: the file browser, the theme list, the grammar list. `esc` clears
+  the filter. Typing without it still edits the name.
+- `[theme] name` in `config.conf` picks a theme, and the switch shows on the next frame.
+  gruvbox ships. A helix theme file dropped into the themes folder works as it is.
+- `:ring themer` lists the themes you have and the ones in the helix repo. `enter` stages the
+  chain that installs and switches, `del` the one that removes. You read the line before you
+  run it.
+- Chains take `||`: the step after it runs when the step before failed, the way `&&` runs on
+  success.
+- `:get panels` puts kernel state on the pipe (also panel, slot, slots, kind, file).
+  `:set <section>.<key> <value>` changes a setting for the session. `:do` runs the lines piped
+  into it, so `:get panels | awk '...' | :do` is a loop.
+- `@*` targets every panel, and `:close #*` closes every slot.
+- `[alias] name = line` in `config.conf` names a chain as a new verb. `panel.equalize` ships
+  as one: it gives every panel an equal share of the strip.
+- The hello and popup plugins folded into one example plugin.
+- The helper library is split by section, and `stage.sh` finds every helper file itself.
+
 ## released
 
 - `alt+q` closes the panel along with the slot. The last panel standing lands on a home page
