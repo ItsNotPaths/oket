@@ -15,17 +15,18 @@ runs:
         path: vendor
         key: vendor-linux-${{ hashFiles('download-deps.sh') }}
 
-    # download-deps.sh builds glfw 3.4 from source, which compiles the X11 and Wayland
-    # backends; the runner ships neither set of headers. GLFW dlopens both at run time,
-    # so this affects the build only, not what the binary needs.
-    - name: Install glfw build deps
+    # download-deps.sh builds sdl3 from source, which compiles the X11 and Wayland
+    # backends; the runner ships neither set of headers. SDL dlopens both at run time,
+    # so this affects the build only, not what the binary needs. libdecor-0-dev is the
+    # Wayland decorations arm, headers-only for the same reason.
+    - name: Install sdl3 build deps
       shell: bash
       run: |
         sudo apt-get update
         sudo apt-get install -y --no-install-recommends \
-            libwayland-dev libwayland-bin wayland-protocols libxkbcommon-dev xorg-dev
+            libwayland-dev libwayland-bin libxkbcommon-dev libdecor-0-dev xorg-dev
 
-    # Must precede Download deps: the glfw and stb steps shell out to `odin root`.
+    # Must precede Download deps: the stb step shells out to `odin root`.
     - name: Install Odin
       uses: laytan/setup-odin@v2
       with:

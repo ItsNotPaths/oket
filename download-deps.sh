@@ -55,41 +55,44 @@ else
 fi
 
 echo ""
-echo "==> glfw (static lib for release builds)"
-# Release builds link glfw statically (-define:GLFW_SHARED=false) so users need no system
-# libglfw. OpenGL is not vendored: gl.load_up_to() takes it from the driver at runtime.
+echo "==> sdl3 (the window, input and clipboard backend; static lib)"
+# Stripped to video and events: everything else SDL offers, oket either does itself or does
+# not do. X11, Wayland and libdecor are dlopened at run time, so only their headers matter
+# here and the wayland protocol XMLs ride inside the tarball. OpenGL is not vendored:
+# gl.load_up_to() takes it from the driver at runtime.
 #
-# Left on the system cc: cmake wants CMAKE_C_COMPILER to be one executable, and glfw is a
+# Odin's bindings say `system:SDL3`, so every build passes
+# -extra-linker-flags:"-L vendor/sdl3" and the only SDL3 that dir holds is this archive —
+# the link is static even on a machine with a system libSDL3.so.
+#
+# Left on the system cc: cmake wants CMAKE_C_COMPILER to be one executable, and this is a
 # link-time archive, not part of the LTO path $CC exists for.
-GLFW_VERSION="3.4"
-GLFW_SRC="$VENDOR/glfw-src"
-GLFW_A="$VENDOR/glfw/libglfw3.a"                            # project-local cache
-ODIN_GLFW_A="${ODIN_ROOT%/}/vendor/glfw/lib/libglfw3.a"     # where Odin's bindings look
-if [ -f "$GLFW_A" ] && [ -f "$ODIN_GLFW_A" ]; then
-    echo "  already present: libglfw3.a"
+SDL_VERSION="3.4.16"
+SDL_SRC="$VENDOR/sdl3-src"
+SDL_A="$VENDOR/sdl3/libSDL3.a"
+if [ -f "$SDL_A" ]; then
+    echo "  already present: libSDL3.a"
 else
-    if [ ! -f "$GLFW_A" ]; then
-        if [ ! -d "$GLFW_SRC" ] || [ -z "$(ls -A "$GLFW_SRC" 2>/dev/null)" ]; then
-            echo "  downloading glfw $GLFW_VERSION source..."
-            mkdir -p "$GLFW_SRC"
-            # A failed download must not leave a partial tree a re-run would trust.
-            curl -fsSL "https://github.com/glfw/glfw/archive/refs/tags/${GLFW_VERSION}.tar.gz" \
-                | tar xz --strip-components=1 -C "$GLFW_SRC" \
-                || { rm -rf "$GLFW_SRC"; exit 1; }
-        fi
-        echo "  building static libglfw3.a..."
-        cmake -S "$GLFW_SRC" -B "$GLFW_SRC/build" \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_SHARED_LIBS=OFF \
-            -DGLFW_BUILD_EXAMPLES=OFF \
-            -DGLFW_BUILD_TESTS=OFF \
-            -DGLFW_BUILD_DOCS=OFF >/dev/null
-        cmake --build "$GLFW_SRC/build" --parallel >/dev/null
-        mkdir -p "$(dirname "$GLFW_A")"
-        cp "$GLFW_SRC/build/src/libglfw3.a" "$GLFW_A"
+    if [ ! -d "$SDL_SRC" ] || [ -z "$(ls -A "$SDL_SRC" 2>/dev/null)" ]; then
+        echo "  downloading sdl3 $SDL_VERSION source..."
+        mkdir -p "$SDL_SRC"
+        # A failed download must not leave a partial tree a re-run would trust.
+        curl -fsSL "https://github.com/libsdl-org/SDL/releases/download/release-${SDL_VERSION}/SDL3-${SDL_VERSION}.tar.gz" \
+            | tar xz --strip-components=1 -C "$SDL_SRC" \
+            || { rm -rf "$SDL_SRC"; exit 1; }
     fi
-    echo "  installing into Odin tree: $ODIN_GLFW_A"
-    odin_install "$GLFW_A" "$ODIN_GLFW_A"
+    echo "  building static libSDL3.a..."
+    cmake -S "$SDL_SRC" -B "$SDL_SRC/build" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DSDL_SHARED=OFF -DSDL_STATIC=ON \
+        -DSDL_AUDIO=OFF -DSDL_GPU=OFF -DSDL_RENDER=OFF -DSDL_CAMERA=OFF \
+        -DSDL_JOYSTICK=OFF -DSDL_HAPTIC=OFF -DSDL_HIDAPI=OFF -DSDL_SENSOR=OFF \
+        -DSDL_POWER=OFF -DSDL_DIALOG=OFF -DSDL_TRAY=OFF -DSDL_VULKAN=OFF \
+        -DSDL_TEST_LIBRARY=OFF >/dev/null
+    cmake --build "$SDL_SRC/build" --parallel >/dev/null
+    mkdir -p "$(dirname "$SDL_A")"
+    cp "$SDL_SRC/build/libSDL3.a" "$SDL_A"
     echo "  done."
 fi
 
