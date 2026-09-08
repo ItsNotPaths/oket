@@ -6,10 +6,10 @@ import "core:strings"
 
 // A key is stored by physical position, shown in the letters of the current layout (§6).
 //
-// The canonical code space is X keycodes: the numbers the XKB names in key_table.odin index.
-// GLFW hands exactly these on X11 and evdev (keycode-8) on Wayland; Windows and macOS get a
-// crossmapping table each when they land. A layout changes what a position types, never its
-// code, so a bind survives a layout switch.
+// The canonical code space is SDL scancodes: the numbers the XKB names in key_table.odin
+// index. SDL hands exactly these on every backend and every platform, so no crossmapping
+// table ever lands. A layout changes what a position types, never its code, so a bind
+// survives a layout switch.
 Code :: distinct u16
 
 Mod :: enum u8 {
