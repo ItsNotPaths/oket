@@ -343,8 +343,9 @@ the_grammar_list_is_a_document_of_rows :: proc(t: ^testing.T) {
     testing.expect(t, plain > 100, "nothing was listed as missing")
 }
 
-// Typing is the filter, and nothing else: the document takes runes so they REACH the plugin
-// (§5), and what a keystroke moves is which rows there are, never the text.
+// ctrl+f takes the typing into the filter: the document takes runes so they REACH the plugin
+// (§5), and while the filter is armed what a keystroke moves is which rows there are, never
+// the text. The same chord, the same verbs and the same head line as every other list.
 @(test)
 typing_into_the_list_filters_it :: proc(t: ^testing.T) {
     a, ok := syntax_app(t, "oket-grammars-filter")
@@ -359,6 +360,7 @@ typing_into_the_list_filters_it :: proc(t: ^testing.T) {
     }
     whole := len(lines_of(&a, id))
 
+    app.handle_chord(&a, chord("AC04", {.Ctrl})) // ctrl+f arms the filter
     type_text(&a, "rust")
     rows := lines_of(&a, id)
     testing.expectf(t, len(rows) < whole && len(rows) > 1, "%d rows matched `rust`", len(rows) - 1)
@@ -370,8 +372,9 @@ typing_into_the_list_filters_it :: proc(t: ^testing.T) {
     testing.expect(t, strings.contains(row_at_point(&a, id), "rust"), row_at_point(&a, id))
 
     // An extension is a way in too: `rs` is not a substring of `rust`, and it is what somebody
-    // with the file open has to hand.
+    // with the file open has to hand. `:gr.clear` disarms the filter, so ctrl+f arms it again.
     app.cl_exec(&a, ":gr.clear")
+    app.handle_chord(&a, chord("AC04", {.Ctrl}))
     type_text(&a, "rs")
     found := false
     for row in lines_of(&a, id)[1:] {
@@ -406,6 +409,7 @@ a_row_carries_its_whole_registry_entry :: proc(t: ^testing.T) {
     if !opened {
         return
     }
+    app.handle_chord(&a, chord("AC04", {.Ctrl})) // ctrl+f, then the filter
     type_text(&a, "rust") // the first match, and point is on it
 
     line, filled := app.bind_expand(&a, "oket-grammar <lang> <repo> <rev> <sub>")
@@ -512,7 +516,8 @@ a_building_row_says_so_and_ends_on_the_platter :: proc(t: ^testing.T) {
     testing.expect(t, strings.has_prefix(row, "*") && strings.contains(row, "done"), row)
 
     // Going back to browsing takes the word off: it answered the keystroke that asked for the
-    // build, and this is the next one.
+    // build, and the filter moving is the next one.
+    app.handle_chord(&a, chord("AC04", {.Ctrl}))
     type_text(&a, "j")
     row = row_named(&a, id, "json")
     testing.expect(t, !strings.contains(row, "done"), row)

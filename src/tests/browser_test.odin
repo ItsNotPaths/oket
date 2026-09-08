@@ -535,6 +535,40 @@ backspace_stops_at_the_head_of_the_name :: proc(t: ^testing.T) {
     testing.expect_value(t, len(line_text(snap, 2)), PREFIX) // the prefix, and nothing after it
 }
 
+// ctrl+f filters the listing: typed runes go to the filter, not into a name, and the rows
+// shrink to the matches. `..` stays — a filtered listing still needs its way out — but point
+// lands on the first MATCH, so enter goes into it rather than up. The browser has no head row,
+// so the filter reports through the echo line, and esc brings the whole listing back.
+@(test)
+the_filter_hides_rows_and_keeps_the_way_out :: proc(t: ^testing.T) {
+    a, _, ok := tree_app(t, "oket-browser-filter")
+    if !ok {
+        return
+    }
+    defer close_plug_app(&a)
+
+    app.handle_chord(&a, chord("AC04", {.Ctrl})) // ctrl+f arms the filter
+    for r in "top" {
+        app.text_input(&a, r)
+    }
+    {
+        snap, d := reading(&a)
+        defer txt.snapshot_release(snap)
+        defer desc.release(d)
+        testing.expect_value(t, txt.text_line_count(snap), 2) // `..` and the match
+    }
+    testing.expect_value(t, name_of(&a, 0), "..")
+    testing.expect_value(t, name_of(&a, 1), "top.txt") // the runes went to the filter
+    testing.expect_value(t, point(&a).head.line, 1)
+    testing.expect(t, strings.contains(a.message, "2 shown"), a.message) // `..` counts: it is shown
+
+    app.handle_chord(&a, chord("ESC")) // clears the filter; shadowed, so it does not quit
+    snap, d := reading(&a)
+    defer txt.snapshot_release(snap)
+    defer desc.release(d)
+    testing.expect_value(t, txt.text_line_count(snap), 3)
+}
+
 // A hole fills QUOTED when its value would re-parse (§8), so the step that reaches a plugin
 // carries the quotes. `br.enter` is where that line ends and it wants the value: a directory
 // whose name holds a space is visited like any other, and nothing in the plugin reads a quote.

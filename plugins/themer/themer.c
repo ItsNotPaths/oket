@@ -1,5 +1,7 @@
 /* The theme picker, as a document (§5, §11): every helix theme, the ones on disk and the ones
- * one curl away, one row each. Selecting STAGES a chain in the command line rather than acting:
+ * one curl away, one row each. The list scaffold — the ctrl+f filter, the publish, the shared
+ * verbs — is the helper library's list core; what is this file's is the platter scan, the
+ * manifest, and the chains. Selecting STAGES a chain in the command line rather than acting:
  *
  *     [themer]
  *     enter = stage <act>      the switch, pulling the file first when it is not here
@@ -18,7 +20,7 @@
  * installed.
  *
  *     :ring themer     the list (alt+t)
- *     type             filters; backspace and esc take it back off
+ *     ctrl+f           filters; backspace and esc take it back off
  */
 #define _POSIX_C_SOURCE 200809L
 
@@ -33,14 +35,12 @@
 #define RAW_URL "https://raw.githubusercontent.com/helix-editor/helix/master/runtime/themes"
 #define THEME_DEFAULT "gruvbox"
 
-#define FILTER_CAP 48
 #define NAME_CAP 64
 #define PATH_CAP 512
 #define ACT_CAP 1024
 #define LINE_CAP 256
 #define NAME_W 34
 #define MAX_THEMES 512
-#define MAX_LISTS 8
 
 static oket_kind THEMER;
 
@@ -211,40 +211,7 @@ static void fetch(const oket_api *api, oket_self self, oket_doc doc) {
     api->io_spawn(api, self, doc, argv, 3, NULL, 0);
 }
 
-/* --- one list --- */
-
-typedef struct {
-    oket_doc doc;
-    char filter[FILTER_CAP]; /* NUL at nfilter, kept by every writer: strstr reads a string */
-    size_t nfilter;
-} list;
-
-static list *lists[MAX_LISTS];
-
-static void remember(list *l) {
-    int i;
-
-    for (i = 0; i < MAX_LISTS; i++) {
-        if (lists[i] == NULL) {
-            lists[i] = l;
-            return;
-        }
-    }
-}
-
-static void forget(list *l) {
-    int i;
-
-    for (i = 0; i < MAX_LISTS; i++) {
-        if (lists[i] == l) {
-            lists[i] = NULL;
-        }
-    }
-}
-
-static int matches(const theme_row *r, const char *filter, size_t n) {
-    return n == 0 || strstr(r->name, filter) != NULL;
-}
+/* --- the rows, through the list core --- */
 
 /* A link's value is BORROWED until the submit (oket_helpers.h), so a chain cannot live on
  * put_row's stack: these slots do, one publish at a time. Untouched pages of a bss array cost
@@ -263,10 +230,12 @@ static char *chain_slot(void) {
  * in the one line the user is shown. `rm` reverts to the default and takes the file and its
  * manifest line back out, and only a pulled row carries one: an empty span fills its hole with
  * nothing, so `del` elsewhere stages an empty line rather than somebody's hand-made file. */
-static void put_row(oket_build *out, const theme_row *r) {
+static void t_row(void *ctx, oket_build *out, oket_list_row *lr, int32_t idx) {
+    const theme_row *r = &THEMES[idx];
     char text[LINE_CAP], *act = chain_slot();
     size_t n, name_lo = 2, name_hi = name_lo + strlen(r->name);
 
+    (void)ctx;
     n = (size_t)snprintf(text, sizeof text, "%s %-*s%s", is_here(r) ? "*" : " ", NAME_W, r->name,
                          r->state == PULLED ? "pulled" : "");
     if (n >= sizeof text) {
@@ -281,6 +250,7 @@ static void put_row(oket_build *out, const theme_row *r) {
                  " && :set theme.name %s && :th.done",
                  r->name, ROOT, r->name, r->name, ROOT, r->name);
     }
+    lr->fixed = 1; /* a row you stage, never one you rename */
     oket_build_cell(out, "row", text, n);
     oket_build_span(out, "theme", name_lo, name_hi);
     oket_build_link(out, "act", name_lo, name_hi, act, strlen(act));
@@ -296,95 +266,59 @@ static void put_row(oket_build *out, const theme_row *r) {
     } else {
         oket_build_span(out, "rm", name_hi, name_hi);
     }
-    oket_build_row(out);
 }
 
-static size_t publish(const oket_api *api, oket_self self, list *l) {
-    oket_descriptor d;
-    oket_build out;
-    char head[LINE_CAP];
-    size_t first = 0;
-    int i, n, shown = 0;
+static int32_t t_count(void *ctx) {
+    (void)ctx;
+    return NTHEMES;
+}
 
-    memset(&out, 0, sizeof out);
-    NCHAINS = 0; /* the last publish's chains were copied at its submit */
-    for (i = 0; i < NTHEMES; i++) {
-        shown += matches(&THEMES[i], l->filter, l->nfilter) ? 1 : 0;
-    }
-    if (l->nfilter > 0) {
-        n = snprintf(head, sizeof head, "themes   %d here of %d   /%.*s   %d shown; esc clears",
+static int t_match(void *ctx, int32_t i, const char *filter, size_t n) {
+    (void)ctx;
+    return n == 0 || strstr(THEMES[i].name, filter) != NULL;
+}
+
+static size_t t_head(void *ctx, char *out, size_t cap, const oket_list *l, int32_t shown) {
+    int n;
+
+    (void)ctx;
+    NCHAINS = 0; /* the publish begins here; the last one's chains were copied at its submit */
+    if (l->filtering || l->nfilter > 0) {
+        n = snprintf(out, cap, "themes   %d here of %d   /%.*s   %d shown; esc clears",
                      NHERE, NTHEMES, (int)l->nfilter, l->filter, shown);
     } else {
-        n = snprintf(head, sizeof head,
-                     "themes   %d here of %d   enter stages the switch; del removes a pulled one",
+        n = snprintf(out, cap,
+                     "themes   %d here of %d   ctrl+f filters; enter stages the switch;"
+                     " del removes a pulled one",
                      NHERE, NTHEMES);
     }
-    if (n < 0 || (size_t)n >= sizeof head) {
-        n = (int)sizeof head - 1;
-    }
-    oket_build_cell(&out, "head", head, (size_t)n);
-    oket_build_row(&out);
-    for (i = 0; i < NTHEMES; i++) {
-        if (!matches(&THEMES[i], l->filter, l->nfilter)) {
-            continue;
-        }
-        first = 1;
-        put_row(&out, &THEMES[i]);
-    }
-
-    memset(&d, 0, sizeof d);
-    d.kind = THEMER;
-    d.render = OKET_RENDER_TEXT;
-    d.selection = OKET_SELECT_LINE;
-    d.input = OKET_INPUT_BOUND;
-    d.editable = 1; /* what makes a typed rune reach this plugin: it is the filter, never text */
-    d.tab_width = 4;
-    oket_build_desc(&out, &d);
-    oket_regen(api, self, l->doc, out.text, out.len > 0 ? out.len - 1 : 0, &d);
-    oket_build_free(&out);
-    return first;
+    return n < 0 ? 0 : (size_t)n;
 }
 
-static void repaint(const oket_api *api, oket_self self) {
-    int i;
-
-    for (i = 0; i < MAX_LISTS; i++) {
-        if (lists[i] != NULL) {
-            publish(api, self, lists[i]);
-        }
-    }
-}
-
-static void refilter(const oket_api *api, oket_self self, list *l) {
-    oket_cursor c;
-
-    memset(&c, 0, sizeof c);
-    c.head.line = (ptrdiff_t)publish(api, self, l);
-    c.anchor = c.head;
-    c.goal = -1;
-    api->cursors(api, self, l->doc, &c, 1, 0);
-}
+static const oket_list_spec LSPEC = {
+    "themer", "th", OKET_SELECT_LINE, 0, 4,
+    t_count, t_match, t_row, t_head, NULL,
+};
 
 static void rescan(const oket_api *api, oket_self self) {
     scan();
-    repaint(api, self);
+    oket_list_repaint(api, self);
 }
 
 /* --- the six messages --- */
 
 static void *open_list(const oket_api *api, oket_self self, oket_doc doc, const char *args,
                        size_t args_len) {
-    list *l = calloc(1, sizeof *l);
+    oket_list *l = oket_list_open(api, self, doc, NULL);
 
     (void)args;
     (void)args_len;
     if (l == NULL) {
         return NULL;
     }
-    l->doc = doc;
-    remember(l);
     scan();
-    refilter(api, self, l);
+    oket_list_publish(api, self, l);
+    oket_list_point(api, self, l, 1);
     if (ROOT[0] != 0 && !cache_present()) {
         fetch(api, self, doc);
     }
@@ -395,67 +329,21 @@ static void close_list(const oket_api *api, oket_self self, oket_doc doc, void *
     (void)api;
     (void)self;
     (void)doc;
-    forget(inst);
-    free(inst);
+    oket_list_close(inst);
 }
 
 static int32_t event(const oket_api *api, oket_self self, const oket_at *at, oket_event ev,
                      const char *text, size_t len) {
-    list *l = at->inst;
-
     /* The fetch coming home: the cache moved, or curl said no and it did not. Either way the
      * platter is the answer, so a rescan is the whole of the handling. */
     if (ev == OKET_EVENT_IO_END) {
         rescan(api, self);
         return 0;
     }
-    if (!oket_mine(at) || ev != OKET_EVENT_TEXT || l == NULL) {
-        return 0;
-    }
-    if (len == 0 || l->nfilter + len >= sizeof l->filter) {
-        return 0;
-    }
-    memcpy(l->filter + l->nfilter, text, len);
-    l->nfilter += len;
-    l->filter[l->nfilter] = 0;
-    refilter(api, self, l);
-    return 1;
+    return oket_list_event(api, self, at, ev, text, len);
 }
 
 /* --- the verbs --- */
-
-static int32_t erase_cmd(const oket_api *api, oket_self self, const oket_at *at,
-                         const char *args, size_t args_len) {
-    list *l = at->inst;
-    uint32_t r;
-
-    (void)args;
-    (void)args_len;
-    if (!oket_mine(at) || l == NULL) {
-        oket_say(api, self, "th.erase: this document is not the theme list");
-        return 1;
-    }
-    l->nfilter -= oket_utf8_prev(l->filter, l->nfilter, &r);
-    l->filter[l->nfilter] = 0;
-    refilter(api, self, l);
-    return 0;
-}
-
-static int32_t clear_cmd(const oket_api *api, oket_self self, const oket_at *at,
-                         const char *args, size_t args_len) {
-    list *l = at->inst;
-
-    (void)args;
-    (void)args_len;
-    if (!oket_mine(at) || l == NULL) {
-        oket_say(api, self, "th.clear: this document is not the theme list");
-        return 1;
-    }
-    l->nfilter = 0;
-    l->filter[0] = 0;
-    refilter(api, self, l);
-    return 0;
-}
 
 /* A staged chain's last step: the platter moved under every open list, so they say so. */
 static int32_t done_cmd(const oket_api *api, oket_self self, const oket_at *at,
@@ -471,7 +359,7 @@ static int32_t pull_cmd(const oket_api *api, oket_self self, const oket_at *at,
                         const char *args, size_t args_len) {
     (void)args;
     (void)args_len;
-    if (!oket_mine(at) || at->inst == NULL) {
+    if (oket_list_of(at) == NULL) {
         oket_say(api, self, "th.pull: this document is not the theme list");
         return 1;
     }
@@ -518,9 +406,8 @@ OKET_MAIN {
     if (THEMER == 0) {
         return 1;
     }
-    api->register_command(api, self, LIT("th.erase"), LIT("one rune off the list's filter"),
-                          erase_cmd);
-    api->register_command(api, self, LIT("th.clear"), LIT("clear the list's filter"), clear_cmd);
+    /* th.filter on ctrl+f, th.erase on backspace, th.clear on esc: the list core's rows. */
+    oket_list_register(api, self, &LSPEC, THEMER);
     api->register_command(api, self, LIT("th.done"), LIT("re-read the themes directory"),
                           done_cmd);
     api->register_command(api, self, LIT("th.pull"), LIT("refresh the repo list"), pull_cmd);
@@ -529,7 +416,5 @@ OKET_MAIN {
     api->request_bind(api, self, LIT("global"), LIT("alt+@AD05"), LIT("exec :ring themer"));
     api->request_bind(api, self, LIT("themer"), LIT("enter"), LIT("stage <act>"));
     api->request_bind(api, self, LIT("themer"), LIT("del"), LIT("stage <rm>"));
-    api->request_bind(api, self, LIT("themer"), LIT("backspace"), LIT("th.erase"));
-    api->request_bind(api, self, LIT("themer"), LIT("esc"), LIT("th.clear"));
     return 0;
 }

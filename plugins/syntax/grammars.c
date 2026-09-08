@@ -1,7 +1,8 @@
 /* The grammar list, as a document (§5, §11). Three hundred languages is a list, and a list is a
  * box of lines: so it is a kind like any other, it opens in a lane like any other, and every row
- * is text the kernel draws and point walks. No widget, no second drawing path, no selection of
- * its own — the row point is on IS the selection, which is what `selection: line` means.
+ * is text the kernel draws and point walks. The list scaffold — the filter, the publish, the
+ * verbs — is the helper library's list core; what is this file's is the registry, the rows, and
+ * the build bar.
  *
  * WHAT BUILDS A GRAMMAR IS A BIND ROW, and nothing in this file spawns it:
  *
@@ -23,7 +24,7 @@
  * code and not the tool's own word.
  *
  *     :ring grammars   the list (alt+g)
- *     type             filters, by name or by whole extension
+ *     ctrl+f           filters, by name or by whole extension
  *     backspace, esc   one rune off it, or all of it
  */
 /* clock_gettime: stage.sh builds at -std=c11, which hides POSIX by default. */
@@ -39,13 +40,9 @@
 #include "grammars.h"
 #include "languages.h"
 
-#define FILTER_CAP 48
 /* xml's row is 521 bytes today; the clamp below is for growth, not for the shipped registry. */
 #define LINE_CAP 640
 #define NAME_W 16
-/* Lists open at once. A lane holds nine slots and nobody wants nine of these; the array is what
- * lets a finished build rewrite the ones that are open. */
-#define MAX_LISTS 8
 
 /* The bar, in cells, the lit run that crosses it, and how long one cell of travel takes. The
  * run LEAVES at the right before it arrives again at the left: a block wrapped around both
@@ -199,48 +196,24 @@ static void row_tail(int idx, char *out, size_t cap) {
              build.state == BUILD_DONE ? "done" : "failed");
 }
 
-/* --- one list --- */
+/* --- the rows, through the list core --- */
 
+/* Per-list draw state the core has no field for: the bar step this list last published. */
 typedef struct {
-    oket_doc doc;
-    char filter[FILTER_CAP];
-    size_t nfilter;
-    unsigned drawn; /* the bar step this list last published */
-} list;
-
-static list *lists[MAX_LISTS];
-
-static void remember(list *l) {
-    int i;
-
-    for (i = 0; i < MAX_LISTS; i++) {
-        if (lists[i] == NULL) {
-            lists[i] = l;
-            return;
-        }
-    }
-}
-
-static void forget(list *l) {
-    int i;
-
-    for (i = 0; i < MAX_LISTS; i++) {
-        if (lists[i] == l) {
-            lists[i] = NULL;
-        }
-    }
-}
+    unsigned drawn;
+} list_ui;
 
 /* One row: what it draws for the eye, and the fields a bind acts through.
  *
  * `lang` is the name's own bytes, so hover underlines exactly what enter would build. The other
  * three carry a VALUE the row never draws — the whole registry entry travels with the row, and
  * the bind line reads like the command a person would type. */
-static void put_row(oket_build *out, int idx) {
+static void g_row(void *ctx, oket_build *out, oket_list_row *r, int32_t idx) {
     const oket_grammar *g = &OKET_GRAMMARS[idx];
     char text[LINE_CAP], tail[LINE_CAP];
     size_t n, name_lo = 2, name_hi;
 
+    (void)ctx;
     row_tail(idx, tail, sizeof tail);
     n = (size_t)snprintf(text, sizeof text, "%s %-*s  %s", here[idx] ? "*" : " ", NAME_W,
                          g->name, tail);
@@ -248,6 +221,7 @@ static void put_row(oket_build *out, int idx) {
         n = sizeof text - 1; /* an extension list longer than the buffer: what fits is the row */
     }
     name_hi = name_lo + strlen(g->name);
+    r->fixed = 1; /* a row you build, never one you rename */
 
     oket_build_cell(out, "row", text, n);
     oket_build_span(out, "lang", name_lo, name_hi);
@@ -265,96 +239,51 @@ static void put_row(oket_build *out, int idx) {
     } else {
         oket_build_span(out, "sub", name_hi, name_hi);
     }
-    oket_build_row(out);
 }
 
-/* The list as it stands, and the LINE of the first row — which is where point goes whenever
- * the filter moved, because the row it was on may not be in the list any more. The head is
- * line 0, so the first shown row is always line 1.
- *
- * A REGENERATION: these carets were put where they are by navigation, so they stay on their
- * rows rather than collapsing onto the splice, and the undo log goes with the text (§5). */
-static size_t publish(const oket_api *api, oket_self self, list *l) {
-    oket_descriptor d;
-    oket_build out;
-    char head[LINE_CAP];
-    size_t first = 0;
-    int i, n = 0, shown = 0;
+static int32_t g_count(void *ctx) {
+    (void)ctx;
+    return OKET_GRAMMAR_COUNT;
+}
 
-    memset(&out, 0, sizeof out);
-    for (i = 0; i < OKET_GRAMMAR_COUNT; i++) {
-        shown += matches(&OKET_GRAMMARS[i], l->filter, l->nfilter) ? 1 : 0;
-    }
-    if (l->nfilter > 0) {
-        n = snprintf(head, sizeof head, "grammars   %d of %d installed   /%.*s   %d shown; esc clears",
+static int g_match(void *ctx, int32_t i, const char *filter, size_t n) {
+    (void)ctx;
+    return matches(&OKET_GRAMMARS[i], filter, n);
+}
+
+static size_t g_head(void *ctx, char *out, size_t cap, const oket_list *l, int32_t shown) {
+    int n;
+
+    (void)ctx;
+    if (l->filtering || l->nfilter > 0) {
+        n = snprintf(out, cap, "grammars   %d of %d installed   /%.*s   %d shown; esc clears",
                      here_n, OKET_GRAMMAR_COUNT, (int)l->nfilter, l->filter, shown);
     } else {
-        n = snprintf(head, sizeof head,
-                     "grammars   %d of %d installed   type to filter; enter builds the row under point",
+        n = snprintf(out, cap,
+                     "grammars   %d of %d installed   ctrl+f filters; enter builds the row under point",
                      here_n, OKET_GRAMMAR_COUNT);
     }
-    if (n < 0 || (size_t)n >= sizeof head) {
-        n = (int)sizeof head - 1;
-    }
-    oket_build_cell(&out, "head", head, (size_t)n);
-    oket_build_row(&out);
-    for (i = 0; i < OKET_GRAMMAR_COUNT; i++) {
-        if (!matches(&OKET_GRAMMARS[i], l->filter, l->nfilter)) {
-            continue;
-        }
-        first = 1;
-        put_row(&out, i);
-    }
-
-    memset(&d, 0, sizeof d);
-    d.kind = GRAMMARS;
-    d.render = OKET_RENDER_TEXT;
-    /* A row is the unit: point stands on one and the whole line marks. Typing is not editing
-     * here — `editable` is what makes a rune reach this plugin at all (§5), and every one of
-     * them goes into the filter. */
-    d.selection = OKET_SELECT_LINE;
-    d.input = OKET_INPUT_BOUND;
-    d.editable = 1;
-    d.tab_width = 4;
-    oket_build_desc(&out, &d);
-    /* Minus the row terminator the last row wrote: a document does not end in a blank line. */
-    oket_regen(api, self, l->doc, out.text, out.len > 0 ? out.len - 1 : 0, &d);
-    oket_build_free(&out);
-    return first;
+    return n < 0 ? 0 : (size_t)n;
 }
 
-/* Every list that is open, redrawn where it stands: the markers moved, or a bar did, and
- * neither is a reason for point to go anywhere. */
-static void repaint(const oket_api *api, oket_self self) {
-    int i;
-
-    for (i = 0; i < MAX_LISTS; i++) {
-        if (lists[i] != NULL) {
-            publish(api, self, lists[i]);
-        }
-    }
-}
-
-/* The list, and point on its first row: what every change to the filter ends with. Going back
- * to browsing is also what takes `done` off the row it was left on — the word answered the
- * keystroke that asked for the build, and this is the next one. */
-static void refilter(const oket_api *api, oket_self self, list *l) {
-    oket_cursor c;
-
+/* The filter moved, so browsing resumed — which is also what takes `done` off the row it was
+ * left on: the word answered the keystroke that asked for the build, and this is the next one. */
+static void g_filtered(void *ctx) {
+    (void)ctx;
     if (build.state == BUILD_DONE || build.state == BUILD_FAILED) {
         build.state = BUILD_OFF;
         build.at = -1;
     }
-    memset(&c, 0, sizeof c);
-    c.head.line = (ptrdiff_t)publish(api, self, l);
-    c.anchor = c.head;
-    c.goal = -1; /* the kernel computes the cell column */
-    api->cursors(api, self, l->doc, &c, 1, 0);
 }
+
+static const oket_list_spec LSPEC = {
+    "grammars", "gr", OKET_SELECT_LINE, 0, 4,
+    g_count, g_match, g_row, g_head, g_filtered,
+};
 
 void grammars_refresh(const oket_api *api, oket_self self) {
     count_installed();
-    repaint(api, self);
+    oket_list_repaint(api, self);
 }
 
 void grammars_done(const oket_api *api, oket_self self, const char *lang, int installed) {
@@ -368,25 +297,20 @@ void grammars_done(const oket_api *api, oket_self self, const char *lang, int in
  * latched, so without this the row would sit still for the whole of a build: a shell step
  * finishing is the only other thing that would wake it, and that is the end, not the middle. */
 int grammars_tick(const oket_api *api, oket_self self, const oket_at *at) {
-    list *l = at->inst;
+    oket_list *l = oket_list_of(at);
+    list_ui *ui;
     unsigned step;
-    int i, mine = 0;
 
     if (build.state != BUILD_RUNNING || l == NULL) {
         return 0;
     }
-    for (i = 0; i < MAX_LISTS; i++) {
-        mine |= lists[i] == l;
-    }
-    if (!mine) {
-        return 0;
-    }
     /* Redrawn when the bar moved and not when the frame did: the clock is the same for every
      * list, so each one reaches the same step on its own and no two of them race it. */
+    ui = l->ctx;
     step = build_ms() / BAR_MS;
-    if (step != l->drawn) {
-        l->drawn = step;
-        publish(api, self, l);
+    if (step != ui->drawn) {
+        ui->drawn = step;
+        oket_list_publish(api, self, l);
     }
     return 1;
 }
@@ -395,79 +319,39 @@ int grammars_tick(const oket_api *api, oket_self self, const oket_at *at) {
 
 static void *open_list(const oket_api *api, oket_self self, oket_doc doc, const char *args,
                        size_t args_len) {
-    list *l = calloc(1, sizeof *l);
+    list_ui *ui = calloc(1, sizeof *ui);
+    oket_list *l;
 
     (void)args;
     (void)args_len;
-    if (l == NULL) {
+    if (ui == NULL) {
         return NULL;
     }
-    l->doc = doc;
-    remember(l);
+    l = oket_list_open(api, self, doc, ui);
+    if (l == NULL) {
+        free(ui);
+        return NULL;
+    }
     count_installed();
-    refilter(api, self, l);
+    oket_list_publish(api, self, l);
+    oket_list_point(api, self, l, 1);
     return l;
 }
 
 static void close_list(const oket_api *api, oket_self self, oket_doc doc, void *inst) {
+    oket_list *l = inst;
+
     (void)api;
     (void)self;
     (void)doc;
-    forget(inst);
-    free(inst);
-}
-
-/* A typed rune is the filter, and it is the only thing that reaches here: `bound` means the
- * bind table answered every chord already. Nothing is inserted into the document — the rows are
- * derived text, and what a keystroke moves is which of them there are. */
-static int32_t event(const oket_api *api, oket_self self, const oket_at *at, oket_event ev,
-                     const char *text, size_t len) {
-    list *l = at->inst;
-
-    if (!oket_mine(at) || ev != OKET_EVENT_TEXT || l == NULL) {
-        return 0;
+    if (l == NULL) {
+        return;
     }
-    if (len == 0 || l->nfilter + len >= sizeof l->filter) {
-        return 0;
-    }
-    memcpy(l->filter + l->nfilter, text, len);
-    l->nfilter += len;
-    refilter(api, self, l);
-    return 1;
+    free(l->ctx);
+    oket_list_close(l);
 }
 
 /* --- the verbs --- */
-
-static int32_t erase_cmd(const oket_api *api, oket_self self, const oket_at *at,
-                         const char *args, size_t args_len) {
-    list *l = at->inst;
-    uint32_t r;
-
-    (void)args;
-    (void)args_len;
-    if (!oket_mine(at) || l == NULL) {
-        oket_say(api, self, "gr.erase: this document is not the grammar list");
-        return 1;
-    }
-    l->nfilter -= oket_utf8_prev(l->filter, l->nfilter, &r);
-    refilter(api, self, l);
-    return 0;
-}
-
-static int32_t clear_cmd(const oket_api *api, oket_self self, const oket_at *at,
-                         const char *args, size_t args_len) {
-    list *l = at->inst;
-
-    (void)args;
-    (void)args_len;
-    if (!oket_mine(at) || l == NULL) {
-        oket_say(api, self, "gr.clear: this document is not the grammar list");
-        return 1;
-    }
-    l->nfilter = 0;
-    refilter(api, self, l);
-    return 0;
-}
 
 /* The chain's FIRST step, and the only one that can refuse: a name the registry does not carry
  * is one no shell step should be spawned for, and a build already out is one the kernel would
@@ -505,7 +389,7 @@ static int32_t build_cmd(const oket_api *api, oket_self self, const oket_at *at,
     build.state = BUILD_RUNNING;
     build.at = idx;
     clock_gettime(CLOCK_MONOTONIC, &build.start);
-    repaint(api, self);
+    oket_list_repaint(api, self);
     /* A write of your own is not reported back to you, so the publish above is the one thing
      * that cannot ask for the frame after it. The relatch can: the list arrives again next
      * frame, grammars_tick answers non-zero, and from there the latch feeds itself. */
@@ -517,27 +401,22 @@ oket_kind grammars_register(const oket_api *api, oket_self self) {
     static const oket_kind_spec SPEC = {
         LIT("grammars"),
         LIT("surface"),
-        {open_list, close_list, event},
+        {open_list, close_list, oket_list_event},
     };
 
     GRAMMARS = api->register_kind(api, self, &SPEC);
     if (GRAMMARS == 0) {
         return 0;
     }
-    api->register_command(api, self, LIT("gr.erase"), LIT("one rune off the list's filter"),
-                          erase_cmd);
-    api->register_command(api, self, LIT("gr.clear"), LIT("clear the list's filter"), clear_cmd);
+    /* The filter, the erase pair and esc are the list core's: gr.filter on ctrl+f, gr.erase on
+     * backspace, gr.clear on esc, all rows the core ASKED for (§8). */
+    oket_list_register(api, self, &LSPEC, GRAMMARS);
     api->register_command(api, self, LIT("gr.build"), LIT("mark a row as building"), build_cmd);
-    /* ASKED FOR, never claimed (§8). `esc` is the loud one: it quits oket everywhere else, and
-     * a picker where esc drops what you typed is worth the shadow — the writeback says so in
-     * binds.conf, where it can be taken back. */
     api->request_bind(api, self, LIT("global"), LIT("alt+@AC05"), LIT("exec :ring grammars"));
     /* `|| true` is not a shrug: it is what makes the last step run either way, and the last
      * step is the one that stats the platter and stops the bar on `done` or on `failed`. */
     api->request_bind(api, self, LIT("grammars"), LIT("enter"),
                       LIT("exec :gr.build <lang> && oket-grammar <lang> <repo> <rev> <sub>"
                           " || true && :grammar ready <lang>"));
-    api->request_bind(api, self, LIT("grammars"), LIT("backspace"), LIT("gr.erase"));
-    api->request_bind(api, self, LIT("grammars"), LIT("esc"), LIT("gr.clear"));
     return GRAMMARS;
 }

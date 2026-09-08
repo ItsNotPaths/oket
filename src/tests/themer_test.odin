@@ -118,6 +118,7 @@ backspace_widens_the_filter :: proc(t: ^testing.T) {
     defer close_plug_app(&a)
 
     id := app.ring_focused(&a).doc
+    app.handle_chord(&a, chord("AC04", {.Ctrl})) // ctrl+f arms the filter
     app.text_input(&a, 'n')
     app.text_input(&a, 'o')
     testing.expect(t, strings.contains(doc_text(&a, id), "1 shown"), doc_text(&a, id)) // nord
