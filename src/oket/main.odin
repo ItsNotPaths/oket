@@ -4,7 +4,7 @@ import "core:fmt"
 import "core:os"
 import "core:strings"
 import "core:time"
-import "vendor:glfw"
+import sdl "vendor:sdl3"
 import "../gfx"
 import "../wake"
 
@@ -64,10 +64,15 @@ args_open :: proc(a: ^App, args: []string) -> (opened: bool) {
 }
 
 // A Wayland swap blocks on a frame callback that stops arriving once the window is off-screen,
-// and that wait never dispatches xdg_wm_base.ping, so the compositor declares the window dead.
-// Pace on the event wait there — tear-free, the compositor presents on its own vblank.
-swap_interval :: proc(platform: i32) -> i32 {
-    return platform == glfw.PLATFORM_WAYLAND ? 0 : 1
+// and that wait would starve the event pump. Pace on the event wait there — tear-free, the
+// compositor presents on its own vblank.
+swap_interval :: proc(driver: string) -> i32 {
+    return driver == "wayland" ? 0 : 1
+}
+
+// gfx's loader shape over SDL's lookup, so nothing above gfx needs the GL package.
+gl_loader :: proc(p: rawptr, name: cstring) {
+    (^sdl.FunctionPointer)(p)^ = sdl.GL_GetProcAddress(name)
 }
 
 main :: proc() {
@@ -82,37 +87,41 @@ main :: proc() {
             return
         }
     }
-    if !glfw.Init() {
-        desc, code := glfw.GetError()
-        fmt.eprintfln("glfw.Init failed (%d): %s", code, desc)
+    // The window's identity to the desktop; an empty app-id is invisible to a WM rule.
+    sdl.SetHint(sdl.HINT_APP_ID, APP_ID)
+    if !sdl.Init({.VIDEO}) {
+        fmt.eprintfln("SDL_Init failed: %s", sdl.GetError())
         os.exit(1)
     }
-    defer glfw.Terminate()
+    defer sdl.Quit()
 
-    glfw.WindowHint(glfw.CONTEXT_VERSION_MAJOR, gfx.GL_MAJOR)
-    glfw.WindowHint(glfw.CONTEXT_VERSION_MINOR, gfx.GL_MINOR)
-    glfw.WindowHint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
-    glfw.WindowHint(glfw.OPENGL_FORWARD_COMPAT, true) // required on macOS
-
-    // The window's identity to the desktop; an empty app-id is invisible to a WM rule.
-    glfw.WindowHintString(glfw.WAYLAND_APP_ID, APP_ID)
-    glfw.WindowHintString(glfw.X11_CLASS_NAME, TITLE)
-    glfw.WindowHintString(glfw.X11_INSTANCE_NAME, APP_ID)
+    sdl.GL_SetAttribute(.CONTEXT_MAJOR_VERSION, gfx.GL_MAJOR)
+    sdl.GL_SetAttribute(.CONTEXT_MINOR_VERSION, gfx.GL_MINOR)
+    sdl.GL_SetAttribute(.CONTEXT_PROFILE_MASK, i32(transmute(u32)sdl.GL_CONTEXT_PROFILE_CORE))
+    // Forward-compatible is required on macOS for a core profile.
+    sdl.GL_SetAttribute(.CONTEXT_FLAGS, i32(transmute(u32)sdl.GL_CONTEXT_FORWARD_COMPATIBLE_FLAG))
 
     a: App
-    a.window = glfw.CreateWindow(WIDTH, HEIGHT, TITLE, nil, nil)
+    a.window = sdl.CreateWindow(TITLE, WIDTH, HEIGHT, {.OPENGL, .RESIZABLE, .HIGH_PIXEL_DENSITY})
     if a.window == nil {
-        desc, code := glfw.GetError()
-        fmt.eprintfln("glfw.CreateWindow failed (%d): %s", code, desc)
+        fmt.eprintfln("SDL_CreateWindow failed: %s", sdl.GetError())
         os.exit(1)
     }
-    defer glfw.DestroyWindow(a.window)
+    defer sdl.DestroyWindow(a.window)
 
-    glfw.MakeContextCurrent(a.window)
-    glfw.SwapInterval(swap_interval(glfw.GetPlatform()))
-    gfx.gl_init(glfw.gl_set_proc_address)
+    glctx := sdl.GL_CreateContext(a.window) // and it is current on this thread from here on
+    if glctx == nil {
+        fmt.eprintfln("SDL_GL_CreateContext failed: %s", sdl.GetError())
+        os.exit(1)
+    }
+    defer sdl.GL_DestroyContext(glctx)
+    sdl.GL_SetSwapInterval(swap_interval(string(sdl.GetCurrentVideoDriver())))
+    gfx.gl_init(gl_loader)
 
-    sx, _ := glfw.GetWindowContentScale(a.window)
+    sx := sdl.GetWindowDisplayScale(a.window)
+    if sx <= 0 {
+        sx = 1 // a failed scale query answers 0, which would size every face at 0px
+    }
 
     // An empty stack is not an error: the kernel draws with the bitmap and says so on screen.
     faces, used := font_stack_load(sx)
@@ -149,7 +158,11 @@ main :: proc() {
     // A session's reader thread, and the I/O worker, both have to reach the frame loop, which
     // is parked in WaitEvents. Before autoload: a plugin may start a job in its entry point,
     // and a completion nobody wakes for is a frame that never comes.
-    wake.hook = proc() {glfw.PostEmptyEvent()}
+    wake.hook = proc() {
+        ev: sdl.Event
+        ev.type = .USER
+        _ = sdl.PushEvent(&ev) // thread-safe by contract, which is the whole point of the hook
+    }
 
     // §10's net, before anything can dispatch, and the watchdog that turns a hang into the
     // same named death a fault gets. Without them nothing below should be loading a plugin
@@ -180,8 +193,9 @@ main :: proc() {
     // The strip's motion is stepped on the CLOCK and not on the frame (PANELS.md §7), so this
     // is what a faked one stands in for: the loop measures, `panels_step` decays.
     last := time.tick_now()
-    for !glfw.WindowShouldClose(a.window) && !a.quit {
-        w, h := glfw.GetFramebufferSize(a.window)
+    for !a.quit {
+        w, h: i32
+        sdl.GetWindowSizeInPixels(a.window, &w, &h)
         cols, rows := gfx.painter_fit(&a.painter, w, h)
         cw, ch := gfx.painter_cell(&a.painter)
         surface_fit(&a, cols, rows, {cw, ch})
@@ -206,15 +220,15 @@ main :: proc() {
 
         gfx.gl_clear(w, h, chrome_bg(&a))
         surface_paint(&a, w, h)
-        glfw.SwapBuffers(a.window)
+        sdl.GL_SwapWindow(a.window)
         free_all(context.temp_allocator) // the frame's cell tables and bar text
 
         if latched || moving {
             // A parse is mid-slice, or the strip is between two places. Neither is a keystroke
             // and neither will wake a wait, so the next frame is asked for rather than waited on.
-            glfw.PollEvents()
+            input_pump(&a, false)
         } else {
-            glfw.WaitEvents() // idle until a key, a click, a resize, or a session's reader
+            input_pump(&a, true) // idle until a key, a click, a resize, or a session's reader
             last = time.tick_now() // the wait was idle; a motion the event starts is not behind
         }
     }

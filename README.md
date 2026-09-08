@@ -244,12 +244,12 @@ session.
 ## Build
 
 ```sh
-./download-deps.sh               # once: libvterm, glfw, stb, tree-sitter into vendor/
+./download-deps.sh               # once: libvterm, sdl3, stb, tree-sitter into vendor/
 ./release.sh --local             # into build/
 ./release.sh --local --asan      # kernel and plugins under AddressSanitizer
 ./release.sh --local --tarball   # and pack it into dist/
 
-odin test src/tests -define:GLFW_SHARED=false
+odin test src/tests -extra-linker-flags:"-Lvendor/sdl3"
 ```
 
 Needs Odin and Zig; `zig cc` builds the vendored C and the plugins. `build/oket` is portable, so

@@ -7,7 +7,7 @@ import gl "vendor:OpenGL"
 GL_MAJOR :: 3
 GL_MINOR :: 3
 
-// The loader is the window system's symbol lookup; GLFW's is `glfw.gl_set_proc_address`. Call
+// The loader is the window system's symbol lookup; main wraps SDL's GL_GetProcAddress. Call
 // before any other GL, so nothing above gfx needs the GL package.
 gl_init :: proc(loader: proc(p: rawptr, name: cstring)) {
     gl.load_up_to(GL_MAJOR, GL_MINOR, loader)

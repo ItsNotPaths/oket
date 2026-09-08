@@ -2,7 +2,6 @@ package tests
 
 import "core:strings"
 import "core:testing"
-import "vendor:glfw"
 import "../font"
 import "../gfx"
 import app "../oket"
@@ -119,6 +118,6 @@ screen_with_fonts_drops_the_warning :: proc(t: ^testing.T) {
 // is the whole of that decision.
 @(test)
 wayland_does_not_pace_on_the_swap :: proc(t: ^testing.T) {
-    testing.expect_value(t, app.swap_interval(glfw.PLATFORM_WAYLAND), 0)
-    testing.expect_value(t, app.swap_interval(glfw.PLATFORM_X11), 1)
+    testing.expect_value(t, app.swap_interval("wayland"), 0)
+    testing.expect_value(t, app.swap_interval("x11"), 1)
 }

@@ -714,7 +714,7 @@ terminal_mouse_button :: proc(t: ^Terminal, button: int, pressed: bool, mod: vt.
     vt.mouse_button(t.term, c.int(button), pressed, mod)
 }
 
-// Ctrl+letter as a control unichar (Ctrl+C -> 0x03); GLFW emits no char event for these.
+// Ctrl+letter as a control unichar (Ctrl+C -> 0x03); SDL sends no text event for these.
 terminal_input_ctrl :: proc(t: ^Terminal, letter: rune) {
     vt.keyboard_unichar(t.term, u32(letter), vt.MOD_CTRL)
 }

@@ -2,7 +2,7 @@ package main
 
 import "core:os"
 import "core:strings"
-import "vendor:glfw"
+import sdl "vendor:sdl3"
 import "../gfx"
 import "../input"
 import "../store"
@@ -13,7 +13,7 @@ import "../work"
 // one is on screen, one bind table, and the command line.
 
 App :: struct {
-    window:       glfw.WindowHandle,
+    window:       ^sdl.Window,
     painter:      gfx.Painter,
     // Two lattices, not one (PANELS.md §7). The chrome is the screen's, at whole cells: the
     // bar, and the ground a panel is drawn onto. A panel is a window onto a document and takes
@@ -111,7 +111,7 @@ App :: struct {
     // chord holds one key and a release never reaches the bind table.
     held:         input.Code,
     mouse:        input.Mouse_State,
-    hand:         glfw.CursorHandle, // the pointer over a field a click would act on
+    hand:         ^sdl.Cursor, // the pointer over a field a click would act on
     // Where the command line's row was drawn, past the prompt, in chrome cells. A document's
     // own rectangle is its panel's (panel.odin), because a cell number counts from one grid.
     bar:          Rect,
@@ -150,7 +150,7 @@ Rect :: struct {
 
 app_init :: proc(a: ^App) {
     a.theme = gfx.DEFAULT_THEME
-    a.hand = glfw.CreateStandardCursor(glfw.HAND_CURSOR)
+    a.hand = sdl.CreateSystemCursor(.POINTER)
     a.home = home_resolve()
     a.dir = start_dir(os.args[1:])
     // Read once, here, so main and the home page cannot disagree about which start this is.
@@ -194,7 +194,7 @@ app_destroy :: proc(a: ^App) {
     find_free(a)
     home_destroy(&a.home)
     delete(a.dir)
-    glfw.DestroyCursor(a.hand)
+    sdl.DestroyCursor(a.hand)
     panels_destroy(a)
     menubar_destroy(a)
     gfx.grid_destroy(&a.chrome)

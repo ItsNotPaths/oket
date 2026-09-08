@@ -50,9 +50,9 @@ if [ $DO_LOCAL -eq 1 ]; then
     # a shell sitting in the old one lands nowhere.
     mkdir -p "$RELEASE_DIR"
     find "$RELEASE_DIR" -mindepth 1 -delete
-    # GLFW_SHARED=false links vendor/glfw/lib/libglfw3.a, so the binary needs no system
-    # libglfw. OKET_VERSION is quoted because -define parses its value: a bare tag like 2.0
-    # would arrive as a float.
+    # -L vendor/sdl3 satisfies the bindings' `system:SDL3` with the vendored libSDL3.a, so
+    # the binary needs no system libSDL3. OKET_VERSION is quoted because -define parses its
+    # value: a bare tag like 2.0 would arrive as a float.
     # §10's development build: a plugin's wild write is caught AT THE WRITE, with a stack
     # trace, instead of at the crash four frames later inside kernel code. It costs a shipped
     # build nothing, because you do not ship one. Not stripped and not optimised — the trace is
@@ -60,11 +60,11 @@ if [ $DO_LOCAL -eq 1 ]; then
     if [ $DO_ASAN -eq 1 ]; then
         echo "==> AddressSanitizer build"
         odin build "$PROJECT_DIR/src/oket" -out:"$RELEASE_DIR/$BIN_NAME" \
-            -sanitize:address -debug -define:GLFW_SHARED=false \
+            -sanitize:address -debug -extra-linker-flags:"-L$PROJECT_DIR/vendor/sdl3" \
             -define:OKET_VERSION='"dev-local-asan"'
     else
         odin build "$PROJECT_DIR/src/oket" -out:"$RELEASE_DIR/$BIN_NAME" \
-            -o:speed -define:GLFW_SHARED=false \
+            -o:speed -extra-linker-flags:"-L$PROJECT_DIR/vendor/sdl3" \
             -define:OKET_VERSION="\"${VERSION:-dev-local}\""
         # release.yml strips too, so a local build matches the download.
         strip --strip-all "$RELEASE_DIR/$BIN_NAME"

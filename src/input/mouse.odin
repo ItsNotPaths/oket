@@ -18,7 +18,7 @@ Mouse :: enum u16 {
     Wheel_Right,
 }
 
-MOUSE_BASE :: Code(1000) // past every X keycode the name table carries
+MOUSE_BASE :: Code(1000) // past every SDL scancode the name table carries
 
 @(rodata)
 MOUSE_SPELLING := [Mouse]string {
@@ -32,9 +32,9 @@ MOUSE_SPELLING := [Mouse]string {
     .Wheel_Right  = "wheel-right",
 }
 
-// GLFW numbers its buttons left, right, middle.
+// SDL numbers its buttons 1..3: left, middle, right.
 @(rodata)
-MOUSE_BUTTONS := [?]Mouse{.Click, .Right_Click, .Middle_Click}
+MOUSE_BUTTONS := [?]Mouse{.Click, .Middle_Click, .Right_Click}
 
 mouse_code :: proc(m: Mouse) -> Code {
     return MOUSE_BASE + Code(u16(m))

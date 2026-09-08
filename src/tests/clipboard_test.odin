@@ -8,10 +8,10 @@ import "../txt"
 import app "../oket"
 
 // The system clipboard is the copy path in both directions (PLAN.md §8): what is copied here
-// pastes into a browser, and a browser's copy pastes here. These gate the GLFW half of txt's
+// pastes into a browser, and a browser's copy pastes here. These gate the SDL half of txt's
 // doc_copy/doc_cut/doc_paste and nothing else.
 //
-// A test has no window, so GLFW answers nothing and the ring head is what clip_get falls back
+// A test has no window, so SDL answers nothing and the ring head is what clip_get falls back
 // to. That fallback is the shipped path on X11 with the selection dropped, not a test hook.
 
 @(test)

@@ -169,7 +169,7 @@ the_miss_rule_sends_keys_to_the_shell :: proc(t: ^testing.T) {
 // running it.
 //
 // It stops at `terminal_input_ctrl` on purpose. The chord's own step is `term_send`, which asks
-// GLFW what the key TYPES under the live layout, and a test has no window for GLFW to answer
+// SDL what the key TYPES under the live layout, and a test has no window for SDL to answer
 // from. Which chord arrives here is bind_test's `the_terminal_keeps_the_chords_editing_took`.
 @(test)
 a_control_byte_abandons_the_line :: proc(t: ^testing.T) {

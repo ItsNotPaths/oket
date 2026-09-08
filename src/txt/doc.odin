@@ -324,7 +324,7 @@ doc_newline :: proc(d: ^Doc) -> bool {
     return doc_insert_text(d, "\n")
 }
 
-// --- clipboard (GLFW I/O lives in oket/routing.odin) ---
+// --- clipboard (SDL I/O lives in oket/routing.odin) ---
 
 // Newlines are stored bytes, so a span across lines carries them already.
 doc_text :: proc(d: ^Doc, lo, hi: Pos, alloc := context.allocator) -> string {

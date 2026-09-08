@@ -5,7 +5,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:slice"
 import "core:strings"
-import "vendor:glfw"
+import sdl "vendor:sdl3"
 import "../desc"
 import "../gfx"
 import "../input"
@@ -705,7 +705,7 @@ dump_doc :: proc(a: ^App) -> bool {
 // --- the clipboard ---
 
 // The system clipboard is the copy path, both ways: what is copied here pastes into a browser,
-// and a browser's copy pastes here. This is the GLFW half of txt's doc_copy/doc_cut/doc_paste.
+// and a browser's copy pastes here. This is the SDL half of txt's doc_copy/doc_cut/doc_paste.
 //
 // The ring behind it exists for one verb. `edit.paste` always takes the clipboard, so the ring
 // never stands between ctrl+v and what another program put there; `edit.paste_cycle` is the only
@@ -732,17 +732,19 @@ clip_head :: proc(a: ^App) -> Clip {
     return len(a.clips) > 0 ? a.clips[0] : Clip{}
 }
 
-// `a.clips[0]` is what oket last put on the clipboard. GLFW answers with nothing when there is
+// `a.clips[0]` is what oket last put on the clipboard. SDL answers with nothing when there is
 // no window, and on X11 when the selection has been dropped — in both cases our own copy is
 // still the truthful answer to "what did I copy", so it is the fallback rather than a cache.
 clip_get :: proc(a: ^App) -> string {
-    text := glfw.GetClipboardString(a.window)
+    ctext := sdl.GetClipboardText() // owned; never nil
+    defer sdl.free(rawptr(ctext))
+    text := strings.clone(string(cstring(ctext)), context.temp_allocator)
     return text != "" ? text : clip_head(a).text
 }
 
 clip_set :: proc(a: ^App, text: string, pieces: []string = nil) {
     clip_push(a, text, pieces)
-    glfw.SetClipboardString(a.window, strings.clone_to_cstring(text, context.temp_allocator))
+    sdl.SetClipboardText(strings.clone_to_cstring(text, context.temp_allocator))
 }
 
 @(private = "file")
@@ -1196,7 +1198,7 @@ hover_update :: proc(a: ^App, panel, cx, cy: int) {
     was := hover_on(a)
     hover_clear(a)
     defer if hover_on(a) != was && a.window != nil {
-        glfw.SetCursor(a.window, hover_on(a) ? a.hand : nil)
+        _ = sdl.SetCursor(hover_on(a) ? a.hand : sdl.GetDefaultCursor())
     }
     pn := panel_get(a, panel)
     if pn == nil {

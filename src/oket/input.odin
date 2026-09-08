@@ -1,65 +1,93 @@
 package main
 
-import "base:runtime"
 import "core:c"
 import "core:strings"
-import "vendor:glfw"
-import glfwb "vendor:glfw/bindings"
+import "core:unicode/utf8"
+import sdl "vendor:sdl3"
 import "../gfx"
 import "../input"
 
-// GLFW events in, one command out. No chords are written here: this normalizes the scancode or
+// SDL events in, one command out. No chords are written here: this normalizes the scancode or
 // the button, asks the bind table, and runs what it names. Every keystroke and every click
 // arrives through the one funnel, which is what makes macros and replay cheap later.
 
-// GLFW's scancode is backend-shaped: raw evdev on Wayland, X keycodes (evdev+8) on X11. The
-// kernel stores X keycodes, the space the XKB name table indexes.
+// SDL's scancode range; a code past it is a mouse code or garbage.
 @(private = "file")
-scancode_shift: input.Code
+SCANCODE_COUNT :: 512
 
 // Set by input_init. A layout spelling cannot be resolved before it, and answering anyway is
 // worse than refusing: see key_layout_code.
 input_ready: bool
 
 input_init :: proc(a: ^App) {
-    if glfw.GetPlatform() == glfw.PLATFORM_WAYLAND {
-        scancode_shift = 8
-    }
     input_ready = true
-    glfw.SetWindowUserPointer(a.window, a)
-    glfw.SetKeyCallback(a.window, key_callback)
-    glfw.SetWindowFocusCallback(a.window, focus_callback)
-    glfw.SetCharCallback(a.window, char_callback)
-    glfw.SetMouseButtonCallback(a.window, button_callback)
-    glfw.SetCursorPosCallback(a.window, cursor_callback)
-    glfw.SetScrollCallback(a.window, scroll_callback)
+    // Text arrives only where it was asked for (§8): this is the ask, and the door the IME
+    // work walks in through later.
+    _ = sdl.StartTextInput(a.window)
 }
 
-// --- the window's half ---
+// The frame's events, drained in one place. `wait` parks until the first one arrives — a key,
+// a click, a resize, or a session's reader pushing a wake.
+input_pump :: proc(a: ^App, wait: bool) {
+    ev: sdl.Event
+    if wait {
+        if !sdl.WaitEvent(&ev) {
+            return
+        }
+        input_event(a, &ev)
+    }
+    for sdl.PollEvent(&ev) {
+        input_event(a, &ev)
+    }
+}
 
-key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods: i32) {
-    context = runtime.default_context()
-    a := (^App)(glfw.GetWindowUserPointer(window))
-    if a == nil || scancode <= 0 {
+@(private = "file")
+input_event :: proc(a: ^App, ev: ^sdl.Event) {
+    #partial switch ev.type {
+    case .QUIT, .WINDOW_CLOSE_REQUESTED:
+        a.quit = true
+    case .KEY_DOWN, .KEY_UP:
+        key_event(a, &ev.key)
+    case .TEXT_INPUT:
+        // Text is not keys (§8): a rune arrives on its own channel, so a bind never sees an
+        // `a` on its way into a document and a document never has to guess which it was.
+        for r in string(ev.text.text) {
+            text_input(a, r)
+        }
+    case .WINDOW_FOCUS_LOST:
+        // The window has lost the keyboard, so the release of whatever is down will be
+        // delivered somewhere else. A `held` nobody clears would qualify every chord after it.
+        a.held = 0
+        pick_drop(a)
+        switcher_drop(a) // alt's release will be delivered elsewhere, so the column ends here
+    case .MOUSE_BUTTON_DOWN, .MOUSE_BUTTON_UP:
+        button_event(a, &ev.button)
+    case .MOUSE_MOTION:
+        motion_event(a, &ev.motion)
+    case .MOUSE_WHEEL:
+        wheel_event(a, &ev.wheel)
+    }
+}
+
+@(private = "file")
+key_event :: proc(a: ^App, ev: ^sdl.KeyboardEvent) {
+    code := input.Code(ev.scancode)
+    if code == 0 {
         return
     }
-    code := input.Code(scancode) + scancode_shift
     if input.code_is_modifier(code) {
-        switcher_hold(a, code, action != glfw.RELEASE)
+        switcher_hold(a, code, ev.down)
         return // a held modifier is not a chord; wait for what it qualifies
     }
     // RELEASES NEVER ENTER THE BIND TABLE (PANELS.md §6). One field holds the key that is down,
     // its release clears the field, and an armed picker commits on the way past — so there is
     // no keys-down set, no release axis on bind_find and nothing for describe to grow an arm
     // for.
-    if action == glfw.RELEASE {
+    if !ev.down {
         if a.held == code {
             a.held = 0
         }
         pick_release(a, code)
-        return
-    }
-    if action != glfw.PRESS && action != glfw.REPEAT {
         return
     }
     if a.held == 0 {
@@ -67,92 +95,63 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
     }
     // The key that is down QUALIFIES the next one: `tab+enter` is a chord and `tab` on its own
     // still is one, which is why holding it shadows nothing and repeats it instead.
-    handle_chord(a, input.Chord{code, glfw_mods(mods), a.held == code ? 0 : a.held},
-                 action == glfw.REPEAT)
-}
-
-// The window has lost the keyboard, so the release of whatever is down will be delivered
-// somewhere else. A `held` nobody clears would qualify every chord after it.
-focus_callback :: proc "c" (window: glfw.WindowHandle, focused: i32) {
-    context = runtime.default_context()
-    a := (^App)(glfw.GetWindowUserPointer(window))
-    if a == nil || focused != 0 {
-        return
-    }
-    a.held = 0
-    pick_drop(a)
-    switcher_drop(a) // alt's release will be delivered elsewhere, so the column ends here
-}
-
-// Text is not keys (§8): a rune arrives on its own channel, so a bind never sees an `a` on its
-// way into a document and a document never has to guess which of the two it was handed.
-char_callback :: proc "c" (window: glfw.WindowHandle, codepoint: rune) {
-    context = runtime.default_context()
-    if a := (^App)(glfw.GetWindowUserPointer(window)); a != nil {
-        text_input(a, codepoint)
-    }
+    handle_chord(a, input.Chord{code, mods_of(ev.mod), a.held == code ? 0 : a.held}, ev.repeat)
 }
 
 // A click is a chord, and it fires on RELEASE so a drag cancels it (§8).
-button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mods: i32) {
-    context = runtime.default_context()
-    a := (^App)(glfw.GetWindowUserPointer(window))
-    if a == nil || int(button) >= len(input.MOUSE_BUTTONS) {
+@(private = "file")
+button_event :: proc(a: ^App, ev: ^sdl.MouseButtonEvent) {
+    b := int(ev.button) - 1
+    if b < 0 || b >= len(input.MOUSE_BUTTONS) {
         return
     }
-    px, py := glfw.GetCursorPos(window)
-    pn, cx, cy := cell_at(a, px, py)
+    pn, cx, cy := cell_at(a, f64(ev.x), f64(ev.y))
     // The menu is over the panels and is asked before them (MENU.md §6): what it takes never
     // reaches the panel under it.
-    if menu_took_button(a, pn, cx, cy, action == glfw.PRESS) {
+    if menu_took_button(a, pn, cx, cy, ev.down) {
         return
     }
     // Click to focus, before anything reads `active` (PANELS.md §7): the cell counts from the
     // panel it landed in, so aiming the keys somewhere else would place point with one panel's
     // numbers in another panel's document.
-    if action == glfw.PRESS {
+    if ev.down {
         panel_focus(a, pn)
     }
     // A document that took the mouse over reads the button itself (§5, §8): a TUI with tracking
     // on wants the press AND the release, and neither is a chord.
     if tm := mouse_events_target(a); tm != nil {
-        term_mouse(a, tm, input.MOUSE_BUTTONS[button], cx, cy, glfw_mods(mods),
-                   action == glfw.PRESS)
+        term_mouse(a, tm, input.MOUSE_BUTTONS[b], cx, cy, mods_now(), ev.down)
         return
     }
-    if action == glfw.PRESS {
+    if ev.down {
         // Only from the lattice the active document was drawn on: a gap and the bar count from
         // the screen, and placing those numbers against a panel's body would move its caret for
         // a click beside it.
         if pn == active_panel(a) {
             // Point first, then the chord (§8): holes fill from point exactly as they do for a
             // key. Unless the row names a verb that places its own — see point_press.
-            point_press(a, input.MOUSE_BUTTONS[button], glfw_mods(mods), cx, cy)
-            input.mouse_press(&a.mouse, input.MOUSE_BUTTONS[button], cx, cy)
+            point_press(a, input.MOUSE_BUTTONS[b], mods_now(), cx, cy)
+            input.mouse_press(&a.mouse, input.MOUSE_BUTTONS[b], cx, cy)
         }
         return
     }
-    if m, fired := input.mouse_release(&a.mouse, cx, cy, glfw.GetTime(),
+    if m, fired := input.mouse_release(&a.mouse, cx, cy, f64(sdl.GetTicks()) / 1000,
                                        f64(a.config.double_ms) / 1000); fired {
-        handle_chord(a, input.Chord{input.mouse_code(m), glfw_mods(mods), 0})
+        handle_chord(a, input.Chord{input.mouse_code(m), mods_now(), 0})
     }
 }
 
 // Dragging sweeps the selection; moving free updates what the pointer is offering.
-cursor_callback :: proc "c" (window: glfw.WindowHandle, px, py: f64) {
-    context = runtime.default_context()
-    a := (^App)(glfw.GetWindowUserPointer(window))
-    if a == nil {
-        return
-    }
-    pn, cx, cy := cell_at(a, px, py)
+@(private = "file")
+motion_event :: proc(a: ^App, ev: ^sdl.MouseMotionEvent) {
+    pn, cx, cy := cell_at(a, f64(ev.x), f64(ev.y))
     if pn == PANEL_MENU {
         menu_hover(a, pn, cx, cy)
         hover_update(a, pn, cx, cy) // over the menu is over no document: whatever was lit goes out
         return
     }
     if tm := mouse_events_target(a); tm != nil {
-        term_mouse_at(a, tm, cx, cy, glfw_mods_now(window))
+        term_mouse_at(a, tm, cx, cy, mods_now())
         return
     }
     if input.mouse_motion(&a.mouse, cx, cy) {
@@ -166,11 +165,11 @@ cursor_callback :: proc "c" (window: glfw.WindowHandle, px, py: f64) {
     hover_update(a, pn, cx, cy)
 }
 
-scroll_callback :: proc "c" (window: glfw.WindowHandle, xoff, yoff: f64) {
-    context = runtime.default_context()
-    a := (^App)(glfw.GetWindowUserPointer(window))
-    if a == nil {
-        return
+@(private = "file")
+wheel_event :: proc(a: ^App, ev: ^sdl.MouseWheelEvent) {
+    xoff, yoff := f64(ev.x), f64(ev.y)
+    if ev.direction == .FLIPPED {
+        xoff, yoff = -xoff, -yoff
     }
     wheel := input.Mouse.Wheel_Up
     switch {
@@ -183,62 +182,47 @@ scroll_callback :: proc "c" (window: glfw.WindowHandle, xoff, yoff: f64) {
     case yoff == 0:
         return
     }
-    px, py := glfw.GetCursorPos(window)
-    pn, cx, cy := cell_at(a, px, py)
+    pn, cx, cy := cell_at(a, f64(ev.mouse_x), f64(ev.mouse_y))
     if pn == PANEL_MENU {
         return // the wheel over a menu is the menu's, and it scrolls with its own keys
     }
     if tm := mouse_events_target(a); tm != nil {
-        term_mouse(a, tm, wheel, cx, cy, glfw_mods_now(window), true)
+        term_mouse(a, tm, wheel, cx, cy, mods_now(), true)
         return
     }
-    handle_chord(a, input.Chord{input.mouse_code(wheel), glfw_mods_now(window), 0})
+    handle_chord(a, input.Chord{input.mouse_code(wheel), mods_now(), 0})
 }
 
 @(private = "file")
-glfw_mods :: proc(mods: i32) -> (m: input.Mods) {
-    if mods & glfw.MOD_SHIFT != 0 {
+mods_of :: proc(mod: sdl.Keymod) -> (m: input.Mods) {
+    if mod & sdl.KMOD_SHIFT != {} {
         m += {.Shift}
     }
-    if mods & glfw.MOD_CONTROL != 0 {
+    if mod & sdl.KMOD_CTRL != {} {
         m += {.Ctrl}
     }
-    if mods & glfw.MOD_ALT != 0 {
+    if mod & sdl.KMOD_ALT != {} {
         m += {.Alt}
     }
-    if mods & glfw.MOD_SUPER != 0 {
+    if mod & sdl.KMOD_GUI != {} {
         m += {.Super}
     }
     return
 }
 
-// The wheel callback carries no modifier word, so they are read off the keyboard instead.
+// Mouse events carry no modifier word, so they are read off the keyboard state instead.
 @(private = "file")
-glfw_mods_now :: proc "c" (w: glfw.WindowHandle) -> (m: input.Mods) {
-    held :: proc "c" (w: glfw.WindowHandle, l, r: i32) -> bool {
-        return glfw.GetKey(w, l) == glfw.PRESS || glfw.GetKey(w, r) == glfw.PRESS
-    }
-    if held(w, glfw.KEY_LEFT_SHIFT, glfw.KEY_RIGHT_SHIFT) {
-        m += {.Shift}
-    }
-    if held(w, glfw.KEY_LEFT_CONTROL, glfw.KEY_RIGHT_CONTROL) {
-        m += {.Ctrl}
-    }
-    if held(w, glfw.KEY_LEFT_ALT, glfw.KEY_RIGHT_ALT) {
-        m += {.Alt}
-    }
-    if held(w, glfw.KEY_LEFT_SUPER, glfw.KEY_RIGHT_SUPER) {
-        m += {.Super}
-    }
-    return
+mods_now :: proc() -> input.Mods {
+    return mods_of(sdl.GetModState())
 }
 
 // The pointer arrives in window coordinates and the grids are laid out in framebuffer pixels,
 // so the scale between them goes in first. The division into cells is panel_hit's, because a
 // panel has an origin of its own and a column number counts from one grid (§7, §8).
 cell_at :: proc(a: ^App, px, py: f64) -> (panel, x, y: int) {
-    fw, fh := glfw.GetFramebufferSize(a.window)
-    ww, wh := glfw.GetWindowSize(a.window)
+    fw, fh, ww, wh: c.int
+    sdl.GetWindowSizeInPixels(a.window, &fw, &fh)
+    sdl.GetWindowSize(a.window, &ww, &wh)
     ox, oy := gfx.painter_origin(&a.painter, fw, fh, a.chrome.cols, a.chrome.rows)
     sx := ww > 0 ? f64(fw) / f64(ww) : 1
     sy := wh > 0 ? f64(fh) / f64(wh) : 1
@@ -249,33 +233,31 @@ cell_at :: proc(a: ^App, px, py: f64) -> (panel, x, y: int) {
 // tabled, because the layout can change under a running oket and this runs once per config row,
 // not once per keystroke.
 key_layout_code :: proc(name: string) -> (input.Code, bool) {
-    // Refused before input_init rather than answered wrong: the scancode base is part of the
-    // mapping, so an early call resolves every letter to a key 8 positions away on X11.
+    // Refused before input_init rather than answered wrong: SDL's keymap is not up before its
+    // window system is.
     if name == "" || !input_ready {
         return 0, false
     }
-    for sc in 1 ..= 255 {
-        code := input.Code(sc) + scancode_shift
-        if key_layout_name(code) == name {
-            return code, true
+    for sc in 1 ..< SCANCODE_COUNT {
+        if key_layout_name(input.Code(sc)) == name {
+            return input.Code(sc), true
         }
     }
     return 0, false
 }
 
-// What the position types under the live layout, for display. GLFW only names keys it can see,
-// and only in the 0..255 scancode range; a mouse code is never one of them.
+// What the position types under the live layout, for display. A key that types nothing — or a
+// space, which no chord can be read from — answers "", so key_spelling falls back to the label
+// ("space") — the menubar's own key (MENU.md §5). A mouse code is out of range by design.
 key_layout_name :: proc(code: input.Code) -> string {
-    sc := c.int(code) - c.int(scancode_shift)
-    if sc <= 0 || sc > 255 {
+    if code == 0 || code >= SCANCODE_COUNT {
         return ""
     }
-    name := glfwb.GetKeyName(glfw.KEY_UNKNOWN, sc)
-    // A position that types a SPACE has no visible glyph, and `alt+ ` is not a chord anybody can
-    // read. Nothing, so key_spelling falls back to the label ("space") — the menubar's own key
-    // (MENU.md §5).
-    if name == nil || strings.trim_space(string(name)) == "" {
+    key := u32(sdl.GetKeyFromScancode(sdl.Scancode(code), sdl.KMOD_NONE, false))
+    // A printable keycode IS its unshifted codepoint; everything else is flagged or a control.
+    if key <= ' ' || key == 0x7f || key >= u32(sdl.K_EXTENDED_MASK) {
         return ""
     }
-    return string(name)
+    buf, n := utf8.encode_rune(rune(key))
+    return strings.clone(string(buf[:n]), context.temp_allocator)
 }
