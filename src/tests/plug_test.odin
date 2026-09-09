@@ -1,5 +1,6 @@
 package tests
 
+import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
@@ -309,4 +310,62 @@ a_dispatch_names_the_cursors_it_reads :: proc(t: ^testing.T) {
                    "a held snapshot borrowed an array that will move")
     testing.expect_value(t, int(kept.snap.ncursors), len(doc.cursors))
     testing.expect_value(t, int(kept.snap.cursors[1].head.line), doc.cursors[1].head.line)
+}
+
+// --- §8: the seam is a C ABI, not a C-only ABI ---
+
+// Four plugins in four languages, three of which no C compiler saw, loaded side by side into
+// one kernel. `stage.sh` picks the toolchain off the extension and `ownplug` brings its own
+// recipe; nothing in `plug.odin` or `oket.h` learns which one ran.
+//
+// Registering is not the whole claim, so every command is CALLED. The answer coming back is
+// what proves the seam crossed: helper SOURCES linked into the Zig one, a helper ARCHIVE into
+// the Odin and C++ ones, and `ownplug` reaching `message` off the api with no helpers at all.
+@(test)
+a_plugin_the_c_compiler_never_saw_loads_and_runs :: proc(t: ^testing.T) {
+    Lang :: struct {
+        name, said: string,
+    }
+    LANGS :: [?]Lang {
+        {"zigplug", "hello from zig"},
+        {"odinplug", "hello from odin"},
+        {"cppplug", "hello from c++"},
+        {"ownplug", "hello from a recipe"},
+    }
+    a, ok := plug_app(t, "oket-plug-langs", "src/tests/zigplug", "src/tests/odinplug",
+                      "src/tests/cppplug", "src/tests/ownplug")
+    if !ok {
+        return
+    }
+    defer close_plug_app(&a)
+    app.plug_init(&a)
+
+    for l in LANGS {
+        if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, l.name)), a.message) {
+            return
+        }
+        _, is_cmd := app.plug_cmd_named(&a, l.name)
+        testing.expectf(t, is_cmd, ":%s did not register", l.name)
+    }
+    for l in LANGS {
+        app.cl_exec(&a, fmt.tprintf(":%s", l.name))
+        testing.expect_value(t, a.message, l.said)
+    }
+}
+
+// Bare `:pluginify` builds what is focused, and with NOTHING focused it must refuse rather than
+// fall through to a default. `filepath.dir("")` answers ".", so a missing guard here builds the
+// working directory as if it were a plugin.
+@(test)
+a_bare_pluginify_with_nothing_focused_refuses :: proc(t: ^testing.T) {
+    a, ok := bare_app()
+    if !testing.expect(t, ok, "no App") {
+        return
+    }
+    defer close_app(&a)
+
+    app.cl_exec(&a, ":pluginify")
+    // The USAGE line exactly: without the guard it resolves "." instead, gets past this and
+    // fails later with a different complaint, which a looser assertion would not tell apart.
+    testing.expect_value(t, a.message, app.USAGE_PLUGINIFY)
 }
