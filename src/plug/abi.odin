@@ -1,8 +1,6 @@
 package plug
 
 import "core:c"
-import "../desc"
-import "../input"
 import "../shape"
 
 // The plugin seam (§7). `oket.h` beside it is these same declarations in C and is what a
@@ -31,6 +29,12 @@ API :: 9
 // Index plus load generation, packed: a handle kept across a reload resolves to nothing rather
 // than to whoever took the slot next.
 Self :: distinct u64
+
+// A surface kind, opaque here. MIRRORED from `input.Kind`, not imported: importing it drags the
+// whole bind table into the seam's graph for one `distinct u32`, and an opaque id has nothing
+// to drift but its size, which `plug_read.odin` asserts. An enum could not be mirrored this
+// way — it has values and order, and a size assert sees neither (shape.odin).
+Kind :: distinct u32
 
 // A document, packed the same way and refused the same way. This is store.Id over the wire —
 // slot plus seq — so an Id kept across a close is dead, not dangerous.
@@ -117,7 +121,7 @@ Column :: struct {
     name:     [^]u8,
     name_len: c.size_t,
     width:    c.int32_t,
-    align:    desc.Align,
+    align:    shape.Align,
     _:        [3]u8,
 }
 
@@ -146,15 +150,15 @@ Descriptor :: struct {
     // rest of the document at depth 0.
     depth:     [^]c.int32_t,
     ndepth:    c.size_t,
-    kind:      input.Kind,
+    kind:      Kind,
     tab_width: c.int32_t,
-    render:    desc.Render,
-    wrap:      desc.Wrap,
-    numbers:   desc.Numbers,
-    selection: desc.Selection,
-    follow:    desc.Follow,
-    input:     desc.Input,
-    mouse:     desc.Mouse,
+    render:    shape.Render,
+    wrap:      shape.Wrap,
+    numbers:   shape.Numbers,
+    selection: shape.Selection,
+    follow:    shape.Follow,
+    input:     shape.Input,
+    mouse:     shape.Mouse,
     editable:  b8,
 }
 
@@ -195,7 +199,7 @@ Span :: struct {
     attrs: shape.Attrs,
     // Which of the three this run has an opinion about. What it leaves unset is whoever is
     // below it, so an underline over a colour draws as both (§8).
-    set:   desc.Chans,
+    set:   shape.Chans,
     _:     [4]u8,
 }
 
@@ -357,7 +361,7 @@ Api :: struct {
 
     // register. Three entry points, one message: each appends a ledger record, and unload
     // walks the ledger backwards. A plugin that registers nothing unloads just as cleanly.
-    register_kind:    proc "c" (api: ^Api, self: Self, spec: ^Kind_Spec) -> input.Kind,
+    register_kind:    proc "c" (api: ^Api, self: Self, spec: ^Kind_Spec) -> Kind,
     register_command: proc "c" (api: ^Api, self: Self, name: [^]u8, name_len: c.size_t,
                                 doc: [^]u8, doc_len: c.size_t, fn: Command_Fn),
     // A plugin never CLAIMS a chord (§8): it asks, the row becomes a line in binds.conf, and

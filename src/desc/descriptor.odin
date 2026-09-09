@@ -4,6 +4,7 @@ import "core:slice"
 import "core:strings"
 import "../input"
 import "../rc"
+import "../shape"
 
 // How the kernel renders and routes a document (§5). Immutable and refcounted: a write
 // publishes a new one, so a reader holding the descriptor its generation named keeps reading
@@ -13,102 +14,23 @@ import "../rc"
 // config and binds each have their own home, and that test is what keeps this from becoming a
 // junk drawer.
 
-Render :: enum u8 {
-    Text,  // a line is text; wrap, tabs and line numbers apply
-    Grid,  // a line is a physical row — the terminal (stage 6)
-    // The escape hatch (§5): a plugin that genuinely paints. RESERVED AND NOT BUILT — a
-    // renderer arm for it is a drawing API, the line §12 draws, so the seam refuses it
-    // rather than drawing it as text.
-    Cells,
-}
+// `shape` owns the vocabulary; `desc` owns the refcounted struct made OF it, and names the
+// parts so no call site has to know which package a row's pieces live in. Named and not copied,
+// because the seam reads the same declarations and a second copy is a second thing to reorder
+// (shape.odin's asserts).
+Render :: shape.Render
+Wrap :: shape.Wrap
+Numbers :: shape.Numbers
+Align :: shape.Align
+Follow :: shape.Follow
+Input :: shape.Input
+Mouse :: shape.Mouse
+Selection :: shape.Selection
+Chan :: shape.Chan
+Chans :: shape.Chans
 
-Wrap :: enum u8 {
-    None,
-    Word,
-    Char,
-}
-
-Numbers :: enum u8 {
-    Off,
-    Absolute,
-    Relative,
-}
-
-Align :: enum u8 {
-    Left,
-    Right,
-}
-
-// Where the viewport sits as the document grows (§5, §11). `tail` is the terminal's live
-// bottom; the kernel's viewport is the only scroll code a session has.
-Follow :: enum u8 {
-    None,
-    Tail,
-}
-
-// Where a chord the bind table did not claim, and a typed rune, go (§5, §8). `raw` is the
-// terminal: the document has a job of its own and the miss falls through to it. Anything else
-// reports, because a silent no-op is the thing §8 exists to prevent.
-Input :: enum u8 {
-    Bound,
-    Raw,
-}
-
-// Who reads a click (§5, §8). `bound` is the default and needs no code at all: the kernel moves
-// point and the bind table answers. `events` is a document that took the mouse over — a TUI
-// that enabled tracking — and gets the button, the cell and the wheel raw.
-Mouse :: enum u8 {
-    Bound,
-    Events,
-}
-
-// The drag granularity, and what an empty selection looks like (§5, §8): a browser selects
-// rows, an editor selects characters. `block` arrives with block editing.
-Selection :: enum u8 {
-    Char,
-    Line,
-    None,
-}
-
-// Which of a style run's channels it SETS (§8). A run that says `underline` and nothing about
-// colour leaves the colour to whoever is below it, so two publishers at one byte share the cell
-// instead of one deleting the other.
-//
-// Here rather than in the store, which owns the runs, because the SEAM names it too and the
-// seam mirrors txt's layouts rather than importing them (`plug_read.odin`'s size asserts).
-// Both sides already read their vocabulary out of this package.
-//
-// There is no layer enum beside it. WHO published is the ordering, the kernel knows who called,
-// and a config line says which of them draws over which (§8, §9).
-Chan :: enum u8 {
-    Fg,
-    Bg,
-    Attrs,
-}
-
-Chans :: distinct bit_set[Chan; u8]
-
-Column :: struct {
-    name:  string,
-    width: int,
-    align: Align,
-}
-
-// A named byte span inside one line, offsets from that line's start. Sorted by line, so a
-// lookup is a binary search and a short scan.
-//
-// THE SPAN IS WHAT IS DRAWN AND `value` IS WHAT IS ACTED ON. Empty, which is the common case,
-// means the two are the same and the span's own bytes answer `<name>`. Set, and the line may
-// show a bare `browser.c` while `<path>` hands on the whole of where it lives — which is what
-// makes a row a LINK and is the one thing a span alone could never say (§5, §14). It is also
-// the only way a link in RUNNING TEXT — a path in a compiler error, a file in a diff — can
-// carry its target: only a `columns` document has a cell to hide one in.
-Field :: struct {
-    line:   int,
-    name:   string,
-    lo, hi: int,
-    value:  string,
-}
+Column :: shape.Column
+Field :: shape.Field
 
 Descriptor :: struct {
     rc:        int, // atomic

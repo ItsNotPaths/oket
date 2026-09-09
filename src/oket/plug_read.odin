@@ -3,6 +3,7 @@ package main
 import "core:c"
 import "core:slice"
 import "../desc"
+import "../input"
 import "../plug"
 import "../store"
 import "../txt"
@@ -20,6 +21,7 @@ import "../view"
 #assert(size_of(txt.Piece) == size_of(plug.Piece))
 #assert(size_of(txt.Line_Seg) == size_of(plug.Seg))
 #assert(size_of([]u8) == size_of(plug.Block))
+#assert(size_of(input.Kind) == size_of(plug.Kind))
 #assert(size_of(txt.Cursor) == size_of(plug.Cursor))
 #assert(size_of(txt.Range) == size_of(plug.Range))
 
@@ -222,7 +224,7 @@ view_desc :: proc(v: ^Plug_View) -> ^plug.Descriptor {
         nfields   = len(v.flds),
         depth     = raw_data(v.dpth),
         ndepth    = len(v.dpth),
-        kind      = d.kind,
+        kind      = plug.Kind(d.kind),
         tab_width = i32(d.tab_width),
         render    = d.render,
         wrap      = d.wrap,
@@ -247,7 +249,7 @@ plug_desc_take :: proc(a: ^App, id: store.Id, p: ^plug.Descriptor) -> ^desc.Desc
         message_set(a, "render: cells is reserved and not built yet")
         render = .Text
     }
-    kind := p.kind
+    kind := input.Kind(p.kind)
     if kind == 0 {
         kind = doc_kind(a, id) // "leave it where it is" — the common case for a plain submit
     }

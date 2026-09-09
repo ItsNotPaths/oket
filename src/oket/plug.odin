@@ -713,7 +713,7 @@ plug_run :: proc(a: ^App, i: int, c: Plug_Call) -> (r: Plug_Ret) {
 
 @(private = "file")
 api_register_kind :: proc "c" (api: ^plug.Api, self: plug.Self,
-                               spec: ^plug.Kind_Spec) -> input.Kind {
+                               spec: ^plug.Kind_Spec) -> plug.Kind {
     a, i, ok := api_app(api, self)
     defer api_done()
     if !ok || spec == nil {
@@ -737,7 +737,7 @@ api_register_kind :: proc "c" (api: ^plug.Api, self: plug.Self,
     }
     append(&a.kinds, Plug_Kind{strings.clone(name), ctx, i, spec.vt})
     append(&a.plugs[i].ledger, Record{.Kind, len(a.kinds) - 1})
-    return input.Kind(len(KINDS) + len(a.kinds))
+    return plug.Kind(len(KINDS) + len(a.kinds))
 }
 
 @(private = "file")
