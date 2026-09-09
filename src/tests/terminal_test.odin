@@ -560,3 +560,30 @@ a_new_session_starts_where_n0_stands :: proc(t: ^testing.T) {
     os.remove_all(dir)
     testing.expect_value(t, pty.terminal_cwd(&n0.t), "")
 }
+
+// A cluster reaches the document whole: libvterm carries up to six combining characters per
+// cell and all of them are text. The cursor's column walks the same bytes, or point would land
+// inside the cluster (IME.md §6).
+@(test)
+a_session_keeps_the_combining_marks :: proc(t: ^testing.T) {
+    a, tm, ok := term_app(t)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    term_show(&a, tm, "\r\ne\u0301-mark")
+    line := term_line_of(&a, tm, "-mark")
+    if !testing.expect(t, line >= 0, term_text(&a, tm)) {
+        return
+    }
+    doc := store.store_doc(&a.docs, tm.doc)
+    // The caret's own cell is kept, so the line ends in the blank it sits on.
+    testing.expect_value(t, string(txt.doc_line(doc, line)), "e\u0301-mark ")
+
+    // Six cells written, eight bytes of text: the caret converts through the same walk, so it
+    // lands after the mark rather than inside the cluster.
+    _, col := pty.terminal_cursor(&tm.t)
+    testing.expect_value(t, col, 6)
+    testing.expect_value(t, app.active(&a).view.point.head.col, 8)
+}

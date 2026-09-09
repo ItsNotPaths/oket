@@ -1,7 +1,6 @@
 package main
 
 import "core:strings"
-import "core:unicode/utf8"
 import "../desc"
 import "../gfx"
 import "../input"
@@ -231,11 +230,26 @@ term_line :: proc(a: ^App, tm: ^Term, n: int, b: ^strings.Builder, base, keep: i
             term_close_run(tm, &run, at)
             run, open = st, true
         }
-        r := rune(cell.chars[0])
-        strings.write_rune(b, r >= 0x20 ? r : ' ')
+        term_write_cell(b, cell)
         col += max(int(cell.width), 1)
     }
     term_close_run(tm, &run, base + strings.builder_len(b^))
+}
+
+// One terminal cell as document text: the base rune, then the up-to-six combining marks
+// libvterm carries after it, because the document is the only place a terminal's text lives
+// and a cluster has to arrive whole (IME.md §6). One definition, so the line build and the
+// cursor's column walk agree byte for byte.
+@(private = "file")
+term_write_cell :: proc(b: ^strings.Builder, cell: vt.ScreenCell) {
+    r := rune(cell.chars[0])
+    strings.write_rune(b, r >= 0x20 ? r : ' ')
+    for i in 1 ..< vt.MAX_CHARS_PER_CELL {
+        if cell.chars[i] == 0 {
+            break
+        }
+        strings.write_rune(b, rune(cell.chars[i]))
+    }
 }
 
 // A run reaches the styles only if it has cells in it and says something the theme does not
@@ -332,16 +346,16 @@ term_point :: proc(tm: ^Term, s: ^Slot, doc: ^txt.Doc) {
 @(private = "file")
 term_col_byte :: proc(tm: ^Term, line, want: int) -> (off: int) {
     n := tm.base + line
+    b := strings.builder_make(context.temp_allocator)
     for col := 0; col < want; {
         cell, ok := pty.terminal_line_cell(&tm.t, n, col)
         if !ok {
             break
         }
-        r := rune(cell.chars[0])
-        off += utf8.rune_size(r >= 0x20 ? r : ' ')
+        term_write_cell(&b, cell)
         col += max(int(cell.width), 1)
     }
-    return
+    return strings.builder_len(b)
 }
 
 // The descriptor (§5). Published at open and again when the TUI takes the mouse over; nothing
