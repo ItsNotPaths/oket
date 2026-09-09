@@ -376,20 +376,30 @@ gutter_width :: proc(t: ^txt.Text, d: ^desc.Descriptor, dv: ^Derived = nil) -> i
 // disagree about where a row ends.
 @(private)
 run :: proc(g: ^gfx.Grid, x, y: int, src: []u8, width, tab: int, fg, bg: [3]f32) -> int {
-    cell, i := 0, 0
+    cell, i, base := 0, 0, -1
     for i < len(src) {
         r, sz := utf8.decode_rune(src[i:])
         w := advance(r, cell, tab)
         if cell + w > width {
             break
         }
-        if g != nil && w > 0 {
-            // A tab is its blanks; a wide rune leaves its continuation cell empty.
-            gfx.grid_put(g, x + cell, y, gfx.Cell{r == '\t' ? ' ' : r, fg, bg, {}})
-            if r == '\t' {
-                for k in 1 ..< w {
+        if g != nil {
+            switch {
+            case r == 0: // no column and no glyph: a raw NUL draws as nothing
+            case w == 0:
+                // A combining mark owns no column, so it rides over the cell its base went
+                // into (IME.md §6). One that opens a row has no base and takes the next
+                // cell's, which is the least wrong place for a defective sequence.
+                gfx.grid_mark(g, base >= 0 ? base : x + cell, y, r)
+            case r == '\t':
+                for k in 0 ..< w {
                     gfx.grid_put(g, x + cell + k, y, gfx.Cell{' ', fg, bg, {}})
                 }
+                base = x + cell
+            case:
+                // A wide rune leaves its continuation cell empty.
+                gfx.grid_put(g, x + cell, y, gfx.Cell{r, fg, bg, {}})
+                base = x + cell
             }
         }
         cell += w

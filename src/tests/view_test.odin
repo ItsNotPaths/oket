@@ -51,6 +51,26 @@ opened :: proc(
     return store.store_snapshot(s, id), store.store_descriptor(s, id)
 }
 
+// Into a grid the caller owns, for a test that asks about more than the snapshot text.
+@(private = "file")
+into :: proc(
+    t: ^testing.T,
+    g: ^gfx.Grid,
+    text: string,
+    d: desc.Descriptor,
+    cols, rows: int,
+    v := view.View{},
+) {
+    s: store.Store
+    defer store.store_destroy(&s)
+    snap, dp := opened(&s, text, d)
+    defer txt.snapshot_release(snap)
+    defer desc.release(dp)
+
+    testing.expect(t, gfx.grid_init(g, cols, rows))
+    view.draw(g, gfx.DEFAULT_THEME, &snap.text, dp, v, 0, 0, cols, rows)
+}
+
 @(private = "file")
 drawn :: proc(
     t: ^testing.T,
@@ -59,17 +79,9 @@ drawn :: proc(
     cols, rows: int,
     v := view.View{},
 ) -> string {
-    s: store.Store
-    defer store.store_destroy(&s)
-    snap, dp := opened(&s, text, d)
-    defer txt.snapshot_release(snap)
-    defer desc.release(dp)
-
     g: gfx.Grid
-    testing.expect(t, gfx.grid_init(&g, cols, rows))
     defer gfx.grid_destroy(&g)
-
-    view.draw(&g, gfx.DEFAULT_THEME, &snap.text, dp, v, 0, 0, cols, rows)
+    into(t, &g, text, d, cols, rows, v)
     return gfx.grid_snapshot(&g)
 }
 
@@ -403,4 +415,24 @@ an_unsorted_caret_set_lights_the_rows_it_names :: proc(t: ^testing.T) {
         }
         testing.expect_value(t, lit, y == 1 ? 0 : 30)
     }
+}
+
+// A combining mark owns no column, so it cannot be a cell. It rides over the cell its BASE
+// went into, which is the wide rune's first column and not its continuation (IME.md §6).
+@(test)
+a_combining_mark_rides_over_its_base_cell :: proc(t: ^testing.T) {
+    g: gfx.Grid
+    defer gfx.grid_destroy(&g)
+    into(t, &g, "e\u0301x\na\u4E00\u0301", {}, 8, 2)
+
+    // The cells are untouched: the mark took no column from the text beside it.
+    snap := gfx.grid_snapshot(&g)
+    defer delete(snap)
+    testing.expect_value(t, snap, "ex\na\u4E00")
+
+    if !testing.expect_value(t, len(g.marks), 2) {
+        return
+    }
+    testing.expect_value(t, g.marks[0], gfx.Mark{0, '\u0301'})
+    testing.expect_value(t, g.marks[1], gfx.Mark{i32(g.cols + 1), '\u0301'})
 }

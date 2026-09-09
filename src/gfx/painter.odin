@@ -4,7 +4,8 @@ import "core:fmt"
 import gl "vendor:OpenGL"
 
 // Puts a Grid and an Atlas on the GPU; the only code that talks to OpenGL beyond gl.odin.
-// One instanced draw per grid: a unit quad per cell, background and glyph in the same pass.
+// One instanced draw per grid: a unit quad per cell, background and glyph in the same pass,
+// plus a second blended pass for the grid's marks when it has any.
 // A grid uploads whole every frame (~860 KB at 300x80); per-cell damage tracking waits for
 // evidence it is needed.
 
@@ -53,6 +54,7 @@ flat in uint v_attrs;
 
 uniform sampler2D u_atlas;
 uniform vec2 u_cell_px;
+uniform int u_over; // the mark pass: coverage becomes alpha so the base glyph shows through
 
 out vec4 o_color;
 
@@ -61,7 +63,12 @@ out vec4 o_color;
 const uint ATTR_UNDERLINE = 4u;
 
 void main() {
-    vec3 c = mix(v_bg, v_fg, texture(u_atlas, v_uv).r);
+    float cov = texture(u_atlas, v_uv).r;
+    if (u_over != 0) {
+        o_color = vec4(v_fg, cov);
+        return;
+    }
+    vec3 c = mix(v_bg, v_fg, cov);
     // Two pixels along the cell's bottom edge, so it stays visible as the cell zooms.
     if ((v_attrs & ATTR_UNDERLINE) != 0u && v_at.y > 1.0 - 2.0 / u_cell_px.y) {
         c = v_fg;
@@ -85,9 +92,10 @@ Painter :: struct {
     vao, vbo, tex:   u32,
     atlas:           Atlas,
     quads:           [dynamic]Quad,
+    overlay:         [dynamic]Quad, // the grid's marks, drawn over the cells (IME.md §6)
     // Whole numbers only: a fractional cell size stops being exact arithmetic.
     scale:           f32,
-    u_cell, u_screen, u_origin, u_slots, u_atlas: i32,
+    u_cell, u_screen, u_origin, u_slots, u_atlas, u_over: i32,
 }
 
 painter_init :: proc(p: ^Painter, atlas: Atlas) -> bool {
@@ -136,6 +144,7 @@ painter_init :: proc(p: ^Painter, atlas: Atlas) -> bool {
     p.u_origin = gl.GetUniformLocation(p.prog, "u_origin_px")
     p.u_slots = gl.GetUniformLocation(p.prog, "u_slots")
     p.u_atlas = gl.GetUniformLocation(p.prog, "u_atlas")
+    p.u_over = gl.GetUniformLocation(p.prog, "u_over")
     gl.Uniform1i(p.u_atlas, 0)
     return true
 }
@@ -185,6 +194,7 @@ painter_destroy :: proc(p: ^Painter) {
     gl.DeleteVertexArrays(1, &p.vao)
     gl.DeleteProgram(p.prog)
     delete(p.quads)
+    delete(p.overlay)
     atlas_destroy(&p.atlas)
     p^ = {}
 }
@@ -230,6 +240,7 @@ painter_scissor :: proc(clip: Clip, win_h: i32) -> (x, y, w, h: i32) {
 // is what lets a grid hold a column it is only showing part of.
 painter_draw :: proc(p: ^Painter, g: ^Grid, win_w, win_h: i32, origin: [2]f32, clip: Clip) {
     clear(&p.quads)
+    clear(&p.overlay)
     for y in 0 ..< g.rows {
         for x in 0 ..< g.cols {
             c := g.cells[y * g.cols + x]
@@ -251,6 +262,19 @@ painter_draw :: proc(p: ^Painter, g: ^Grid, win_w, win_h: i32, origin: [2]f32, c
             )
         }
     }
+    // A mark draws in its cell's colours with no attributes, or the underline would be laid
+    // down twice. A cell index out of the grid is the only thing between a hand-built Mark
+    // and a read off the end of the quads.
+    for m in g.marks {
+        if int(m.cell) < 0 || int(m.cell) >= len(p.quads) {
+            continue
+        }
+        base := p.quads[m.cell]
+        append(
+            &p.overlay,
+            Quad{base.cell, u32(atlas_ensure(&p.atlas, m.r)), base.fg, base.bg, 0},
+        )
+    }
     if len(p.quads) == 0 {
         return
     }
@@ -261,7 +285,6 @@ painter_draw :: proc(p: ^Painter, g: ^Grid, win_w, win_h: i32, origin: [2]f32, c
     painter_sync(p) // after ensure: this frame's new glyphs go up before it draws
     gl.BindVertexArray(p.vao)
     gl.BindBuffer(gl.ARRAY_BUFFER, p.vbo)
-    gl.BufferData(gl.ARRAY_BUFFER, len(p.quads) * size_of(Quad), raw_data(p.quads), gl.STREAM_DRAW)
 
     cw, ch := painter_cell(p)
     gl.Uniform2f(p.u_cell, f32(cw), f32(ch))
@@ -272,5 +295,22 @@ painter_draw :: proc(p: ^Painter, g: ^Grid, win_w, win_h: i32, origin: [2]f32, c
     gl.Enable(gl.SCISSOR_TEST)
     defer gl.Disable(gl.SCISSOR_TEST) // or the next gl.Clear would be cut to this grid
     gl.Scissor(painter_scissor(clip, win_h))
+
+    gl.Uniform1i(p.u_over, 0)
+    gl.BufferData(gl.ARRAY_BUFFER, len(p.quads) * size_of(Quad), raw_data(p.quads), gl.STREAM_DRAW)
     gl.DrawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, i32(len(p.quads)))
+
+    if len(p.overlay) == 0 {
+        return
+    }
+    // Blended, and a second upload into the same buffer: base-instance drawing is GL 4.2 and
+    // this shader is 3.3. Marks are rare, so the cost lands only on text that has them.
+    gl.Enable(gl.BLEND)
+    defer gl.Disable(gl.BLEND)
+    gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+    gl.Uniform1i(p.u_over, 1)
+    gl.BufferData(
+        gl.ARRAY_BUFFER, len(p.overlay) * size_of(Quad), raw_data(p.overlay), gl.STREAM_DRAW,
+    )
+    gl.DrawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, i32(len(p.overlay)))
 }

@@ -21,9 +21,18 @@ Cell :: struct {
     attrs: Attrs,
 }
 
+// A glyph drawn OVER a cell rather than in it: a combining mark, whose own width is zero.
+// The painter draws these after every cell, blended, so the base glyph stays underneath
+// (IME.md §6). Rare, so the list is short and empty on almost every grid.
+Mark :: struct {
+    cell: i32, // index into `cells`
+    r:    rune,
+}
+
 Grid :: struct {
     cols, rows: int,
     cells:      []Cell,
+    marks:      [dynamic]Mark,
 }
 
 grid_init :: proc(g: ^Grid, cols, rows: int) -> bool {
@@ -38,6 +47,7 @@ grid_init :: proc(g: ^Grid, cols, rows: int) -> bool {
 
 grid_destroy :: proc(g: ^Grid) {
     delete(g.cells)
+    delete(g.marks)
     g^ = {}
 }
 
@@ -53,6 +63,7 @@ grid_clear :: proc(g: ^Grid, fg, bg: [3]f32) {
     for &c in g.cells {
         c = Cell{' ', fg, bg, {}}
     }
+    clear(&g.marks)
 }
 
 grid_in :: proc(g: ^Grid, x, y: int) -> bool {
@@ -64,6 +75,15 @@ grid_at :: proc(g: ^Grid, x, y: int) -> ^Cell {
         return nil
     }
     return &g.cells[y * g.cols + x]
+}
+
+// A mark over the cell at x,y. It draws in that cell's colours, but not its attributes: the
+// underline belongs to the base and is already drawn under both.
+grid_mark :: proc(g: ^Grid, x, y: int, r: rune) {
+    if !grid_in(g, x, y) {
+        return
+    }
+    append(&g.marks, Mark{i32(y * g.cols + x), r})
 }
 
 grid_put :: proc(g: ^Grid, x, y: int, c: Cell) {
