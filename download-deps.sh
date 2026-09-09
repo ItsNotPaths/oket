@@ -55,6 +55,42 @@ else
 fi
 
 echo ""
+echo "==> libgrapheme (cluster breaks, and §7's bidi later; static lib)"
+# suckless's UAX #29/#9 library, the one cluster authority both sides of the seam read
+# (IME.md §3). Plain C99 with no deps, so cc + ar beats its build, same as libvterm. Its
+# generators run once from UCD data inside the tarball — no network — and they are HOST
+# tools, so they stay on the system cc while the library objects take $CC like every other
+# vendored archive. The line-break API fails conformance; nothing may call it.
+LG_VERSION="3.0.0"
+LG_SRC="$VENDOR/libgrapheme"
+LG_A="$LG_SRC/libgrapheme.a"
+if [ -f "$LG_A" ]; then
+    echo "  already present: libgrapheme.a"
+else
+    if [ ! -d "$LG_SRC" ] || [ -z "$(ls -A "$LG_SRC" 2>/dev/null)" ]; then
+        echo "  downloading libgrapheme $LG_VERSION source..."
+        mkdir -p "$LG_SRC"
+        # A failed download must not leave a partial tree a re-run would trust.
+        curl -fsSL "https://dl.suckless.org/libgrapheme/libgrapheme-${LG_VERSION}.tar.gz" \
+            | tar xz --strip-components=1 -C "$LG_SRC" \
+            || { rm -rf "$LG_SRC"; exit 1; }
+    fi
+    echo "  building static libgrapheme.a..."
+    (
+        cd "$LG_SRC"
+        for g in bidirectional case character line sentence word; do
+            [ -f "gen/$g.h" ] && continue
+            cc -O2 -o "gen/$g" "gen/$g.c" gen/util.c
+            "./gen/$g" > "gen/$g.h"
+        done
+        $CC -c -O2 -fPIC -I. src/*.c
+        ar rcs libgrapheme.a ./*.o
+        rm -f ./*.o
+    )
+    echo "  done."
+fi
+
+echo ""
 echo "==> sdl3 (the window, input and clipboard backend; static lib)"
 # Stripped to video and events: everything else SDL offers, oket either does itself or does
 # not do. X11, Wayland and libdecor are dlopened at run time, so only their headers matter
