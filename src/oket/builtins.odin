@@ -657,8 +657,7 @@ plug_list :: proc(a: ^App) -> bool {
 // release.sh and the gate tests run the same script, so this build is the shipped build.
 @(private = "file")
 builtin_pluginify :: proc(a: ^App, args: string, _: CL_Step) -> bool {
-    raw, dir := first_arg(args)
-    flags := strings.trim_space(args[len(raw):])
+    dir, flags := pluginify_target(a, args)
     if dir == "" {
         message_set(a, USAGE_PLUGINIFY)
         return false
@@ -693,5 +692,28 @@ builtin_pluginify :: proc(a: ^App, args: string, _: CL_Step) -> bool {
     return true
 }
 
-USAGE_PLUGINIFY :: ":pluginify <dir> [--asan]"
+// What to build and what to build it with. Named, or — with nothing named — the plugin you are
+// LOOKING AT, so the write-build-load loop is one chord over the source you just edited. A file
+// resolves to its directory, which is the plugin (§7); a listing already names one.
+@(private = "file")
+pluginify_target :: proc(a: ^App, args: string) -> (dir, flags: string) {
+    raw, first := first_arg(args)
+    dir, flags = first, strings.trim_space(args[len(raw):])
+    if strings.has_prefix(dir, "-") {
+        dir, flags = "", strings.trim_space(args)
+    }
+    if dir != "" {
+        return
+    }
+    if s := ring_focused(a); s != nil {
+        dir = doc_file(a, s.doc)
+    }
+    // Guarded: `filepath.dir("")` answers ".", which would build the working directory.
+    if dir != "" && !os.is_dir(dir) {
+        dir = filepath.dir(dir) // a slice of dir
+    }
+    return
+}
+
+USAGE_PLUGINIFY :: ":pluginify [<dir>] [--asan]"
 PLUGINIFY_SCRIPT :: "stage.sh"
