@@ -100,3 +100,62 @@ atlas_falls_through_to_the_floor :: proc(t: ^testing.T) {
     testing.expect_value(t, tofu, u16(0))
     testing.expect(t, cell_ink(&a, 0) > 0, "the tofu glyph is blank")
 }
+
+// The atlas keys on (face, glyph id), not the codepoint. So the shaped path — which knows the
+// face and the id and never walks the stack — lands in the SAME cache the per-rune walk fills,
+// and two glyphs of one face cannot collide (IME.md §6).
+@(test)
+the_atlas_keys_on_a_face_and_a_glyph :: proc(t: ^testing.T) {
+    f, ok := open_primary(24)
+    if !ok {
+        return
+    }
+    id_a, id_b := gfx.face_glyph(&f, 'A'), gfx.face_glyph(&f, 'B')
+    faces := make([]gfx.Face, 1)
+    faces[0] = f
+    a, made := gfx.atlas_make(faces)
+    testing.expect(t, made)
+    defer gfx.atlas_destroy(&a)
+
+    testing.expect(t, id_a != 0 && id_b != 0 && id_a != id_b, "the face has no A and B")
+
+    slot := gfx.atlas_ensure(&a, 'A')
+    n := a.next
+    same, baked := gfx.atlas_ensure_glyph(&a, gfx.Glyph{0, id_a})
+    testing.expect(t, baked)
+    testing.expect_value(t, same, slot) // the walk got there first; the key found its work
+    testing.expect_value(t, a.next, n)
+
+    other, _ := gfx.atlas_ensure_glyph(&a, gfx.Glyph{0, id_b})
+    testing.expect(t, other != slot, "two glyphs of one face shared a slot")
+
+    // A face the stack does not have bakes nothing rather than reading off the end.
+    _, off_stack := gfx.atlas_ensure_glyph(&a, gfx.Glyph{7, id_a})
+    testing.expect(t, !off_stack)
+}
+
+// A resize re-bakes every glyph at the new cell, so every cached answer about a rune is stale
+// with it. Miss this and a zoom keeps drawing the old size out of slots that moved.
+@(test)
+a_resize_drops_what_the_face_walk_cached :: proc(t: ^testing.T) {
+    f, ok := open_primary(16)
+    if !ok {
+        return
+    }
+    faces := make([]gfx.Face, 1)
+    faces[0] = f
+    a, made := gfx.atlas_make(faces)
+    testing.expect(t, made)
+    defer gfx.atlas_destroy(&a)
+
+    gfx.atlas_ensure(&a, 'A')
+    was_cell := a.cell_h
+
+    testing.expect(t, gfx.atlas_resize(&a, 32))
+    testing.expect(t, a.cell_h > was_cell, "the cell did not grow")
+
+    n := a.next
+    slot := gfx.atlas_ensure(&a, 'A')
+    testing.expect(t, a.next > n, "'A' came back from the cache instead of re-baking")
+    testing.expect(t, cell_ink(&a, slot) > 0, "the re-baked cell is blank")
+}

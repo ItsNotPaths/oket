@@ -81,20 +81,27 @@ face_next_px :: proc(f: ^Face, px, dir: int) -> int {
     return px
 }
 
-face_has :: proc(f: ^Face, r: rune) -> bool {
-    return tt.FindGlyphIndex(&f.info, r) != 0
+// This face's glyph for `r`, 0 for none. The atlas keys on it, so a shaper that answers glyph
+// ids rather than codepoints reaches the same cache (IME.md §6).
+face_glyph :: proc(f: ^Face, r: rune) -> u32 {
+    return u32(tt.FindGlyphIndex(&f.info, r))
 }
 
-// Rasterizes `r` into a cell-sized buffer the caller has already cleared. Baseline-aligned
+face_has :: proc(f: ^Face, r: rune) -> bool {
+    return face_glyph(f, r) != 0
+}
+
+// Rasterizes one glyph into a cell-sized buffer the caller has already cleared. Baseline-aligned
 // and horizontally centred, which is what keeps mixed faces on one line; a glyph too big for
 // the cell is rescaled to fit, for itself alone.
-face_bake :: proc(f: ^Face, r: rune, dst: []u8, cell_w, cell_h, baseline: int) -> bool {
-    if !face_has(f, r) {
+face_bake :: proc(f: ^Face, glyph: u32, dst: []u8, cell_w, cell_h, baseline: int) -> bool {
+    if glyph == 0 {
         return false
     }
+    g := i32(glyph)
     scale := f.scale
     x0, y0, x1, y1: i32
-    tt.GetCodepointBitmapBox(&f.info, r, scale, scale, &x0, &y0, &x1, &y1)
+    tt.GetGlyphBitmapBox(&f.info, g, scale, scale, &x0, &y0, &x1, &y1)
     gw, gh := int(x1 - x0), int(y1 - y0)
     if gw <= 0 || gh <= 0 {
         return true // a blank glyph, space being the common one; the cleared cell is correct
@@ -103,7 +110,7 @@ face_bake :: proc(f: ^Face, r: rune, dst: []u8, cell_w, cell_h, baseline: int) -
     if gw > cell_w || gh > cell_h {
         shrink := min(f32(cell_w) / f32(gw), f32(cell_h) / f32(gh))
         scale *= shrink
-        tt.GetCodepointBitmapBox(&f.info, r, scale, scale, &x0, &y0, &x1, &y1)
+        tt.GetGlyphBitmapBox(&f.info, g, scale, scale, &x0, &y0, &x1, &y1)
         gw, gh = int(x1 - x0), int(y1 - y0)
         if gw <= 0 || gh <= 0 {
             return true
@@ -111,7 +118,7 @@ face_bake :: proc(f: ^Face, r: rune, dst: []u8, cell_w, cell_h, baseline: int) -
     }
 
     tmp := make([]u8, gw * gh, context.temp_allocator)
-    tt.MakeCodepointBitmap(&f.info, raw_data(tmp), i32(gw), i32(gh), i32(gw), scale, scale, r)
+    tt.MakeGlyphBitmap(&f.info, raw_data(tmp), i32(gw), i32(gh), i32(gw), scale, scale, g)
 
     ox := (cell_w - gw) / 2
     oy := baseline + int(y0)

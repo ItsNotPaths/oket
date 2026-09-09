@@ -7,18 +7,27 @@ import "core:mem"
 // config font stack, bundled bitmap, tofu at slot 0. Face glyphs bake lazily; the bitmap
 // bakes in full at startup so it is ready when everything else has gone wrong (§10).
 
+// What a baked glyph IS: a face in the stack and a glyph id inside it, never a codepoint.
+// So a shaped run can name a ligature no codepoint reaches, and two faces that both cover
+// one codepoint can both be baked (IME.md §6).
+Glyph :: struct {
+    face: u8,
+    id:   u32,
+}
+
 Atlas :: struct {
-    cell_w, cell_h: int,          // pixels per glyph
-    baseline:       int,          // rows from the cell top down to the text baseline
-    cols, rows:     int,          // glyph slots across the bitmap
-    pixels:         []u8,         // coverage, (cols*cell_w) by (rows*cell_h)
-    index:          map[rune]u16, // what has been resolved, from any source
-    floor:          map[rune]u16, // the bundled bitmap's slots, consulted after the faces
-    next:           u16,          // next free slot
-    dirty:          [dynamic]u16, // baked since the painter last uploaded
-    resized:        bool,         // the texture changed size; the painter must rebuild it
-    faces:          []Face,       // config order; empty means the bitmap is all there is
-    scratch:        []u8,         // one cell, staged here before blitting into the grid
+    cell_w, cell_h: int,           // pixels per glyph
+    baseline:       int,           // rows from the cell top down to the text baseline
+    cols, rows:     int,           // glyph slots across the bitmap
+    pixels:         []u8,          // coverage, (cols*cell_w) by (rows*cell_h)
+    index:          map[Glyph]u16, // what the faces have baked
+    by_rune:        map[rune]u16,  // what the face walk answered for a rune, misses included
+    floor:          map[rune]u16,  // the bundled bitmap's slots, consulted after the faces
+    next:           u16,           // next free slot
+    dirty:          [dynamic]u16,  // baked since the painter last uploaded
+    resized:        bool,          // the texture changed size; the painter must rebuild it
+    faces:          []Face,        // config order; empty means the bitmap is all there is
+    scratch:        []u8,          // one cell, staged here before blitting into the grid
 }
 
 ATLAS_COLS :: 32
@@ -79,6 +88,7 @@ atlas_resize :: proc(a: ^Atlas, px: int) -> bool {
     a.pixels = make([]u8, atlas_width(a) * atlas_height(a))
     a.scratch = make([]u8, a.cell_w * a.cell_h)
     clear(&a.index)
+    clear(&a.by_rune)
     clear(&a.floor)
     clear(&a.dirty)
     a.resized = true // the texture changed size, so the painter uploads the whole of it
@@ -95,6 +105,7 @@ atlas_destroy :: proc(a: ^Atlas) {
     delete(a.pixels)
     delete(a.scratch)
     delete(a.index)
+    delete(a.by_rune)
     delete(a.floor)
     delete(a.dirty)
     a^ = {}
@@ -102,7 +113,7 @@ atlas_destroy :: proc(a: ^Atlas) {
 
 // What is resolved for `r` right now, baking nothing. 0 is the tofu box.
 atlas_slot :: proc(a: ^Atlas, r: rune) -> u16 {
-    if s, in_index := a.index[r]; in_index {
+    if s, walked := a.by_rune[r]; walked {
         return s
     }
     return a.floor[r] or_else 0
@@ -111,29 +122,46 @@ atlas_slot :: proc(a: ^Atlas, r: rune) -> u16 {
 // The slot to draw `r` from, baking on first use. Faces win over the bundled bitmap:
 // it is a floor, not a preference.
 atlas_ensure :: proc(a: ^Atlas, r: rune) -> u16 {
-    if s, done := a.index[r]; done {
+    if s, walked := a.by_rune[r]; walked {
         return s
     }
-    for &f in a.faces {
-        if !face_has(&f, r) {
+    for &f, i in a.faces {
+        id := face_glyph(&f, r)
+        if id == 0 {
             continue
         }
-        slot, got := atlas_alloc(a)
-        if !got {
-            break // out of room; the floor below still beats a tofu
-        }
-        mem.zero_slice(a.scratch)
-        if face_bake(&f, r, a.scratch, a.cell_w, a.cell_h, a.baseline) {
-            atlas_blit(a, slot)
-            a.index[r] = slot
-            append(&a.dirty, slot)
+        if slot, baked := atlas_ensure_glyph(a, Glyph{u8(i), id}); baked {
+            a.by_rune[r] = slot
             return slot
         }
-        a.next -= 1 // the face said it had the glyph and produced nothing; take the slot back
     }
     // Cache the miss too, so the face walk happens once per rune rather than once per frame.
-    a.index[r] = a.floor[r] or_else 0
-    return a.index[r]
+    a.by_rune[r] = a.floor[r] or_else 0
+    return a.by_rune[r]
+}
+
+// One face's glyph, baking on first use. The shaped path enters here: it already knows the
+// face and the id, so it never walks the stack.
+atlas_ensure_glyph :: proc(a: ^Atlas, g: Glyph) -> (u16, bool) {
+    if s, done := a.index[g]; done {
+        return s, true
+    }
+    if int(g.face) >= len(a.faces) {
+        return 0, false
+    }
+    slot, got := atlas_alloc(a)
+    if !got {
+        return 0, false // out of room; the floor below still beats a tofu
+    }
+    mem.zero_slice(a.scratch)
+    if !face_bake(&a.faces[g.face], g.id, a.scratch, a.cell_w, a.cell_h, a.baseline) {
+        a.next -= 1 // the face said it had the glyph and produced nothing; take the slot back
+        return 0, false
+    }
+    atlas_blit(a, slot)
+    a.index[g] = slot
+    append(&a.dirty, slot)
+    return slot, true
 }
 
 // ---------------------------------------------------------------------------
