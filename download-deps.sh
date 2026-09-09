@@ -170,6 +170,40 @@ for name in stb_truetype stb_rect_pack stb_image; do
 done
 
 echo ""
+echo "==> harfbuzz (the shaper: glyph ids and cluster mapping; static lib)"
+# The KERNEL links this one, unlike tree-sitter. C++ source with a src/harfbuzz.cc amalgamation,
+# so `zig c++` + ar beats meson the same way cc + ar beats libtool for libvterm. Built
+# -fno-exceptions -fno-rtti, which is what leaves it needing NO C++ runtime: the archive's
+# undefined symbols are libc and libm and nothing else, so the shipped binary's dependency
+# list does not move (IME.md §5). HB_LEAN drops the parts a cell grid never asks for (metrics,
+# variations, drawing, serialization); HB_NO_AAT drops Apple's shaper. HB_NO_LEGACY is NOT
+# set: the icon face in the stack may still use a symbol cmap.
+HB_VERSION="14.4.0"
+HB_SRC="$VENDOR/harfbuzz"
+HB_A="$HB_SRC/libharfbuzz.a"
+if [ -f "$HB_A" ]; then
+    echo "  already present: libharfbuzz.a"
+else
+    if [ ! -f "$HB_SRC/src/harfbuzz.cc" ]; then
+        echo "  downloading harfbuzz $HB_VERSION source..."
+        rm -rf "$HB_SRC"
+        mkdir -p "$HB_SRC"
+        curl -fsSL "https://github.com/harfbuzz/harfbuzz/releases/download/${HB_VERSION}/harfbuzz-${HB_VERSION}.tar.xz" \
+            | tar xJ -C "$HB_SRC" --strip-components=1
+    fi
+    echo "  building static libharfbuzz.a..."
+    (
+        cd "$HB_SRC"
+        ${CXX:-zig c++} -c -O2 -fPIC -fno-exceptions -fno-rtti \
+            -DHB_NO_MT -DHB_LEAN -DHB_NO_AAT \
+            -Isrc src/harfbuzz.cc -o harfbuzz.o
+        ar rcs libharfbuzz.a harfbuzz.o
+        rm -f harfbuzz.o
+    )
+    echo "  done."
+fi
+
+echo ""
 echo "==> tree-sitter (the syntax plugin links the runtime; static lib)"
 # The KERNEL links none of this. The syntax plugin does, which is why a parser can hang or
 # fault without taking the session with it (§10). Dependency-free C with a lib.c amalgamation,
