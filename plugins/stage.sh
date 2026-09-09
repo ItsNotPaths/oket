@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds one plugin source directory into <out>/<name>.so, the layout oket loads from. No
+# Builds one plugin source directory into <out>/<name>/<name>.so, the layout oket loads from. No
 # manifest: a plugin registers itself by RUNNING, which is what dlopen is for (§7).
 #
 # release.sh, the gate test and `:pluginify` all call this, so the shape the tests exercise is
@@ -67,8 +67,19 @@ if [ "$ASAN" -eq 1 ]; then
     LDFLAGS="$LDFLAGS -fsanitize=address"
 fi
 
-mkdir -p "$OUT"
+# The name segment is added here, not by the caller: every caller passes the plugins directory.
+mkdir -p "$OUT/$NAME"
 # `zig cc` is two words, so $CC has to word-split as well as the flag lists do.
 # shellcheck disable=SC2086
-${CC:-zig cc} -shared $CFLAGS $LDFLAGS -o "$OUT/$NAME.so" \
+${CC:-zig cc} -shared $CFLAGS $LDFLAGS -o "$OUT/$NAME/$NAME.so" \
     "$SRC"/*.c "$HELPERS"/*.c $FLAGS
+
+# What is not source rides along: a plugin is a directory, so its grammar, its data table or
+# its own fetch script lands in the folder the `.so` is in (§7).
+for f in "$SRC"/*; do
+    case "$f" in
+        *.c | *.h | */build.flags) continue ;;
+    esac
+    rm -rf "${OUT:?}/$NAME/${f##*/}"
+    cp -r "$f" "$OUT/$NAME/"
+done

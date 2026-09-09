@@ -1,6 +1,7 @@
 package tests
 
 import "core:os"
+import "core:path/filepath"
 import "core:strings"
 import "core:testing"
 import "../desc"
@@ -80,6 +81,37 @@ a_plugin_registers_opens_renders_and_unloads :: proc(t: ^testing.T) {
     os.remove(app.binds_path(&a))
     app.binds_sync(&a)
     testing.expect(t, !strings.contains(read_binds(&a), "alt+h"), "a dead request wrote back")
+}
+
+// A plugin is a directory and the `.so` inside carries the name. The two things that are not
+// plugins are here too: a loose `.so`, which an overlay install leaves behind, and a directory
+// with no library in it.
+@(test)
+autoload_takes_a_directory_and_the_library_inside_it :: proc(t: ^testing.T) {
+    a, ok := plug_app(t, "oket-plug-layout")
+    if !ok {
+        return
+    }
+    defer close_plug_app(&a)
+    app.plug_init(&a)
+
+    plugins, _ := filepath.join({a.home.data, app.PLUGIN_DIR}, context.temp_allocator)
+    built, read := os.read_entire_file(app.plug_path(&a, "example"), context.temp_allocator)
+    testing.expect_value(t, read, nil)
+    flat, _ := filepath.join({plugins, "example.so"}, context.temp_allocator)
+    testing.expect_value(t, os.write_entire_file(flat, built), nil)
+    hollow, _ := filepath.join({plugins, "hollow"}, context.temp_allocator)
+    testing.expect_value(t, os.make_directory_all(hollow), nil)
+
+    app.plug_autoload(&a)
+    i := app.plug_find(&a, "example")
+    if !testing.expect(t, i >= 0, a.message) {
+        return
+    }
+    // The leftover sorts FIRST, so a loader that took both shapes would run the library the
+    // last release wrote and refuse this one as already loaded.
+    testing.expect_value(t, a.plugs[i].path, app.plug_path(&a, "example"))
+    testing.expect(t, !strings.contains(a.message, "hollow"), a.message)
 }
 
 // A chord no row claims reaches the plugin, because its descriptor says `input: raw` — the

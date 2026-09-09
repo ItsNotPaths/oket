@@ -29,7 +29,7 @@ import "../txt"
 PLUGIN_DIR :: "plugins" // in the data directory: what a release wrote (path.odin)
 
 Plugin :: struct {
-    name:    string, // owned; the file's stem, and the section header in binds.conf
+    name:    string, // owned; its directory's name, and the section header in binds.conf
     path:    string, // owned
     lib:     dynlib.Library,
     base:    uintptr, // where dlopen mapped it, which is what names a faulting pc (§10)
@@ -303,9 +303,9 @@ plug_faulted :: proc(a: ^App, i: int, why: string) {
     message_set(a, fmt.tprintf(":plug: %s %s, and is unloaded", name, why))
 }
 
-// Every `.so` under `<data>/plugins`, at startup, in name order (§14). It leans on the net
-// above — a plugin that dies on load must not make oket unstartable — and `--no-plugins` is
-// the door for the case the net cannot hold.
+// Every `<data>/plugins/<name>/<name>.so`, at startup, in name order (§14). It leans on the
+// net above — a plugin that dies on load must not make oket unstartable — and `--no-plugins`
+// is the door for the case the net cannot hold.
 plug_autoload :: proc(a: ^App) {
     dir, _ := filepath.join({a.home.data, PLUGIN_DIR}, context.temp_allocator)
     f, err := os.open(dir)
@@ -317,8 +317,13 @@ plug_autoload :: proc(a: ^App) {
     defer os.read_directory_iterator_destroy(&it)
     found := make([dynamic]string, context.temp_allocator)
     for info in os.read_directory_iterator(&it) {
-        if info.type != .Directory && strings.has_suffix(info.name, ".so") {
-            append(&found, strings.clone(info.fullpath, context.temp_allocator))
+        // Directories only: an install overlays, so a loose `.so` beside one would load twice.
+        if info.type != .Directory {
+            continue
+        }
+        so := plug_path(a, info.name) // one place spells the layout
+        if os.exists(so) {
+            append(&found, so)
         }
     }
     // Sorted, so which kind registers first is a property of the names and not of the
@@ -356,9 +361,11 @@ plug_reload :: proc(a: ^App, name: string) -> bool {
     return plug_load(a, path)
 }
 
+// A plugin is a DIRECTORY and its `.so` repeats the name (§7): a grammar or a script ships
+// beside the library, and an uninstall is a delete of one path with no manifest to consult.
 plug_path :: proc(a: ^App, name: string) -> string {
     file := fmt.tprintf("%s.so", name)
-    path, _ := filepath.join({a.home.data, PLUGIN_DIR, file}, context.temp_allocator)
+    path, _ := filepath.join({a.home.data, PLUGIN_DIR, name, file}, context.temp_allocator)
     return path
 }
 

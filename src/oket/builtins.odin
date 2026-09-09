@@ -589,9 +589,9 @@ USAGE_RECOVER :: ":recover [drop] <path>"
 
 // --- the plugin seam (§7) ---
 
-// `:plug [load|unload|reload] <name>`, and bare `:plug` lists what is in. A plugin is one `.so`
-// under `plugins/` in the data directory; the name is its file's stem, and it is also the section
-// header its bind requests land under in binds.conf.
+// `:plug [load|unload|reload] <name>`, and bare `:plug` lists what is in. A plugin is a
+// DIRECTORY under `plugins/` in the data directory, holding a `.so` of the same name; that name
+// is also the section header its bind requests land under in binds.conf.
 @(private = "file")
 builtin_plug :: proc(a: ^App, args: string, _: CL_Step) -> bool {
     raw, verb := first_arg(args)
