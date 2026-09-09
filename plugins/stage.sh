@@ -85,11 +85,16 @@ fi
 # -flto is the point of the C step. -fvisibility=hidden plus --gc-sections is what makes it
 # pay: a plugin exports one symbol (OKET_MAIN), so everything the linker cannot reach from it
 # goes, and nothing declares which helpers it wants.
-CFLAGS="-fPIC -O2 -flto -Wall -Wextra -I$SEAM -I$HELPERS -fvisibility=hidden"
+#
+# -g IS NOT A DEBUG BUILD (§5). It adds sections and changes no generated code, and without it a
+# fault trace names every frame `browser.so(+0x1a4c)` and nothing resolves the offset. `zig cc`
+# emits DWARF anyway; the flag is here for $CC, because a plain clang emits none and a trace that
+# resolves is not a property to inherit from whichever compiler somebody points at us.
+CFLAGS="-fPIC -O2 -g -flto -Wall -Wextra -I$SEAM -I$HELPERS -fvisibility=hidden"
 CFLAGS="$CFLAGS -ffunction-sections -fdata-sections"
 LDFLAGS="-flto -Wl,--gc-sections"
 if [ "$ASAN" -eq 1 ]; then
-    CFLAGS="$CFLAGS -fsanitize=address -fno-omit-frame-pointer -g -O1"
+    CFLAGS="$CFLAGS -fsanitize=address -fno-omit-frame-pointer -O1" # -g is already on
     LDFLAGS="$LDFLAGS -fsanitize=address"
 fi
 
@@ -140,7 +145,8 @@ odin)
     # Odin builds a DIRECTORY as one package, so there is no root file and no glob. `odin build`
     # drives the linker and takes no `.c`, so the helpers arrive as an archive.
     helpers_archive
-    odin build "$SRC" -build-mode:shared -out:"$SO" -collection:oket="$ODIN" \
+    # -debug is odin's only door to DWARF, and it adds no checks: the same trade as -g above.
+    odin build "$SRC" -build-mode:shared -out:"$SO" -collection:oket="$ODIN" -debug \
         -extra-linker-flags:"$HELPERS_A" $FLAGS
     ;;
 own)
