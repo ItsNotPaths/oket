@@ -16,14 +16,15 @@ import "core:strings"
 // a packaged oket lands in /usr/bin; this is the one a user-level install may WRITE to.
 INSTALL_BIN_REL :: ".local/bin"
 
-// What a release put beside the binary, and so what an install carries into the data directory
-// and an uninstall takes back out. ONE table, walked both ways, so a file an install starts
-// carrying cannot be one an uninstall forgets.
+// What a release put beside the binary, and so what an install carries into the data directory.
+// The uninstall does not read this: it removes the three directories whole (install_remove).
 //
-// `grammars/` is deliberately absent. An install creates it empty and an uninstall leaves it:
-// a grammar is a build somebody paid for in wall-clock, and no release ships one.
+// `grammars/`, `themes/` and `vendor/` are deliberately absent: no release ships one. An
+// install creates the first two empty, and each fills up on the machine that wants it. The
+// default theme is in the binary (theme.odin, THEME_BAKED) and tree-sitter is a recipe beside
+// the plugin that links it (plugins/syntax/get-tree-sitter).
 @(private = "file", rodata)
-PAYLOAD := [?]string{"plugins", "themes", "helpers", "vendor", "stage.sh", "oket-grammar", NOTES_NAME}
+PAYLOAD := [?]string{"plugins", "helpers", "stage.sh", "oket-grammar", NOTES_NAME}
 
 // Where an install writes: one value, so the two verbs, the status and the suite all name the
 // same places. Resolved from the environment ONCE and then passed, because `home_xdg` reads
@@ -58,7 +59,8 @@ install_target_destroy :: proc(t: ^Install_Target) {
 // --- install ---
 
 // Idempotent. A rerun replaces the binary and the payload and leaves what is yours — config,
-// binds, state, grammars — alone, which is what makes this the develop loop, and `update`.
+// binds, state, grammars, themes — alone, which makes this the develop loop, and `update`.
+// The uninstall is the asymmetric one: it takes those too.
 install_run :: proc(a: ^App, t: Install_Target) -> (ok: bool, msg: string) {
     if t.bin == "" || t.dirs.data == "" {
         return false, "install: no $HOME, so there is nowhere to install to"
@@ -66,6 +68,7 @@ install_run :: proc(a: ^App, t: Install_Target) -> (ok: bool, msg: string) {
 
     b := strings.builder_make(context.temp_allocator)
     grammars, _ := filepath.join({t.dirs.data, "grammars"}, context.temp_allocator)
+    themes, _ := filepath.join({t.dirs.data, "themes"}, context.temp_allocator)
     // Created empty rather than on first use, so the folders an install names are folders you
     // can open.
     dirs := [?]string {
@@ -74,6 +77,7 @@ install_run :: proc(a: ^App, t: Install_Target) -> (ok: bool, msg: string) {
         t.dirs.data,
         t.dirs.state,
         grammars,
+        themes,
     }
     for dir in dirs {
         if err := os.make_directory_all(dir); err != nil && !os.exists(dir) {
@@ -130,8 +134,12 @@ install_run :: proc(a: ^App, t: Install_Target) -> (ok: bool, msg: string) {
     return true, fmt.tprintf("installed\n%s", strings.trim_right_space(strings.to_string(b)))
 }
 
-// What an install writes and nothing else. Settings, state and grammars stay, named with the
-// line that removes them: the crash you are recovering from may be why you are uninstalling.
+// EVERYTHING, and there is no second command to finish afterwards. It takes the settings you
+// wrote, the journals a crash left and the grammars you paid for in wall-clock.
+//
+// The three directories go WHOLE rather than a row at a time. A table of what an install wrote
+// can forget a row; a directory cannot forget what is inside it. Each of the three ends in
+// APP_DIR (path.odin), so this never reaches a bare XDG root.
 install_remove :: proc(t: Install_Target) -> (ok: bool, msg: string) {
     if t.bin == "" || t.dirs.data == "" {
         return false, "uninstall: no $HOME, so nothing could have been installed"
@@ -139,13 +147,13 @@ install_remove :: proc(t: Install_Target) -> (ok: bool, msg: string) {
 
     b := strings.builder_make(context.temp_allocator)
     gone := 0
-    for name in PAYLOAD {
-        dst, _ := filepath.join({t.dirs.data, name}, context.temp_allocator)
-        if os.exists(dst) && os.remove_all(dst) == nil {
-            fmt.sbprintfln(&b, "  removed %s", dst)
+    for dir in ([?]string{t.dirs.config, t.dirs.data, t.dirs.state}) {
+        if dir != "" && os.exists(dir) && os.remove_all(dir) == nil {
+            fmt.sbprintfln(&b, "  removed %s", dir)
             gone += 1
         }
     }
+    // Outside the three: a launcher entry and an icon land in the shared XDG folders.
     if desktop_remove(t.desktop) {
         fmt.sbprintfln(&b, "  removed %s", t.desktop)
         gone += 1
@@ -164,10 +172,6 @@ install_remove :: proc(t: Install_Target) -> (ok: bool, msg: string) {
     if gone == 0 {
         return false, "uninstall: nothing of an install is here to remove"
     }
-    grammars, _ := filepath.join({t.dirs.data, "grammars"}, context.temp_allocator)
-    fmt.sbprintfln(&b, "\n  your settings, your state and the grammars you built are still here:")
-    fmt.sbprintfln(&b, "    rm -rf %s %s", t.dirs.config, t.dirs.state)
-    fmt.sbprintfln(&b, "    rm -rf %s", grammars)
     return true, fmt.tprintf("uninstalled\n%s", strings.trim_right_space(strings.to_string(b)))
 }
 

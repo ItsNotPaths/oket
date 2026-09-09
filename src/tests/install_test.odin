@@ -30,9 +30,9 @@ there :: proc(parts: ..string) -> bool {
     return os.exists(path)
 }
 
-// The three directories, `grammars/` empty beside them, and the one place config.conf is ever
-// created. The binary lands too: leaving it out is what makes a payload installed and a binary
-// not (§4).
+// The three directories, `grammars/` and `themes/` empty beside them, and the one place
+// config.conf is ever created. The binary lands too: leaving it out is what makes a payload
+// installed and a binary not (§4).
 @(test)
 an_install_lays_down_every_directory :: proc(t: ^testing.T) {
     root, ok := scratch(t, "oket-install-run")
@@ -53,6 +53,7 @@ an_install_lays_down_every_directory :: proc(t: ^testing.T) {
     }
     testing.expect(t, there(root, "config", app.CONFIG_NAME), "no config.conf")
     testing.expect(t, there(root, "data", "grammars"), "no grammars directory")
+    testing.expect(t, there(root, "data", "themes"), "no themes directory")
     testing.expect(t, there(root, "state"), "no state directory")
     testing.expect(t, os.exists(tgt.bin), "the binary was not installed")
     testing.expect(t, os.exists(tgt.desktop), "no launcher entry")
@@ -104,10 +105,10 @@ a_payload_file_is_replaced :: proc(t: ^testing.T) {
     }
     src, _ := filepath.join({root, "release", "plugins"}, context.temp_allocator)
     dst, _ := filepath.join({root, "data", "plugins"}, context.temp_allocator)
-    testing.expect_value(t, os.make_directory_all(src), nil)
-    testing.expect_value(t, os.make_directory_all(dst), nil)
-    fresh, _ := filepath.join({src, "edit.so"}, context.temp_allocator)
-    stale, _ := filepath.join({dst, "edit.so"}, context.temp_allocator)
+    fresh, _ := filepath.join({src, "edit", "edit.so"}, context.temp_allocator)
+    stale, _ := filepath.join({dst, "edit", "edit.so"}, context.temp_allocator)
+    testing.expect_value(t, os.make_directory_all(filepath.dir(fresh)), nil)
+    testing.expect_value(t, os.make_directory_all(filepath.dir(stale)), nil)
     testing.expect_value(t, os.write_entire_file(fresh, transmute([]u8)string("new")), nil)
     testing.expect_value(t, os.write_entire_file(stale, transmute([]u8)string("old")), nil)
 
@@ -117,10 +118,10 @@ a_payload_file_is_replaced :: proc(t: ^testing.T) {
     testing.expect_value(t, string(after), "new")
 }
 
-// Exactly the list an install writes, and nothing else: the crash you are recovering from may be
-// why you are uninstalling, and a grammar is a build somebody paid for in wall-clock.
+// NOTHING is left: the settings, the state a crash wrote and the grammars and themes that only
+// ever lived on this machine. An uninstall you have to finish by hand is not one.
 @(test)
-an_uninstall_keeps_settings_state_and_grammars :: proc(t: ^testing.T) {
+an_uninstall_leaves_nothing :: proc(t: ^testing.T) {
     root, ok := scratch(t, "oket-install-remove")
     if !ok {
         return
@@ -138,6 +139,8 @@ an_uninstall_keeps_settings_state_and_grammars :: proc(t: ^testing.T) {
 
     built, _ := filepath.join({root, "data", "grammars", "json.so"}, context.temp_allocator)
     testing.expect_value(t, os.write_entire_file(built, transmute([]u8)string("x")), nil)
+    mine, _ := filepath.join({root, "data", "themes", "mine.toml"}, context.temp_allocator)
+    testing.expect_value(t, os.write_entire_file(mine, transmute([]u8)string("x")), nil)
     work, _ := filepath.join({root, "state", "journal"}, context.temp_allocator)
     testing.expect_value(t, os.make_directory_all(work), nil)
 
@@ -148,10 +151,13 @@ an_uninstall_keeps_settings_state_and_grammars :: proc(t: ^testing.T) {
     testing.expect(t, !os.exists(tgt.bin), "the binary survived")
     testing.expect(t, !os.exists(tgt.desktop), "the launcher entry survived")
     testing.expect(t, !os.exists(tgt.icon), "the icon survived")
-    testing.expect(t, !there(root, "data", "plugins"), "plugins/ survived")
-    testing.expect(t, os.exists(built), "a grammar was taken")
-    testing.expect(t, os.exists(work), "the state directory was taken")
-    testing.expect(t, there(root, "config", app.CONFIG_NAME), "config.conf was taken")
+    testing.expect(t, !os.exists(built), "a grammar survived")
+    testing.expect(t, !os.exists(mine), "a theme survived")
+    testing.expect(t, !os.exists(work), "a journal survived")
+    // The three, whole — not the rows an install happened to write into them.
+    testing.expect(t, !there(root, "data"), "the data directory survived")
+    testing.expect(t, !there(root, "config"), "the config directory survived")
+    testing.expect(t, !there(root, "state"), "the state directory survived")
 }
 
 // Nothing there is a refusal with a reason, not a success that removed nothing.

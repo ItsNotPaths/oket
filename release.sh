@@ -74,13 +74,8 @@ if [ $DO_LOCAL -eq 1 ]; then
     if [ -f "$PROJECT_DIR/notes.md" ]; then
         cp "$PROJECT_DIR/notes.md" "$RELEASE_DIR/notes.md"
     fi
-    # Themes are data, beside the binary like config.conf. Grammars are NOT: one is fetched
-    # and built on the machine that wants it.
-    if [ -d "$PROJECT_DIR/themes" ]; then
-        echo "==> Themes"
-        mkdir -p "$RELEASE_DIR/themes"
-        cp "$PROJECT_DIR"/themes/*.toml "$RELEASE_DIR/themes/"
-    fi
+    # Themes are NOT shipped. The default is #load-ed into the binary (theme.odin) and the
+    # folder is yours, like grammars: an install creates it empty and an uninstall leaves it.
     # The seam, shipped so `:pluginify` can build a plugin beside the binary; stage.sh finds
     # the headers in either layout.
     echo "==> Plugin toolchain"
@@ -88,12 +83,9 @@ if [ $DO_LOCAL -eq 1 ]; then
     cp "$PROJECT_DIR"/src/plug/oket.h "$PROJECT_DIR"/src/helpers/*.h \
        "$PROJECT_DIR"/src/helpers/*.c "$RELEASE_DIR/helpers/"
     cp "$PROJECT_DIR/plugins/stage.sh" "$RELEASE_DIR/stage.sh"
-    # The syntax plugin links tree-sitter, and its build.flags names $ROOT/vendor — which is
-    # the release directory in this layout. Shipped so `:pluginify` can rebuild it beside the
-    # binary, the same as every other plugin.
-    mkdir -p "$RELEASE_DIR/vendor/tree-sitter"
-    cp -r "$PROJECT_DIR/vendor/tree-sitter/lib" "$RELEASE_DIR/vendor/tree-sitter/lib"
-    cp "$PROJECT_DIR/vendor/tree-sitter/libtree-sitter.a" "$RELEASE_DIR/vendor/tree-sitter/"
+    # tree-sitter itself is NOT shipped. plugins/syntax/get-tree-sitter fetches and builds it
+    # into $ROOT/vendor, stage.sh carries that script into the plugin's folder, and nothing at
+    # runtime opens the archive: the release ships the recipe.
     # Grammars are fetched and built on the machine that wants one (§11), and this is what
     # does it. Beside the binary, so a shell step reaches it by name.
     cp "$PROJECT_DIR/tools/oket-grammar" "$RELEASE_DIR/oket-grammar"
