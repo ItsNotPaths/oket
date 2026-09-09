@@ -194,6 +194,25 @@ a_document_with_no_grammar_is_left_alone :: proc(t: ^testing.T) {
     testing.expect_value(t, len(all_styles(&a, id)), 0)
 }
 
+// A plugin is a directory, so what is not source rides in it. This plugin links tree-sitter and
+// the release ships the RECIPE rather than the archive, so losing the carry would ship a syntax
+// plugin nobody can rebuild.
+@(test)
+the_build_carries_what_is_not_source :: proc(t: ^testing.T) {
+    a, ok := plug_app(t, "oket-syntax-carry", "plugins/syntax")
+    if !ok {
+        return
+    }
+    defer close_plug_app(&a)
+
+    beside := filepath.dir(app.plug_path(&a, "syntax")) // a slice of the path
+    recipe, _ := filepath.join({beside, "get-tree-sitter"}, context.temp_allocator)
+    testing.expect(t, os.exists(recipe), recipe)
+    // build.flags is a build input, not data, and has no business beside the library.
+    flags, _ := filepath.join({beside, "build.flags"}, context.temp_allocator)
+    testing.expect(t, !os.exists(flags), flags)
+}
+
 // A grammar built while oket is running is picked up by the chain that built it, which is the
 // whole of §7's "composition is a config line": a shell step, then a plugin command.
 @(test)

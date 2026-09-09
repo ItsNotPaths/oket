@@ -206,30 +206,10 @@ fi
 echo ""
 echo "==> tree-sitter (the syntax plugin links the runtime; static lib)"
 # The KERNEL links none of this. The syntax plugin does, which is why a parser can hang or
-# fault without taking the session with it (§10). Dependency-free C with a lib.c amalgamation,
-# so cc + ar beats its build system, same as libvterm. Per-language GRAMMARS are not vendored:
-# one is fetched and built at runtime, which is what keeps a release small.
-TS_VERSION="v0.26.9"
-TS_SRC="$VENDOR/tree-sitter"
-TS_A="$TS_SRC/libtree-sitter.a"
-if [ -f "$TS_A" ]; then
-    echo "  already present: libtree-sitter.a"
-else
-    if [ ! -d "$TS_SRC/lib" ]; then
-        echo "  cloning tree-sitter $TS_VERSION..."
-        rm -rf "$TS_SRC"
-        git clone --depth=1 --branch "$TS_VERSION" \
-            "https://github.com/tree-sitter/tree-sitter.git" "$TS_SRC"
-    fi
-    echo "  building static libtree-sitter.a..."
-    (
-        cd "$TS_SRC"
-        $CC -c -O2 -fPIC -Ilib/include -Ilib/src lib/src/lib.c -o lib.o
-        ar rcs libtree-sitter.a lib.o
-        rm -f lib.o
-    )
-    echo "  done."
-fi
+# fault without taking the session with it (§10). The recipe lives WITH that plugin and ships
+# with it, so a release carries no archive and this is the same command either place.
+# Per-language GRAMMARS are not vendored: one is fetched and built at runtime.
+"$(dirname "$0")/plugins/syntax/get-tree-sitter" | sed "s/^/  /"
 
 echo ""
 echo "==> tree-sitter-json (the ONE grammar that is vendored, and only for the gate)"

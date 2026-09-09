@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Fetches and builds libtree-sitter.a, the runtime this plugin links (build.flags). The RECIPE
+# ships with the plugin and the archive does not: it is megabytes of a release that nothing at
+# runtime opens, and this is one command on the machine that wants to rebuild the plugin.
+#
+# Lands in <root>/vendor/tree-sitter, two levels up — the repo root here, the data directory
+# beside an installed oket. One path, because build.flags names one either way.
+set -euo pipefail
+
+VERSION="v0.26.9"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+DEST="${1:-$ROOT/vendor/tree-sitter}"
+
+# §4: one C toolchain. Unquoted on use, because it is two words.
+CC=${CC:-zig cc}
+
+if [ -f "$DEST/libtree-sitter.a" ]; then
+    echo "already present: $DEST/libtree-sitter.a"
+    exit 0
+fi
+
+command -v git >/dev/null 2>&1 || { echo "get-tree-sitter: git is not installed" >&2; exit 1; }
+
+if [ ! -d "$DEST/lib" ]; then
+    echo "cloning tree-sitter $VERSION into $DEST"
+    rm -rf "$DEST"
+    git clone --depth=1 --branch "$VERSION" \
+        "https://github.com/tree-sitter/tree-sitter.git" "$DEST"
+fi
+
+# Dependency-free C with a lib.c amalgamation, so cc + ar beats its build system.
+(
+    cd "$DEST"
+    $CC -c -O2 -fPIC -Ilib/include -Ilib/src lib/src/lib.c -o lib.o
+    ar rcs libtree-sitter.a lib.o
+    rm -f lib.o
+)
+echo "built $DEST/libtree-sitter.a"
