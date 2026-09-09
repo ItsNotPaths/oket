@@ -30,15 +30,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: ./.github/actions/setup
+      # The whole release builds inside release.Dockerfile (docs/SDL3.md): the binary's glibc
+      # floor is set by whatever links it, and the runner's is years too new. Rebuilt per run
+      # rather than published: releases are occasional, and an image registry is a moving part
+      # this repo does not need.
+      - name: Build release image
+        run: docker build -f release.Dockerfile -t oket-release .
+
+      # NOT the setup action's cache: that one holds archives built against the RUNNER'S
+      # glibc (test.yml), and a static lib compiled on new headers references symbols the
+      # container's old glibc does not export. One key per world.
+      - name: Cache vendor (el8)
+        uses: actions/cache@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          path: vendor
+          key: vendor-el8-${{ hashFiles('download-deps.sh', 'release.Dockerfile') }}
 
       # release.sh --local is what a developer runs, so the layout a release ships and the
       # layout you build on your own machine cannot drift. It builds the kernel AND every
       # plugin: a release without them is an editor with no editor in it.
       - name: Build
-        run: ./release.sh --local --version "${{ inputs.version }}" --tarball
+        run: >
+          docker run --rm -v "$PWD:/work" oket-release
+          sh -c './download-deps.sh && ./release.sh --local --version "${{ inputs.version }}" --tarball'
 
       - uses: actions/upload-artifact@v4
         with:
