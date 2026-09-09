@@ -572,6 +572,10 @@ a_session_keeps_the_combining_marks :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
+    // The prompt first, or the shell writes it onto the row this is about to test.
+    if !term_wait_for(t, &a, tm, "$") {
+        return
+    }
     term_show(&a, tm, "\r\ne\u0301-mark")
     line := term_line_of(&a, tm, "-mark")
     if !testing.expect(t, line >= 0, term_text(&a, tm)) {
