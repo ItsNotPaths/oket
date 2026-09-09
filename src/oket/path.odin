@@ -53,7 +53,7 @@ Home :: struct {
     mode:   Install_Mode,
     config: string, // owned; binds.conf, config.conf
     data:   string, // owned; plugins/, themes/, grammars/, helpers/, notes.md, the tools
-    state:  string, // owned; journal/, quarantine, session, the dumps
+    state:  string, // owned; journal/, quarantine, faults, session, the dumps
 }
 
 APP_DIR :: "oket" // the folder name inside each XDG root, and what you type

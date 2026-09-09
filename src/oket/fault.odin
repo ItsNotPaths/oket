@@ -3,6 +3,8 @@ package main
 import "base:intrinsics"
 import "base:runtime"
 import "core:c"
+import "core:os"
+import "core:path/filepath"
 import "core:sys/posix"
 import "core:time"
 
@@ -38,6 +40,10 @@ foreign libc_ {
     siglongjmp :: proc(env: ^Jmp_Buf, val: c.int) -> ! ---
     // Which mapped object an address belongs to, which is the whole of guard 1.
     dladdr :: proc(addr: rawptr, info: ^Dl_Info) -> c.int ---
+    // <execinfo.h>, and §5's whole mechanism. The `_fd` variant is the one a handler may call:
+    // `backtrace_symbols` mallocs and this one writes.
+    backtrace :: proc(buf: [^]rawptr, size: c.int) -> c.int ---
+    backtrace_symbols_fd :: proc(buf: [^]rawptr, size: c.int, fd: posix.FD) ---
 }
 
 // glibc's is 200 bytes. The slack costs nothing and a short one would be a stack smash.
@@ -60,19 +66,20 @@ PLUG_HANG_MS :: 5000
 
 @(private = "file")
 Guard :: struct {
-    env:   Jmp_Buf,
-    ctx:   runtime.Context, // the arming frame's, so the recovery path can allocate again
-    app:   ^App,
-    who:   int, // the plugin on the stack
-    base:  uintptr, // where its `.so` is mapped, for guard 1
-    why:   string, // what the handler saw; always a literal, never built
+    env:    Jmp_Buf,
+    ctx:    runtime.Context, // the arming frame's, so the recovery path can allocate again
+    app:    ^App,
+    who:    int, // the plugin on the stack
+    base:   uintptr, // where its `.so` is mapped, for guard 1
+    why:    string, // what the handler saw; always a literal, never built
     // The name of the plugin on the stack, and its length: what the handler writes to the
     // quarantine file when it cannot recover (§13). Copied at arm time because building it in
     // the handler would allocate.
-    name:  [NAME_MAX]u8,
-    n:     int,
-    armed: bool, // atomics only, and the note above says why
-    busy:  bool, // inside an api call, so the kernel's own structures are open
+    name:   [NAME_MAX]u8,
+    n:      int,
+    traced: bool, // a trace was written, so the echo line has a file to point at (§5)
+    armed:  bool, // atomics only, and the note above says why
+    busy:   bool, // inside an api call, so the kernel's own structures are open
 }
 
 // Longer than any plugin file's stem, and a name past it is truncated rather than refused: the
@@ -124,6 +131,10 @@ fault_install :: proc() -> bool {
             return false
         }
     }
+    // glibc dlopens its unwinder on the first backtrace, and that mallocs. One here means the
+    // handler's is not the first.
+    warm: [1]rawptr
+    backtrace(raw_data(warm[:]), 1)
     g_installed = true
     return true
 }
@@ -157,7 +168,7 @@ fault_env :: proc() -> ^Jmp_Buf {
 // Armed AFTER the sigsetjmp that fills the buffer, and nothing between the two can fault.
 fault_arm :: proc(a: ^App, i: int, base: uintptr, name := "") {
     g := &g_guard
-    g.ctx, g.app, g.who, g.base, g.why = context, a, i, base, ""
+    g.ctx, g.app, g.who, g.base, g.why, g.traced = context, a, i, base, "", false
     g.n = min(len(name), NAME_MAX - 1)
     copy(g.name[:g.n], name[:g.n])
     g.name[g.n] = '\n'
@@ -182,7 +193,7 @@ fault_busy :: proc "contextless" (on: bool) {
 // that frame is a register the jump was never promised to restore.
 fault_reap :: proc "contextless" () {
     context = g_guard.ctx
-    plug_faulted(g_guard.app, g_guard.who, g_guard.why)
+    plug_faulted(g_guard.app, g_guard.who, g_guard.why, g_guard.traced)
 }
 
 // --- the handlers ---
@@ -194,6 +205,9 @@ fault_reap :: proc "contextless" () {
 @(private = "file")
 fault_handler :: proc "c" (sig: posix.Signal, info: ^posix.siginfo_t, uc: rawptr) {
     pc := fault_ip(uc)
+    // Before the branch, so `unwind` and `die` both leave one: a kernel bug is the fault with
+    // nowhere else to be written down (§5).
+    g_guard.traced = trace_write(pc, signal_name(sig))
     if !in_plugin(pc) {
         die(sig, blame = false) // the kernel's own bug; nobody is quarantined for it
         return
@@ -217,6 +231,7 @@ hang_handler :: proc "c" (sig: posix.Signal, info: ^posix.siginfo_t, uc: rawptr)
         // to a NEWER dispatch that armed while the alarm was in flight.
         return
     }
+    g_guard.traced = trace_write(fault_ip(uc), "stopped returning")
     if intrinsics.atomic_load(&g_guard.busy) {
         // Stuck holding the kernel's own structures. Returning resumes the loop that never
         // ends, and a frozen window with no report is worse than a named death.
@@ -255,7 +270,8 @@ in_plugin :: proc "contextless" (pc: uintptr) -> bool {
 //
 // What the process leaves behind goes first, because after the re-raise there is no process:
 // the open journals, forced to the platter, and the name of the plugin that took the kernel
-// with it. Nothing here allocates or formats (§10, §13).
+// with it. The trace is already down — both handlers write one before they branch here.
+// Nothing here allocates or formats (§10, §13).
 @(private = "file")
 die :: proc "contextless" (sig: posix.Signal, blame: bool) {
     for &fd in g_journals {
@@ -308,6 +324,217 @@ fault_journal_drop :: proc(fd: uintptr) {
 // Where the handler names the plugin it died in (§13's quarantine). Set once, at startup.
 fault_report_fd :: proc(fd: uintptr) {
     intrinsics.atomic_store(&g_report, i32(fd))
+}
+
+// --- the trace (§5) ---
+//
+// RECOVERY MUST NOT COST DIAGNOSIS. The net's whole trade is that the better it works the less
+// you learn: the frames go with the jump and all that is left is a name and a signal. So the
+// handler walks the stack BEFORE it unwinds, and writes down where it walked.
+//
+// What lands in the file is an `addr2line` invocation per object, then glibc's own frame list.
+// The invocation is the copy-pasteable half: `addr2line` takes a single `-e`, so the frames are
+// grouped by the object they are in and each offset is from that object's base, which is the
+// address a `.so` was linked at. It resolves to a `file:line` only against an object carrying
+// DWARF — `stage.sh` asks for it, and a release binary is stripped, so the kernel's own line
+// answers with offsets and nothing more.
+//
+// A CALLER'S OFFSET IS A RETURN ADDRESS: every frame but the top resolves one line past its
+// call. That is what a stack holds.
+
+FAULTS_FILE :: "faults" // in the state directory, beside quarantine (path.odin)
+
+@(private = "file")
+TRACE_MAX :: 64 // deeper than any dispatch, sized and placed the way g_alt already is
+
+// The object a frame is in, resolved once so grouping the frames by object costs comparisons
+// rather than a second `dladdr` per pair.
+@(private = "file")
+Object :: struct {
+    base: uintptr, // where it is mapped; 0 when `dladdr` could not place the frame
+    path: cstring,
+}
+
+// The pcs stay a bare array beside it because glibc owns that buffer: `backtrace` fills one and
+// `backtrace_symbols_fd` reads it back.
+@(private = "file", thread_local)
+g_pcs: [TRACE_MAX]rawptr
+@(private = "file", thread_local)
+g_objs: [TRACE_MAX]Object
+
+@(private = "file")
+g_trace: i32 // state/faults, opened for append; 0 when there is no home to write in
+
+// Append-only and opened while the process is healthy, like the quarantine fd above: a repeated
+// crash is a history rather than an overwrite, and the third one is usually the one that
+// reproduces.
+fault_trace_open :: proc(a: ^App) {
+    path := fault_trace_path(a)
+    if path == "" || a.traces != nil {
+        return
+    }
+    f, err := os.open(path, {.Write, .Create, .Append}, {.Read_User, .Write_User})
+    if err != nil {
+        return
+    }
+    a.traces = f
+    intrinsics.atomic_store(&g_trace, i32(os.fd(f)))
+}
+
+fault_trace_close :: proc(a: ^App) {
+    if a.traces == nil {
+        return
+    }
+    intrinsics.atomic_store(&g_trace, 0)
+    os.close(a.traces)
+    a.traces = nil
+}
+
+// Where the echo line points. Temp-allocated, and empty when there is no home to write in.
+fault_trace_path :: proc(a: ^App) -> string {
+    if a.home.state == "" {
+        return ""
+    }
+    path, _ := filepath.join({a.home.state, FAULTS_FILE}, context.temp_allocator)
+    return path
+}
+
+// Async-signal-safe on the same terms as the rest of the handler: no allocation, no lock the
+// kernel holds, no fmt. `dladdr` is the exception §10 already takes, and `backtrace` warmed its
+// unwinder at install so this call is not the one that dlopens it.
+@(private = "file")
+trace_write :: proc "contextless" (pc: uintptr, why: string) -> bool {
+    fd := posix.FD(intrinsics.atomic_load(&g_trace))
+    if fd == 0 {
+        return false
+    }
+    n := walk(pc)
+    put_header(fd, why)
+    // The plugin's own object FIRST: it is the line you run, and a walk that starts in this
+    // handler has the kernel's frames in front of it.
+    plug := g_guard.base if intrinsics.atomic_load(&g_guard.armed) else 0
+    put_object(fd, n, plug)
+    for i in 0 ..< n {
+        if g_objs[i].base != 0 && g_objs[i].base != plug && !seen(i) {
+            put_object(fd, n, g_objs[i].base)
+        }
+    }
+    // glibc's own list names anything an object exports dynamically. The lines above resolve;
+    // this one reads without running a tool.
+    backtrace_symbols_fd(raw_data(g_pcs[:]), c.int(n), fd)
+    return true
+}
+
+// The stack, resolved, and how many frames came back. The walk reaches the faulting frame back
+// through the signal trampoline, which is where it usually already is: a plugin built without
+// unwind tables stops it short, so the pc goes in front only when the walk missed it.
+@(private = "file")
+walk :: proc "contextless" (pc: uintptr) -> int {
+    n := int(backtrace(raw_data(g_pcs[:]), TRACE_MAX))
+    walked := false
+    for i in 0 ..< n {
+        walked ||= uintptr(g_pcs[i]) == pc
+    }
+    if !walked && pc != 0 && n < TRACE_MAX {
+        copy(g_pcs[1:], g_pcs[:n]) // memmove semantics, and the arrays overlap
+        g_pcs[0] = rawptr(pc)
+        n += 1
+    }
+    for i in 0 ..< n {
+        info: Dl_Info
+        g_objs[i] = {}
+        if g_pcs[i] != nil && dladdr(g_pcs[i], &info) != 0 {
+            g_objs[i] = {uintptr(info.dli_fbase), info.dli_fname}
+        }
+    }
+    return n
+}
+
+// Who faulted, and of what. `n` counts the newline fault_arm appended for the quarantine's sake
+// and this is a header, so it writes one byte fewer.
+@(private = "file")
+put_header :: proc "contextless" (fd: posix.FD, why: string) {
+    put(fd, "\n--- ")
+    if intrinsics.atomic_load(&g_guard.armed) && g_guard.n > 1 {
+        posix.write(fd, &g_guard.name[0], uint(g_guard.n - 1))
+    } else {
+        put(fd, "kernel") // nothing was armed, so the frames are ours
+    }
+    put(fd, " ")
+    put(fd, why)
+    put(fd, "\n")
+}
+
+// One invocation for one object: `addr2line` takes a single `-e`, so the frames in that object
+// are gathered onto its line and each offset is taken from its base.
+@(private = "file")
+put_object :: proc "contextless" (fd: posix.FD, n: int, base: uintptr) {
+    if base == 0 {
+        return // nothing was armed, or `dladdr` could not place a frame
+    }
+    named := false
+    for i in 0 ..< n {
+        if g_objs[i].base != base {
+            continue
+        }
+        if !named {
+            put(fd, "addr2line -e ")
+            put_c(fd, g_objs[i].path)
+            named = true
+        }
+        put(fd, " 0x")
+        put_hex(fd, uintptr(g_pcs[i]) - base)
+    }
+    if named {
+        put(fd, "\n")
+    }
+}
+
+// Whether an earlier frame is in the same object, so each one gets one invocation.
+@(private = "file")
+seen :: proc "contextless" (i: int) -> bool {
+    for j in 0 ..< i {
+        if g_objs[j].base == g_objs[i].base {
+            return true
+        }
+    }
+    return false
+}
+
+@(private = "file")
+put :: proc "contextless" (fd: posix.FD, s: string) {
+    posix.write(fd, raw_data(s), uint(len(s)))
+}
+
+// By hand rather than through `len(cstring)`, which is a runtime call this frame has no reason
+// to trust.
+@(private = "file")
+put_c :: proc "contextless" (fd: posix.FD, s: cstring) {
+    if s == nil {
+        return
+    }
+    p := ([^]u8)(rawptr(s))
+    n := 0
+    for p[n] != 0 {
+        n += 1
+    }
+    posix.write(fd, p, uint(n))
+}
+
+@(private = "file")
+put_hex :: proc "contextless" (fd: posix.FD, v: uintptr) {
+    hex := "0123456789abcdef"
+    buf: [16]u8
+    i, left := len(buf), v
+    for {
+        i -= 1
+        buf[i] = hex[left & 0xf]
+        left >>= 4
+        if left == 0 || i == 0 {
+            break
+        }
+    }
+    put(fd, string(buf[i:]))
 }
 
 @(private = "file")

@@ -68,6 +68,9 @@ App :: struct {
     // a file of its own (quarantine.odin).
     quarantined:  [dynamic]string,
     report:       ^os.File,
+    // §5's trace file, beside it: the frames the handler walked before it unwound, so a
+    // recovered fault names a line and not only a plugin (fault.odin).
+    traces:       ^os.File,
     // Style-token names, interned (tokens.odin). A span carries an id; the palette says what
     // the id looks like, so a plugin never names a colour.
     tokens:       [dynamic]Token_Def,
@@ -171,6 +174,7 @@ app_init :: proc(a: ^App) {
 app_destroy :: proc(a: ^App) {
     journals_destroy(a) // a clean exit leaves nothing to recover (§10)
     quarantine_destroy(a)
+    fault_trace_close(a)
     job_destroy(a)
     io_destroy(a) // before the plugins: their close runs with no completion still arriving
     plug_destroy(a)

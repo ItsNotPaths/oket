@@ -294,14 +294,16 @@ plug_unload :: proc(a: ^App, i: int) -> bool {
 // A plugin that died in its own code (§10). Unloaded like any other, except that its `close`
 // does not run and its library stays mapped, and NAMED: the bar is where a user finds out that
 // what they were using is gone.
-plug_faulted :: proc(a: ^App, i: int, why: string) {
+plug_faulted :: proc(a: ^App, i: int, why: string, traced := false) {
     if i < 0 || i >= len(a.plugs) || !a.plugs[i].live {
         return // a nested dispatch may blame the same plugin twice
     }
     a.plugs[i].faulted = true
     name := a.plugs[i].name // owned by the slot, which unloading keeps
     plug_unload(a, i)
-    message_set(a, fmt.tprintf(":plug: %s %s, and is unloaded", name, why))
+    // The frames only when the handler got them down: an invariant check has none (§5).
+    trace := fmt.tprintf("; trace in %s", fault_trace_path(a)) if traced else ""
+    message_set(a, fmt.tprintf(":plug: %s %s, and is unloaded%s", name, why, trace))
 }
 
 // Every `<data>/plugins/<name>/<name>.so`, at startup, in name order (§14). It leans on the

@@ -1,6 +1,8 @@
 package tests
 
 import "core:dynlib"
+import "core:os"
+import "core:path/filepath"
 import "core:strings"
 import "core:testing"
 import "../gfx"
@@ -48,6 +50,8 @@ a_faulting_plugin_dies_alone_and_is_named :: proc(t: ^testing.T) {
     bar := app.bar_text(&a)
     testing.expect(t, strings.contains(bar, "boom"), bar)
     testing.expect(t, strings.contains(bar, "SIGSEGV"), bar)
+    // And no trace clause: nothing opened the file, so the line must not point at one.
+    testing.expect(t, !strings.contains(bar, "trace in"), bar)
     // Alone: the ring, the store and the renderer are untouched by somebody else's fault.
     app.surface_draw(&a)
     drawn := gfx.grid_snapshot(panel_grid(&a), context.temp_allocator)
@@ -56,6 +60,40 @@ a_faulting_plugin_dies_alone_and_is_named :: proc(t: ^testing.T) {
     // limping.
     app.cl_exec(&a, ":boom")
     testing.expect(t, strings.contains(app.bar_text(&a), "not a builtin"), app.bar_text(&a))
+}
+
+// §5's gate: the plugin on the stack is named by the TRACE and not only by the guard.
+//
+// The watchdog's handler writes one off the same call and is not gated here: the fd is a process
+// global, one process writes one faults file, and a second test holding one open in this
+// threaded runner would write into this one's.
+@(test)
+a_recovered_fault_leaves_a_trace_naming_the_plugin :: proc(t: ^testing.T) {
+    a, ok := boom_app(t, "oket-fault-trace")
+    if !ok {
+        return
+    }
+    defer close_plug_app(&a)
+    app.fault_trace_open(&a) // main.odin does this at startup, beside the quarantine
+
+    app.cl_exec(&a, ":boom")
+
+    testing.expect(t, strings.contains(app.bar_text(&a), "trace in"), app.bar_text(&a))
+    // The FIRST invocation is the plugin's own object, with an offset on it: a walk that starts
+    // in the handler has the kernel's frames in front of the ones you want.
+    path, _ := filepath.join({home_dir(a.home), app.FAULTS_FILE}, context.temp_allocator)
+    raw, err := os.read_entire_file(path, context.temp_allocator)
+    if !testing.expectf(t, err == nil, "no trace at %s: %v", path, err) {
+        return
+    }
+    trace, line := string(raw), ""
+    for row in strings.split_lines_iterator(&trace) {
+        if strings.has_prefix(row, "addr2line -e ") {
+            line = row
+            break
+        }
+    }
+    testing.expect(t, strings.contains(line, "boom.so 0x"), string(raw))
 }
 
 // A fault does not quarantine (§14): the author's loop is fix, `:pluginify`, load, so an

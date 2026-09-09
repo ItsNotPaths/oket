@@ -97,6 +97,7 @@ close_app :: proc(a: ^app.App) {
     app.producers_destroy(a) // a publisher's name is interned by publishing, plugin or kernel
     app.journals_destroy(a) // a clean exit leaves nothing to recover, the same as app_destroy
     app.quarantine_destroy(a)
+    app.fault_trace_close(a) // the fd is a process global: a leak here writes into another test
     app.job_destroy(a)
     app.io_destroy(a) // the worker thread, joined, the same way app_destroy ends one
     app.chain_clear(a)

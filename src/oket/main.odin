@@ -173,6 +173,8 @@ main :: proc() {
     // earlier start died IN is held back, and the handler gets somewhere to name the next one
     // (§13).
     quarantine_open(&a)
+    // The other file the handler cannot open for itself (§5): a fault's frames land here.
+    fault_trace_open(&a)
     if a.start == .Ordinary {
         plug_autoload(&a)
     }
