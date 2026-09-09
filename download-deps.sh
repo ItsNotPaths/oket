@@ -118,6 +118,9 @@ else
             || { rm -rf "$SDL_SRC"; exit 1; }
     fi
     echo "  building static libSDL3.a..."
+    # Fresh configure every time: a FAILED probe leaves a cache that silently drops a video
+    # driver on the re-run, and this build is rare enough that incremental buys nothing.
+    rm -rf "$SDL_SRC/build"
     cmake -S "$SDL_SRC" -B "$SDL_SRC/build" \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
@@ -125,7 +128,7 @@ else
         -DSDL_AUDIO=OFF -DSDL_GPU=OFF -DSDL_RENDER=OFF -DSDL_CAMERA=OFF \
         -DSDL_JOYSTICK=OFF -DSDL_HAPTIC=OFF -DSDL_HIDAPI=OFF -DSDL_SENSOR=OFF \
         -DSDL_POWER=OFF -DSDL_DIALOG=OFF -DSDL_TRAY=OFF -DSDL_VULKAN=OFF \
-        -DSDL_TEST_LIBRARY=OFF >/dev/null
+        -DSDL_X11_XTEST=OFF -DSDL_TEST_LIBRARY=OFF >/dev/null
     cmake --build "$SDL_SRC/build" --parallel >/dev/null
     mkdir -p "$(dirname "$SDL_A")"
     cp "$SDL_SRC/build/libSDL3.a" "$SDL_A"
