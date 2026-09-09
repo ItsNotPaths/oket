@@ -452,9 +452,9 @@ edit_command :: proc(a: ^App, cmd: input.Command) -> bool {
     // code (§7). `editable` is the gate until the descriptor grows `undo: kernel | none` (§5):
     // a document that takes no typing has nothing of the user's in it to take back.
     case .Undo:
-        txt.doc_undo(doc)
+        txt.doc_undo(doc, active_tab(a))
     case .Redo:
-        txt.doc_redo(doc)
+        txt.doc_redo(doc, active_tab(a))
     }
     point_sync(a)
     return true
@@ -488,9 +488,9 @@ cursor_command :: proc(a: ^App, cmd: input.Command) -> bool {
     case .Cursor_Add:
         cursor_add(a, doc)
     case .Cursor_Add_Below:
-        txt.doc_add_cursor_line(doc, +1, views_hidden(a, active(a).doc))
+        txt.doc_add_cursor_line(doc, +1, views_hidden(a, active(a).doc), active_tab(a))
     case .Cursor_Add_Above:
-        txt.doc_add_cursor_line(doc, -1, views_hidden(a, active(a).doc))
+        txt.doc_add_cursor_line(doc, -1, views_hidden(a, active(a).doc), active_tab(a))
     case .Cursor_Add_Next:
         txt.doc_add_next_match(doc)
     case .Cursor_Add_All:
@@ -932,6 +932,18 @@ reading :: proc(a: ^App, s: ^Slot) -> (^txt.Snapshot, ^desc.Descriptor, bool) {
     return snap, store.store_descriptor(&a.docs, s.doc), true
 }
 
+// The active descriptor's tab width, for the verbs whose goal column expands tabs
+// (IME.md §4). The descriptor's and never a constant: tab_width is live plugin API.
+@(private = "file")
+active_tab :: proc(a: ^App) -> int {
+    _, d := active_desc(a)
+    if d == nil {
+        return 4
+    }
+    defer desc.release(d)
+    return d.tab_width
+}
+
 point_move :: proc(a: ^App, motion: txt.Motion, extend: bool) {
     s := active(a)
     doc := s != nil ? store.store_doc(&a.docs, s.doc) : nil
@@ -940,7 +952,7 @@ point_move :: proc(a: ^App, motion: txt.Motion, extend: bool) {
     }
     // §7's export to the pipeline, and the whole of it: the runs of the original no cell stands
     // for. `txt` takes a slice and stays pure — it never learns what a fold is.
-    txt.doc_move(doc, motion, extend, hidden = views_hidden(a, s.doc))
+    txt.doc_move(doc, motion, extend, hidden = views_hidden(a, s.doc), tab = active_tab(a))
     point_sync(a)
     snap := store.store_snapshot(&a.docs, s.doc)
     if snap == nil {

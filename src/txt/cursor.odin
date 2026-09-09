@@ -13,7 +13,8 @@ import "core:unicode/utf8"
 // the same range twice.
 
 // anchor == head means no selection; head is the moving caret. goal is the sticky column for
-// vertical motion, in CELLS — a byte column would drift through multi-byte lines. id NAMES the
+// vertical motion, in DISPLAY cells (tabs expanded; IME.md §4), and -1 until a vertical motion
+// derives it — a byte column would drift through multi-byte lines. id NAMES the
 // caret: every cursor in a Doc has one, because an index cannot survive the sort a merge does
 // and `primary` has to (VIEWS.md §12). 0 is "unnamed" and only ever arrives from outside —
 // a plugin that does not care writes it, and new_cursor hands out a name (CURSORS.md §5).
@@ -41,9 +42,11 @@ Commit :: struct {
     primary: int,
 }
 
-// The one place a name is handed out. A negative `goal` asks for the cell column of `head`,
-// the rule the seam states (oket.h); a zero `id` asks for a name, and one that arrives named
-// keeps it and pushes the counter past it, so nothing the kernel mints later collides.
+// The one place a name is handed out. A negative `goal` stays negative — the display column
+// needs the descriptor's tab width, which only doc_move carries, so it is derived at the first
+// vertical use rather than guessed here (IME.md §4). A zero `id` asks for a name, and one that
+// arrives named keeps it and pushes the counter past it, so nothing the kernel mints later
+// collides — the rule the seam states (oket.h).
 @(private)
 new_cursor :: proc(d: ^Doc, anchor, head: Pos, goal := -1, id := u32(0)) -> Cursor {
     name := id
@@ -59,7 +62,7 @@ new_cursor :: proc(d: ^Doc, anchor, head: Pos, goal := -1, id := u32(0)) -> Curs
     return {
         anchor = anchor,
         head = head,
-        goal = goal < 0 ? doc_cell_col(d, head) : goal,
+        goal = goal,
         id = name,
     }
 }
@@ -87,14 +90,17 @@ doc_reset_cursor :: proc(d: ^Doc, p: Pos) {
 // lands, so .Set, an undo restore and a plugin's computed motion cannot drift apart. Clamped,
 // because the positions may have been read BEFORE the edit and the document can be shorter now.
 // An empty set is nobody asking, since a Doc holds at least one cursor.
-doc_set_cursors :: proc(d: ^Doc, src: []Cursor, primary: int) {
+doc_set_cursors :: proc(d: ^Doc, src: []Cursor, primary: int, tab := 4) {
     if len(src) == 0 {
         return
     }
     clear(&d.cursors)
     for c in src {
         anchor, head := doc_clamp_pos(d, c.anchor), doc_clamp_pos(d, c.head)
-        append(&d.cursors, new_cursor(d, anchor, head, c.goal, c.id))
+        // Eager here, unlike the kernel's own placements: the seam PROMISES a negative goal
+        // is computed (oket.h), and this is the one door a set arrives through with a tab.
+        goal := c.goal < 0 ? doc_goal_col(d, head, tab) : c.goal
+        append(&d.cursors, new_cursor(d, anchor, head, goal, c.id))
     }
     d.primary = clamp(primary, 0, len(d.cursors) - 1)
 }
@@ -186,7 +192,7 @@ doc_set_head :: proc(d: ^Doc, p: Pos, select: bool) {
     q := doc_clamp_pos(d, p)
     c := &d.cursors[d.primary]
     cursor_place(c, q, select)
-    c.goal = doc_cell_col(d, q)
+    c.goal = -1
 }
 
 // Alt+click. Unlike doc_drop_anchor the NEW cursor is the one that goes on to move. No merge: a
@@ -205,7 +211,7 @@ doc_add_cursor :: proc(d: ^Doc, p: Pos) {
 
 // ctrl+alt+down / ctrl+alt+up: a caret one line past the edge of the set, in the column that
 // edge is walking. Nothing to add off either end of the document.
-doc_add_cursor_line :: proc(d: ^Doc, by: int, hidden: []Range = nil) -> bool {
+doc_add_cursor_line :: proc(d: ^Doc, by: int, hidden: []Range = nil, tab := 4) -> bool {
     edge, goal := d.cursors[0].head, d.cursors[0].goal
     for c in d.cursors[1:] {
         if by > 0 ? c.head.line > edge.line : c.head.line < edge.line {
@@ -218,7 +224,10 @@ doc_add_cursor_line :: proc(d: ^Doc, by: int, hidden: []Range = nil) -> bool {
     if line == edge.line || line < 0 || line >= doc_line_count(d) {
         return false
     }
-    p := Pos{line, doc_byte_col(d, line, goal)}
+    if goal < 0 {
+        goal = doc_goal_col(d, edge, tab)
+    }
+    p := Pos{line, doc_goal_byte(d, line, goal, tab)}
     append(&d.cursors, new_cursor(d, p, p, goal))
     d.primary = len(d.cursors) - 1
     return true
@@ -318,7 +327,7 @@ seed_selection :: proc(d: ^Doc) -> bool {
         return false
     }
     c.anchor, c.head = Pos{c.head.line, lo}, Pos{c.head.line, hi}
-    c.goal = doc_cell_col(d, c.head)
+    c.goal = -1
     return true
 }
 
@@ -396,7 +405,7 @@ doc_select_line :: proc(d: ^Doc, line: int) {
 doc_select_lines :: proc(d: ^Doc) {
     for &c in d.cursors {
         c.anchor, c.head = line_span(d, c.head.line)
-        c.goal = doc_cell_col(d, c.head)
+        c.goal = -1
     }
     doc_merge_cursors(d)
 }
@@ -497,17 +506,18 @@ Range :: struct {
 //
 // `hidden` is what the view pipeline exports to motion and the whole of it: the runs of this
 // document that are not on screen. Empty is a document nobody folded.
-doc_move :: proc(d: ^Doc, motion: Motion, select := false, count := 1, hidden: []Range = nil) {
+doc_move :: proc(d: ^Doc, motion: Motion, select := false, count := 1, hidden: []Range = nil,
+                 tab := 4) {
     for &c in d.cursors {
-        move_cursor(d, &c, motion, select, count, hidden)
+        move_cursor(d, &c, motion, select, count, hidden, tab)
     }
     doc_merge_cursors(d)
 }
 
 @(private = "file")
 move_cursor :: proc(d: ^Doc, c: ^Cursor, motion: Motion, select: bool, count := 1,
-                    hidden: []Range = nil) {
-    defer clamp_visible(d, c, motion, select, hidden)
+                    hidden: []Range = nil, tab := 4) {
+    defer clamp_visible(d, c, motion, select, hidden, tab)
     switch motion {
     case .Left:
         if !select && cursor_has_selection(c^) {
@@ -518,7 +528,7 @@ move_cursor :: proc(d: ^Doc, c: ^Cursor, motion: Motion, select: bool, count := 
             // same cell, so the fold would cost two presses to cross.
             cursor_place(c, pos_left(d, hidden_edge(hidden, c.head, true)), select)
         }
-        c.goal = doc_cell_col(d, c.head)
+        c.goal = doc_goal_col(d, c.head, tab)
     case .Right:
         if !select && cursor_has_selection(c^) {
             _, hi := cursor_range(c^)
@@ -526,38 +536,44 @@ move_cursor :: proc(d: ^Doc, c: ^Cursor, motion: Motion, select: bool, count := 
         } else {
             cursor_place(c, pos_right(d, hidden_edge(hidden, c.head, false)), select)
         }
-        c.goal = doc_cell_col(d, c.head)
+        c.goal = doc_goal_col(d, c.head, tab)
     case .Word_Left:
         cursor_place(c, Pos{c.head.line, word_left_index(doc_line(d, c.head.line), c.head.col)}, select)
-        c.goal = doc_cell_col(d, c.head)
+        c.goal = doc_goal_col(d, c.head, tab)
     case .Word_Right:
         cursor_place(c, Pos{c.head.line, word_right_index(doc_line(d, c.head.line), c.head.col)}, select)
-        c.goal = doc_cell_col(d, c.head)
+        c.goal = doc_goal_col(d, c.head, tab)
     case .Home:
         // The indentation first, column 0 on the second press: a line begins in two places and
         // this is the only key that reaches either.
         lead := line_indent_cols(doc_line(d, c.head.line))
         cursor_place(c, Pos{c.head.line, c.head.col == lead ? 0 : lead}, select)
-        c.goal = doc_cell_col(d, c.head)
+        c.goal = doc_goal_col(d, c.head, tab)
     case .End:
         cursor_place(c, Pos{c.head.line, doc_line_len(d, c.head.line)}, select)
-        c.goal = doc_cell_col(d, c.head)
+        c.goal = doc_goal_col(d, c.head, tab)
     case .Doc_Start:
         cursor_place(c, Pos{0, 0}, select)
-        c.goal = doc_cell_col(d, c.head)
+        c.goal = doc_goal_col(d, c.head, tab)
     case .Doc_End:
         last := doc_line_count(d) - 1
         cursor_place(c, Pos{last, doc_line_len(d, last)}, select)
-        c.goal = doc_cell_col(d, c.head)
+        c.goal = doc_goal_col(d, c.head, tab)
     case .Up:
         line := visible_line(d, hidden, c.head.line, -1, count)
         if line != c.head.line {
-            cursor_place(c, Pos{line, doc_byte_col(d, line, c.goal)}, select)
+            if c.goal < 0 {
+                c.goal = doc_goal_col(d, c.head, tab)
+            }
+            cursor_place(c, Pos{line, doc_goal_byte(d, line, c.goal, tab)}, select)
         }
     case .Down:
         line := visible_line(d, hidden, c.head.line, +1, count)
         if line != c.head.line {
-            cursor_place(c, Pos{line, doc_byte_col(d, line, c.goal)}, select)
+            if c.goal < 0 {
+                c.goal = doc_goal_col(d, c.head, tab)
+            }
+            cursor_place(c, Pos{line, doc_goal_byte(d, line, c.goal, tab)}, select)
         }
     }
 }
@@ -578,14 +594,15 @@ VERTICAL :: bit_set[Motion]{.Up, .Down}
 // line-local motion is only unaffected while the fold is not inline. Vertical motion keeps its
 // goal column, since both edges are one cell and the caret has not moved horizontally.
 @(private = "file")
-clamp_visible :: proc(d: ^Doc, c: ^Cursor, motion: Motion, select: bool, hidden: []Range) {
+clamp_visible :: proc(d: ^Doc, c: ^Cursor, motion: Motion, select: bool, hidden: []Range,
+                      tab: int) {
     p := hidden_edge(hidden, c.head, motion not_in RIGHTWARD)
     if p == c.head {
         return
     }
     cursor_place(c, p, select)
     if motion not_in VERTICAL {
-        c.goal = doc_cell_col(d, p)
+        c.goal = doc_goal_col(d, p, tab)
     }
 }
 
@@ -654,12 +671,12 @@ cursor_place :: proc(c: ^Cursor, to: Pos, select: bool) {
     }
 }
 
-// One rune left / right, wrapping across the line break.
+// One CLUSTER left / right, wrapping across the line break. Deletes stay codepoints
+// (doc_backspace), so a mark peels off while motion crosses the whole of it (IME.md §4).
 @(private = "file")
 pos_left :: proc(d: ^Doc, p: Pos) -> Pos {
     if p.col > 0 {
-        _, size := doc_rune_before(d, p)
-        return Pos{p.line, p.col - size}
+        return Pos{p.line, cluster_prev(doc_line(d, p.line), p.col)}
     }
     if p.line > 0 {
         return Pos{p.line - 1, doc_line_len(d, p.line - 1)}
@@ -671,8 +688,7 @@ pos_left :: proc(d: ^Doc, p: Pos) -> Pos {
 pos_right :: proc(d: ^Doc, p: Pos) -> Pos {
     src := doc_line(d, p.line)
     if p.col < len(src) {
-        _, size := utf8.decode_rune(src[p.col:])
-        return Pos{p.line, p.col + max(size, 1)}
+        return Pos{p.line, cluster_next(src, p.col)}
     }
     if p.line < doc_line_count(d) - 1 {
         return Pos{p.line + 1, 0}

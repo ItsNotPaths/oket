@@ -484,3 +484,33 @@ a_mixed_set_draws_both_shapes :: proc(t: ^testing.T) {
     testing.expect_value(t, swapped_in_row(g, a.theme, 0), 3) // the selection, three cells of it
     testing.expect_value(t, reversed_in_row(g, 1), 1) // the caret, one cell
 }
+
+// --- clusters (IME.md §4) ---
+
+// Motion crosses a combining pair whole; backspace peels the mark off codepoint-wise. The
+// asymmetry is the design: an arrow never lands inside e+U+0301, and a backspace over it
+// leaves the bare e rather than eating both.
+@(test)
+motion_steps_a_cluster_and_backspace_peels_the_mark :: proc(t: ^testing.T) {
+    d := mk("e\u0301x") // 0..3 is one cluster, 3..4 is the x
+    defer txt.doc_destroy(&d)
+    txt.doc_move(&d, .Right)
+    testing.expect_value(t, d.cursors[0].head, txt.Pos{0, 3})
+    txt.doc_move(&d, .Left)
+    testing.expect_value(t, d.cursors[0].head, txt.Pos{0, 0})
+    txt.doc_reset_cursor(&d, {0, 3})
+    txt.doc_backspace(&d)
+    testing.expect_value(t, text(&d), "ex")
+}
+
+// The goal column expands tabs by the width doc_move was handed, so Down from behind a tab
+// lands at the STOP's column, and Up comes back onto the tab's own byte.
+@(test)
+vertical_motion_expands_tabs_into_the_goal :: proc(t: ^testing.T) {
+    d := mk("\tab\nwxyzwxyz", {0, 1}) // behind the tab: display column 4 at tab=4
+    defer txt.doc_destroy(&d)
+    txt.doc_move(&d, .Down, tab = 4)
+    testing.expect_value(t, d.cursors[0].head, txt.Pos{1, 4})
+    txt.doc_move(&d, .Up, tab = 4)
+    testing.expect_value(t, d.cursors[0].head, txt.Pos{0, 1})
+}

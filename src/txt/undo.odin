@@ -63,11 +63,11 @@ doc_forget_undo :: proc(d: ^Doc) {
 //
 // `cur` is the commit's cursor policy (doc.odin), and the step records where it left them, so
 // redo lands there too.
-doc_commit :: proc(d: ^Doc, edits: []Edit, cur := Commit{}) -> bool {
+doc_commit :: proc(d: ^Doc, edits: []Edit, cur := Commit{}, tab := 4) -> bool {
     before := clone_cursors(d.cursors[:])
     before_primary := d.primary
     batch: Batch
-    changed := doc_apply(d, edits, &batch, cur)
+    changed := doc_apply(d, edits, &batch, cur, tab)
     if !changed {
         delete(before)
         batch_destroy(&batch)
@@ -106,7 +106,7 @@ doc_steps_made :: proc(d: ^Doc) -> int {
 
 // Replays each batch's inverse last-to-first, restores the pre-edit cursors, and moves the step
 // onto the redo stack.
-doc_undo :: proc(d: ^Doc) -> bool {
+doc_undo :: proc(d: ^Doc, tab := 4) -> bool {
     u := &d.undo
     if len(u.steps) == 0 {
         return false
@@ -119,13 +119,13 @@ doc_undo :: proc(d: ^Doc) -> bool {
         }
         doc_apply(d, edits[:])
     }
-    doc_set_cursors(d, step.before[:], step.before_primary)
+    doc_set_cursors(d, step.before[:], step.before_primary, tab)
     append(&u.redo, step)
     return true
 }
 
 // Replays each batch forward, restores the post-edit cursors, and moves the step back.
-doc_redo :: proc(d: ^Doc) -> bool {
+doc_redo :: proc(d: ^Doc, tab := 4) -> bool {
     u := &d.undo
     if len(u.redo) == 0 {
         return false
@@ -138,7 +138,7 @@ doc_redo :: proc(d: ^Doc) -> bool {
         }
         doc_apply(d, edits[:])
     }
-    doc_set_cursors(d, step.after[:], step.after_primary)
+    doc_set_cursors(d, step.after[:], step.after_primary, tab)
     append(&u.steps, step)
     return true
 }

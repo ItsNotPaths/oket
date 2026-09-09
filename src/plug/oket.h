@@ -80,7 +80,8 @@ typedef struct {
 } oket_pos;
 
 /* anchor == head means no selection; head is the moving caret. `goal` is the sticky column
- * for vertical motion, in cells; negative asks the kernel to compute it from head. `id` is
+ * for vertical motion, in display cells (tabs expanded); negative asks the kernel to compute
+ * it from head. `id` is
  * carried from the cursor that produced an edit onto the one that replaces it; 0 means "no
  * identity", not "cursor zero". */
 typedef struct {

@@ -296,7 +296,8 @@ store_drain :: proc(s: ^Store) -> (applied, stale: int) {
         slot.curs_tag = 0
         if tag == 0 || slice.contains(s.landed[:], tag) {
             txt.doc_commit(slot.doc, nil, {policy = .Set, set = slot.curs[:],
-                                           primary = slot.curs_primary})
+                                           primary = slot.curs_primary},
+                           slot.desc != nil ? slot.desc.tab_width : 4)
             applied += 1
         } // else its transaction was dropped, so the set describes text nobody wrote
         clear(&slot.curs)

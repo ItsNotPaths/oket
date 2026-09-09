@@ -81,8 +81,8 @@ a_coincident_pair_with_different_goals_types_once :: proc(t: ^testing.T) {
     d := mk("abcdef\nab")
     defer txt.doc_destroy(&d)
     txt.doc_reset_cursor(&d, {0, 6})
-    txt.doc_move(&d, .Down) // head clamps to {1, 2}; the goal stays 6
-    txt.doc_add_cursor(&d, {1, 2}) // the same spot, goal 2
+    txt.doc_move(&d, .Down) // head clamps to {1, 2}; the goal derives to 6
+    txt.doc_add_cursor(&d, {1, 2}) // the same spot, goal unset (-1)
     testing.expect_value(t, len(d.cursors), 2)
     testing.expect(t, d.cursors[0].goal != d.cursors[1].goal, "the fixture left one goal")
 

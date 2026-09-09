@@ -201,12 +201,13 @@ point_shift :: proc(p: Pos, ch: Doc_Change, low: bool) -> Pos {
     return p
 }
 
-// --- the cell grid --- The painter draws CELLS, one per rune; the document counts BYTES. The
-// two agree until a line holds a multi-byte rune, and this is the bridge. An ASCII line costs
-// one scan and no allocation.
+// --- the cell grid --- The painter draws CELLS, one per CLUSTER (IME.md §4); the document
+// counts BYTES. The two agree until a line holds a multi-byte rune or a combining mark, and
+// this is the bridge. An ASCII line costs one scan and no allocation.
 
 // `offs` has one entry more than `runes`, the last being the line's byte length, so a cell range
-// converts with no special case at the end. Temp-allocated: valid for the frame.
+// converts with no special case at the end. `runes[i]` is the FIRST rune of cluster i — what an
+// atlas lookup wants until §5's shaping replaces it. Temp-allocated: valid for the frame.
 Cells :: struct {
     runes: []rune,
     offs:  []int,
@@ -227,10 +228,10 @@ doc_cells :: proc(
     offs := make([dynamic]int, 0, cap_hint + 1, alloc)
     end := 0
     for i := 0; i < len(src) && len(rs) < limit; {
-        r, sz := utf8.decode_rune(src[i:])
+        r, _ := utf8.decode_rune(src[i:])
         append(&rs, r)
         append(&offs, i)
-        i += max(sz, 1)
+        i = cluster_next(src, i)
         end = i
     }
     // offs is always one longer than runes. Where it ends is the line's end when nothing was
@@ -250,8 +251,7 @@ doc_cell_count :: proc(d: ^Doc, line: int) -> int {
     src := doc_line(d, line)
     n := 0
     for i := 0; i < len(src); n += 1 {
-        _, sz := utf8.decode_rune(src[i:])
-        i += max(sz, 1)
+        i = cluster_next(src, i)
     }
     return n
 }
@@ -280,8 +280,7 @@ doc_cell_col :: proc(d: ^Doc, p: Pos) -> int {
     src := doc_line(d, p.line)
     n := 0
     for i := 0; i < min(p.col, len(src)); n += 1 {
-        _, sz := utf8.decode_rune(src[i:])
-        i += max(sz, 1)
+        i = cluster_next(src, i)
     }
     return n
 }
@@ -290,9 +289,43 @@ doc_byte_col :: proc(d: ^Doc, line, cell: int) -> int {
     src := doc_line(d, line)
     i, n := 0, 0
     for i < len(src) && n < cell {
-        _, sz := utf8.decode_rune(src[i:])
-        i += max(sz, 1)
+        i = cluster_next(src, i)
         n += 1
+    }
+    return i
+}
+
+// The DISPLAY column vertical motion aims at (IME.md §4): a tab expands to its next stop, every
+// other cluster is one cell. Wide runes stay one until §6's cell work carries widths here. The
+// tab width is the DESCRIPTOR'S, threaded through doc_move — never a constant of txt's own.
+doc_goal_col :: proc(d: ^Doc, p: Pos, tab: int) -> int {
+    src := doc_line(d, p.line)
+    col := 0
+    for i := 0; i < min(p.col, len(src)); {
+        if src[i] == '\t' {
+            col += tab - col % tab
+            i += 1
+        } else {
+            col += 1
+            i = cluster_next(src, i)
+        }
+    }
+    return col
+}
+
+// The byte the goal lands on in another line: the first boundary at or past the column, so a
+// caret never splits a tab or a cluster on the way down.
+doc_goal_byte :: proc(d: ^Doc, line, goal, tab: int) -> int {
+    src := doc_line(d, line)
+    col, i := 0, 0
+    for i < len(src) && col < goal {
+        if src[i] == '\t' {
+            col += tab - col % tab
+            i += 1
+        } else {
+            col += 1
+            i = cluster_next(src, i)
+        }
     }
     return i
 }
@@ -565,11 +598,12 @@ edit_is_noop :: proc(e: Edit) -> bool {
 // stated against the document as it arrived, and the piece table takes them all together, so
 // nothing has to stay true while the bytes underneath it move. Non-nil `rec` collects
 // reversible patches for the undo journal. `edits_in` is read only.
-doc_apply :: proc(d: ^Doc, edits_in: []Edit, rec: ^Batch = nil, cur := Commit{}) -> bool {
+doc_apply :: proc(d: ^Doc, edits_in: []Edit, rec: ^Batch = nil, cur := Commit{},
+                  tab := 4) -> bool {
     if len(edits_in) == 0 {
         // A cursor-only commit (CURSORS.md §3): the set lands, the generation does not move.
         if cur.policy == .Set {
-            doc_set_cursors(d, cur.set, cur.primary)
+            doc_set_cursors(d, cur.set, cur.primary, tab)
             doc_merge_cursors(d)
         }
         return false
@@ -699,7 +733,7 @@ doc_apply :: proc(d: ^Doc, edits_in: []Edit, rec: ^Batch = nil, cur := Commit{})
             c.anchor, c.head = doc_clamp_pos(d, c.anchor), doc_clamp_pos(d, c.head)
         }
     case .Set:
-        doc_set_cursors(d, cur.set, cur.primary)
+        doc_set_cursors(d, cur.set, cur.primary, tab)
         doc_merge_cursors(d) // normalization, not policy: one rule for every placed caret
     }
     if changed {
