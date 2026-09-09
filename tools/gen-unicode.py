@@ -24,8 +24,8 @@ cell and shifts the rest of the line.
 """
 import os, sys, urllib.request
 
-UCD = "https://www.unicode.org/Public/16.0.0/ucd/"
-VERSION = "16.0.0"
+UCD = "https://www.unicode.org/Public/17.0.0/ucd/"
+VERSION = "17.0.0"
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WIDTH_ODIN = os.path.join(ROOT, "src/gfx/width_table.odin")
