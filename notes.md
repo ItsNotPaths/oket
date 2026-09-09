@@ -1,10 +1,10 @@
-# oket release notes
+# oket release notes\
 
 Newest first. A section is one release, headed `## <version>`. The home page shows the top
 section at every start, so keep it short and keep the first lines the ones that change what you
 type.
 
-## 0.3
+## 0.4
 
 - `:harness <file> <plugin>...` runs a file of steps in a second oket with the crash net off, so
   a plugin bug drops a core instead of being recovered. A step is a command line, a chord
