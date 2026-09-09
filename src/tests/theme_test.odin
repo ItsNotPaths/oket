@@ -144,9 +144,10 @@ a_switch_back_restores_the_baked_palette :: proc(t: ^testing.T) {
     testing.expect_value(t, app.token_color(&a, key), hex(0x010203))
 
     testing.expect(t, app.config_set_line(&a.config, "theme", "name", "gruvbox"))
-    app.theme_sync(&a) // no gruvbox.toml in this scratch: the baked theme IS the answer
+    app.theme_sync(&a) // no gruvbox.toml in this scratch: the baked copy IS the answer
     testing.expect_value(t, a.theme, gfx.Theme(gfx.DEFAULT_THEME))
-    testing.expect_value(t, app.token_color(&a, key), [3]f32{0.78, 0.47, 0.87})
+    // The whole file is baked, not only the five, so the scope table comes back with them.
+    testing.expect_value(t, app.token_color(&a, key), hex(0xfb4934))
 }
 
 // The other spelling of a dotted key: a `[ui.cursor]` header is a table the flatten recurses

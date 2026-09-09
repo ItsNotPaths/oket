@@ -53,13 +53,15 @@ theme_dark :: proc(th: Theme) -> bool {
     return lum(th[.Bg]) < lum(th[.Fg])
 }
 
-// Gruvbox, baked in: the same five keys `themes/gruvbox.toml` resolves to, so a start with no
-// theme file looks like a start with one. Values are that file's palette, read through the
-// same UI keys theme.odin uses — ui.text, ui.background, ui.cursor.primary, ui.linenr, error.
+// Gruvbox, baked in: the floor under every start, and what a test App with no directories
+// draws in. Written as the file's own eighths-of-255 rather than rounded, so parsing the
+// `.toml` the binary also carries lands on these exact values (theme.odin, THEME_BAKED).
+// The keys are the ones theme.odin resolves — ui.text, ui.background, ui.cursor.primary,
+// ui.linenr, error.
 DEFAULT_THEME :: Theme {
-    .Fg     = {0.922, 0.859, 0.698}, // fg1  #ebdbb2
-    .Bg     = {0.157, 0.157, 0.157}, // bg0  #282828
-    .Accent = {0.741, 0.682, 0.576}, // fg3  #bdae93
-    .Dim    = {0.400, 0.361, 0.329}, // bg3  #665c54
-    .Alert  = {0.984, 0.286, 0.204}, // red  #fb4934
+    .Fg     = {235.0 / 255, 219.0 / 255, 178.0 / 255}, // fg1  #ebdbb2
+    .Bg     = {40.0 / 255, 40.0 / 255, 40.0 / 255}, // bg0  #282828
+    .Accent = {189.0 / 255, 174.0 / 255, 147.0 / 255}, // fg3  #bdae93
+    .Dim    = {102.0 / 255, 92.0 / 255, 84.0 / 255}, // bg3  #665c54
+    .Alert  = {251.0 / 255, 73.0 / 255, 52.0 / 255}, // red  #fb4934
 }

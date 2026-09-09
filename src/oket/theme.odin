@@ -16,6 +16,12 @@ import "../toml"
 
 THEME_DEFAULT :: "gruvbox"
 
+// The default ships INSIDE the binary, so a start with no themes directory is a start with the
+// whole theme and not only the five UI slots gfx.DEFAULT_THEME bakes. The five and this file
+// are the same palette; a test asserts they have not drifted (theme_test.odin).
+@(private = "file", rodata)
+THEME_BAKED := #load("../../themes/gruvbox.toml")
+
 // A parent per file, a child's rows over its parent's. Four deep is more than helix ships, and
 // a cycle cannot spin.
 @(private = "file")
@@ -192,14 +198,18 @@ theme_chain :: proc(a: ^App, name: string, roots: ^[dynamic]^toml.Table, depth: 
     path, _ := filepath.join({a.home.data, "themes", fmt.tprintf("%s.toml", name)},
                              context.temp_allocator)
     root, err := toml.parse_file(path, context.temp_allocator)
-    if err.type == .Bad_File {
-        // The shipped name with no file on disk IS the baked theme, and not worth a message.
-        if name != THEME_DEFAULT {
-            message_set(a, fmt.tprintf(":theme: no themes/%s.toml", name))
+    switch {
+    case err.type == .Bad_File && name == THEME_DEFAULT:
+        // The default with no file on disk is the baked copy, and not worth a message. A file
+        // you drop under that name still wins: this is the miss, not the first try.
+        root, err = toml.parse_data(THEME_BAKED, "gruvbox.toml", context.temp_allocator)
+        if err.type != .None {
+            return len(roots) > 0
         }
+    case err.type == .Bad_File:
+        message_set(a, fmt.tprintf(":theme: no themes/%s.toml", name))
         return len(roots) > 0
-    }
-    if err.type != .None {
+    case err.type != .None:
         message_set(a, fmt.tprintf("themes/%s.toml:%d: did not parse", name, err.line))
         return len(roots) > 0
     }
