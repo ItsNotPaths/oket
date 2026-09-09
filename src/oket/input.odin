@@ -22,8 +22,11 @@ input_ready: bool
 input_init :: proc(a: ^App) {
     input_ready = true
     // Text arrives only where it was asked for (§8): this is the ask, and the door the IME
-    // work walks in through later.
-    _ = sdl.StartTextInput(a.window)
+    // work walks in through later. The harness has no window to ask for and needs only the
+    // keymap the line above stands for (§6).
+    if a.window != nil {
+        _ = sdl.StartTextInput(a.window)
+    }
 }
 
 // The frame's events, drained in one place. `wait` parks until the first one arrives — a key,

@@ -87,6 +87,11 @@ main :: proc() {
             return
         }
     }
+    // §6's second oket, before SDL: it brings up only what it needs, opens no window, installs
+    // no fault net, and runs a file instead of a frame loop (harness.odin).
+    if flag(HARNESS) {
+        os.exit(harness_main(os.args[1:]))
+    }
     // The window's identity to the desktop; an empty app-id is invisible to a WM rule.
     sdl.SetHint(sdl.HINT_APP_ID, APP_ID)
     if !sdl.Init({.VIDEO}) {
@@ -145,7 +150,7 @@ main :: proc() {
     // an App of its own and must not reach into this one's environment. Before app_init,
     // because that is where a plugin loads and asks.
     home_export()
-    app_init(&a)
+    app_init(&a, home_resolve())
     defer app_destroy(&a)
 
     // A configured size is the baseline `font.reset` returns to: it is what this user asked

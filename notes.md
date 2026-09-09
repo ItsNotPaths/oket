@@ -6,6 +6,13 @@ type.
 
 ## 0.3
 
+- `:harness <file> <plugin>...` runs a file of steps in a second oket with the crash net off, so
+  a plugin bug drops a core instead of being recovered out from under you. A step is a command
+  line, a chord (`> ctrl+shift+k`), text to type, or a check (`! lines == 12`); a check that
+  fails names its line in N0, where `enter` opens it. A plugin is a source directory to build or
+  the name of one you have installed, and nothing else loads.
+- `:get` also answers `message`, `lines`, `text`, `desc` and `spans`. `spans` says who published
+  each colour run, which nothing else shows.
 - `:oket update` fetches the latest release and installs it, in N0. Then it restarts.
 - `ctrl+f` filters a list: the file browser, the theme list, the grammar list. `esc` clears
   the filter. Typing without it still edits the name.

@@ -91,6 +91,10 @@ App :: struct {
     // the home page says which one is on: a start that holds every plugin back looks exactly
     // like a start whose plugins are broken.
     start:        Start_Mode,
+    // §6's second oket: no window, no fault net, and a file of chain lines instead of a frame
+    // loop (harness.odin). What it changes down here is where the kernel TALKS — a spawned
+    // process's N0 is a PTY nobody can see, so `sys_print` goes to stdout instead.
+    harness:      bool,
     // The view pipeline (VIEWS.md §5), per document: the text that is DRAWN, the map back to
     // the original, and the runs no cell stands for. Absent for every document until a
     // `[<kind>] view =` line names a stage. By pointer, because a derived text borrows the
@@ -153,10 +157,15 @@ Rect :: struct {
     x, y, w, h: int,
 }
 
-app_init :: proc(a: ^App) {
+// The three directories are an ARGUMENT because the harness runs on a scratch home (§6): a
+// repro must not write the config file, the session or the journal of the oket that spawned it.
+// Owned from here on, and freed by app_destroy.
+app_init :: proc(a: ^App, home: Home) {
     a.theme = gfx.DEFAULT_THEME
-    a.hand = sdl.CreateSystemCursor(.POINTER)
-    a.home = home_resolve()
+    if a.window != nil {
+        a.hand = sdl.CreateSystemCursor(.POINTER) // the window's, so a harness App makes none
+    }
+    a.home = home
     a.dir = start_dir(os.args[1:])
     // Read once, here, so main and the home page cannot disagree about which start this is.
     switch {
@@ -200,12 +209,16 @@ app_destroy :: proc(a: ^App) {
     find_free(a)
     home_destroy(&a.home)
     delete(a.dir)
-    sdl.DestroyCursor(a.hand)
     delete(a.preedit)
     panels_destroy(a)
     menubar_destroy(a)
     gfx.grid_destroy(&a.chrome)
-    gfx.painter_destroy(&a.painter) // the atlas and its faces go with it
+    // The window's two: the cursor it set, and the atlas its GL context holds. A harness App has
+    // neither, and freeing a texture into a context that is not there is a crash on the way out.
+    if a.window != nil {
+        sdl.DestroyCursor(a.hand)
+        gfx.painter_destroy(&a.painter) // the atlas and its faces go with it
+    }
 }
 
 // Echo style: a message lives until the next keystroke clears it.

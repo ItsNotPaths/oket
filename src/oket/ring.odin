@@ -457,7 +457,9 @@ ring_lane_named :: proc(a: ^App, name: string) -> (int, bool) {
 // Go to N0. It is a reserved slot rather than a lane, so this is not a bare ring_goto: that
 // only ever addresses the lane you are already in.
 ring_show_system :: proc(a: ^App) -> bool {
-    if !a.ring.system.live {
+    // Nothing to surface in a harness: what the kernel says went to stdout, and moving the focus
+    // to a session nobody can see would aim every step after it at a shell (§6).
+    if a.harness || !a.ring.system.live {
         return false
     }
     return ring_move(a, {ring_lane(a), SLOT_ZERO})

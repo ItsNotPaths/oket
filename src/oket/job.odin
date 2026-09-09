@@ -210,6 +210,13 @@ sys_term :: proc(a: ^App) -> ^Term {
 // the shell had written it, so it scrolls, colours and copies like everything else there and no
 // second transcript exists to keep in step.
 sys_print :: proc(a: ^App, text: string) {
+    if a.harness {
+        // A spawned oket's N0 is a PTY nobody can see, and what the kernel says has to reach the
+        // session that spawned it (§6). One redirect, and every `:get`, `:ls` and `:plug` line
+        // comes out on the chain step's stdout.
+        fmt.print(text)
+        return
+    }
     tm := sys_term(a)
     if tm == nil || text == "" {
         return

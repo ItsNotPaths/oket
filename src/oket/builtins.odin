@@ -6,6 +6,7 @@ import "core:path/filepath"
 import "core:strconv"
 import "core:strings"
 import "../desc"
+import "../shape"
 import "../store"
 import "../txt"
 
@@ -81,6 +82,9 @@ BUILTINS := [?]Builtin {
     {"pluginify", "", "plug", USAGE_PLUGINIFY,
      "build a plugin directory and load what came out",
      builtin_pluginify},
+    {"harness", "", "plug", USAGE_HARNESS,
+     "run a sequence file in a second oket with the fault net off; a failure names its line",
+     builtin_harness},
     {"oket", "", "file", USAGE_OKET,
      "where oket keeps its files, and putting them there or taking them away",
      builtin_oket},
@@ -456,6 +460,23 @@ builtin_put :: proc(a: ^App, _: string, step: CL_Step) -> bool {
 @(private = "file")
 builtin_get :: proc(a: ^App, args: string, _: CL_Step) -> bool {
     _, what := first_arg(args)
+    out, known := get_value(a, what)
+    if !known {
+        message_set(a, USAGE_GET)
+        return false
+    }
+    chain_feed(a, out)
+    if !chain_wants_feed(a) {
+        sys_print(a, out)
+        ring_show_system(a)
+    }
+    return true
+}
+
+// The one reading of a piece of state, so `:get` and the harness's `!` cannot answer
+// differently (AUTHORING.md §6): THE QUERY LANGUAGE IS THE ASSERTION LANGUAGE, and a name added
+// for either is answerable by both. Temp-allocated.
+get_value :: proc(a: ^App, what: string) -> (string, bool) {
     b := strings.builder_make(context.temp_allocator)
     switch what {
     case "panel":
@@ -489,20 +510,110 @@ builtin_get :: proc(a: ^App, args: string, _: CL_Step) -> bool {
         if s := ring_focused(a); s != nil {
             fmt.sbprintf(&b, "%s\n", doc_file(a, s.doc))
         }
+    case "message":
+        fmt.sbprintf(&b, "%s\n", a.message)
+    case "lines":
+        if doc := focused_doc(a); doc != nil {
+            fmt.sbprintf(&b, "%d\n", txt.text_line_count(&doc.pt))
+        }
+    case "text":
+        if doc := focused_doc(a); doc != nil {
+            strings.write_string(&b, txt.doc_string(doc, context.temp_allocator))
+        }
+    case "desc":
+        get_desc(a, &b)
+    case "spans":
+        get_spans(a, &b)
     case:
-        message_set(a, USAGE_GET)
-        return false
+        return "", false
     }
-    out := strings.to_string(b)
-    chain_feed(a, out)
-    if !chain_wants_feed(a) {
-        sys_print(a, out)
-        ring_show_system(a)
-    }
-    return true
+    return strings.to_string(b), true
 }
 
-USAGE_GET :: ":get panel|panels|slot|slots|kind|file"
+USAGE_GET :: ":get panel|panels|slot|slots|kind|file|message|lines|text|desc|spans"
+
+@(private = "file")
+focused_doc :: proc(a: ^App) -> ^txt.Doc {
+    s := ring_focused(a)
+    return s == nil ? nil : store.store_doc(&a.docs, s.doc)
+}
+
+// The descriptor, one field one line. Everything the kernel routes and renders by, which is
+// exactly the state a plugin's bug is usually IN and the state nothing on screen spells out.
+@(private = "file")
+get_desc :: proc(a: ^App, b: ^strings.Builder) {
+    s := ring_focused(a)
+    if s == nil {
+        return
+    }
+    d := store.store_descriptor(&a.docs, s.doc)
+    if d == nil {
+        return
+    }
+    defer desc.release(d)
+    fmt.sbprintf(b, "render %v\nwrap %v\nnumbers %v\nctx %v\nkind %s\nfile %s\n", d.render,
+                 d.wrap, d.numbers, d.ctx, kind_name(a, d.kind), d.file)
+    fmt.sbprintf(b, "selection %v\nfollow %v\ninput %v\nmouse %v\neditable %v\ntab_width %d\n",
+                 d.selection, d.follow, d.input, d.mouse, d.editable, d.tab_width)
+    for c in d.columns {
+        fmt.sbprintf(b, "column %s %d %v\n", c.name, c.width, c.align)
+    }
+    for f in d.fields {
+        fmt.sbprintf(b, "field %d %s %d %d %s\n", f.line, f.name, f.lo, f.hi, f.value)
+    }
+    for n, line in d.depth {
+        if n != 0 {
+            fmt.sbprintf(b, "depth %d %d\n", line, n)
+        }
+    }
+}
+
+// One run's three channels, in the order `Chan` declares them.
+@(private = "file")
+span_chan :: proc(sp: store.Span, chan: desc.Chan) -> string {
+    switch chan {
+    case .Fg:
+        return fmt.tprintf("%d", sp.fg)
+    case .Bg:
+        return fmt.tprintf("%d", sp.bg)
+    case .Attrs:
+        return span_attrs(sp.attrs)
+    }
+    return ""
+}
+
+@(private = "file")
+span_attrs :: proc(attrs: shape.Attrs) -> string {
+    b := strings.builder_make(context.temp_allocator)
+    for attr in attrs {
+        fmt.sbprintf(&b, strings.builder_len(b) == 0 ? "%v" : ",%v", attr)
+    }
+    return strings.builder_len(b) == 0 ? "none" : strings.to_string(b)
+}
+
+// The span store, ONE PUBLISHER AT A TIME. The renderer reads a merged answer and the merge has
+// already lost whose run was whose, so a bucket is asked for on its own — the read is
+// `store_spans` with an order of length one, which is why this needs nothing new in the store.
+@(private = "file")
+get_spans :: proc(a: ^App, b: ^strings.Builder) {
+    s := ring_focused(a)
+    doc := focused_doc(a)
+    if s == nil || doc == nil {
+        return
+    }
+    for _, i in a.producers {
+        who := store.Producer(i)
+        for sp in store.store_spans(&a.docs, s.doc, 0, txt.doc_len(doc), []store.Producer{who}) {
+            fmt.sbprintf(b, "%s %d %d", producer_name(a, who), sp.lo, sp.hi)
+            // A channel the run has no opinion about is `-` and not a zero: what is under it
+            // shows through, and a 0 there would read as a token id (store/spans.odin).
+            for chan in desc.Chan {
+                fmt.sbprintf(b, " %s", chan not_in sp.set ? "-" : span_chan(sp, chan))
+            }
+            strings.write_byte(b, '\n')
+        }
+    }
+}
 
 // `:set <section>.<key> <value>`: one config.conf row, typed. It goes through the door the
 // file's rows come in (config_set_line), so what it can say and what the file can say cannot
@@ -719,3 +830,70 @@ pluginify_target :: proc(a: ^App, args: string) -> (dir, flags: string) {
 
 USAGE_PLUGINIFY :: ":pluginify [<dir>] [--asan]"
 PLUGINIFY_SCRIPT :: "stage.sh"
+
+// `:harness [<sequence>] [<plugin>...]`: run a repro in a second oket with the fault net
+// uninstalled (AUTHORING.md §6). It hands the chain a command line rather than spawning
+// anything itself, exactly as `:pluginify` does, so the output lands in N0 where `enter` over a
+// `file:line` opens the file — and the file a failure names is the sequence.
+//
+// With nothing named it runs the file you are LOOKING AT, which is the same rule a bare
+// `:pluginify` follows: the loop is one chord over what you just edited.
+@(private = "file")
+builtin_harness :: proc(a: ^App, args: string, _: CL_Step) -> bool {
+    line := harness_line(a, args) or_return
+    cl_exec(a, line)
+    return true
+}
+
+// The command line `:harness` stages, split out and reachable so the suite can ask what a line
+// RESOLVES TO without spawning a second oket to read the answer back — the same reason
+// `pluginify_target` is not file-private (§8). Temp-allocated, and it is where every refusal is
+// worded: the caller returning false over the top of one would lose which refusal it was.
+//
+// A leading `-` is a flag and goes straight through, which is how `--dump` is reachable from a
+// bind row; the first field that is not one is the sequence and the rest are plugins. That is
+// `args_paths`'s own reading of a command line, said once more on this side of it.
+harness_line :: proc(a: ^App, args: string) -> (string, bool) {
+    flags := make([dynamic]string, 0, 2, context.temp_allocator)
+    plugs := make([dynamic]string, 0, 4, context.temp_allocator)
+    rest, seq := strings.trim_space(args), ""
+    for rest != "" {
+        raw, value := first_arg(rest)
+        rest = strings.trim_space(rest[len(raw):])
+        switch {
+        case strings.has_prefix(value, "-"):
+            if value != HARNESS_DUMP {
+                message_set(a, fmt.tprintf(":harness: %s is not a flag it knows", value))
+                return "", false
+            }
+            append(&flags, value)
+        case seq == "":
+            seq = value
+        case:
+            append(&plugs, value)
+        }
+    }
+    if seq == "" {
+        // The file you are LOOKING AT, the way a bare `:pluginify` builds the plugin you are in.
+        if s := ring_focused(a); s != nil {
+            seq = doc_file(a, s.doc)
+        }
+    }
+    if seq == "" || !os.exists(seq) {
+        message_set(a, fmt.tprintf(":harness: %s", USAGE_HARNESS))
+        return "", false
+    }
+    b := strings.builder_make(context.temp_allocator)
+    fmt.sbprintf(&b, "%s %s", sh_quote(exe_path(context.temp_allocator), context.temp_allocator),
+                 HARNESS)
+    for flag in flags {
+        fmt.sbprintf(&b, " %s", flag)
+    }
+    fmt.sbprintf(&b, " %s", sh_arg(seq))
+    for plug in plugs {
+        fmt.sbprintf(&b, " %s", sh_arg(plug))
+    }
+    return strings.to_string(b), true
+}
+
+USAGE_HARNESS :: ":harness [<sequence>] [<plugin>...]"

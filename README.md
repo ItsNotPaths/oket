@@ -232,6 +232,12 @@ ordinary events on the main thread.
 Every `.so` in `plugins/` loads at startup. One that faults is unloaded where it stands and
 named in the bar. `--no-plugins` starts with none.
 
+A repro is a file. `:harness repro.oks plugins/notes` runs it in a second oket with no window
+and no crash net, so the fault you are chasing drops a core instead of being recovered. A line
+is a command line, a chord (`> ctrl+shift+k`), text to type, or a check (`! lines == 12`) — and
+a check waits, so work that finishes on an I/O completion needs no sleep. `--dump` prints the
+document, its descriptor and every publisher's colour runs after each step.
+
 ## Crashes
 
 Every file you type into is journaled as it lands, so recovery reads bytes that were already on
