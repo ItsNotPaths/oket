@@ -3,6 +3,7 @@ package plug
 import "core:c"
 import "../desc"
 import "../input"
+import "../shape"
 
 // The plugin seam (§7). `oket.h` beside it is these same declarations in C and is what a
 // plugin author reads; every struct here asserts its size so the two cannot drift silently.
@@ -179,26 +180,8 @@ Edit :: struct {
 // learns what `function.builtin` means.
 Token :: u16
 
-// gfx.Token's five, at the ids tokens.odin seeds them at.
-Style :: enum Token {
-    Fg,
-    Bg,
-    Accent,
-    Dim,
-    Alert,
-}
-
-// Ids below this are the base vocabulary above; the rest were interned.
-TOKEN_BASE :: Token(len(Style))
-
-// The renderer's cell attributes, as bits. gfx.Attr's own order, and the assert in view.odin is
-// what keeps the two from drifting.
-Attr :: enum u8 {
-    Bold      = 1 << 0,
-    Italic    = 1 << 1,
-    Underline = 1 << 2,
-    Reverse   = 1 << 3,
-}
+// Ids below this are the base vocabulary (shape.Style); the rest were interned.
+TOKEN_BASE :: Token(len(shape.Style))
 
 // A run of the document, in BYTES, with a style token on it. Not a line and a column: a line
 // number is a display convenience, and making it the unit costs every run that crosses a line
@@ -207,7 +190,9 @@ Span :: struct {
     lo:    c.size_t,
     hi:    c.size_t,
     tok:   Token,
-    attrs: u8, // Attr's bits
+    // The renderer's own type, not a byte the kernel reinterprets. `shape.Attrs` is one u8 laid
+    // out the way oket.h's OKET_ATTR_* values describe, so C sees the uint8_t it always did.
+    attrs: shape.Attrs,
     // Which of the three this run has an opinion about. What it leaves unset is whoever is
     // below it, so an underline over a colour draws as both (§8).
     set:   desc.Chans,

@@ -1,18 +1,13 @@
 package gfx
 
 import "core:strings"
+import "../shape"
 
 // The screen is one 2D array of cells. Column N sits at N * advance, so hit testing and
 // selection are arithmetic, not measurement. A snapshot is text, so screens diff in CI.
 
-Attr :: enum u8 {
-    Bold,
-    Italic,
-    Underline,
-    Reverse,
-}
-
-Attrs :: bit_set[Attr;u8]
+Attr :: shape.Attr
+Attrs :: shape.Attrs
 
 Cell :: struct {
     r:     rune,

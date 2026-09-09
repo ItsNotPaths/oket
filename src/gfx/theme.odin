@@ -1,17 +1,10 @@
 package gfx
 
-// Style tokens, not colours. A plugin names a token and the theme decides what it looks like;
-// a plugin that names an RGB value breaks every theme (§8).
-//
-// The set stays small on purpose. Every token added is one a theme author has to define and a
-// plugin author has to choose between.
-Token :: enum u8 {
-    Fg,
-    Bg,
-    Accent,
-    Dim,
-    Alert,
-}
+import "../shape"
+
+// gfx's name for shape.Style. The theme is where a token becomes a colour, so `Token` is what
+// reads right at these call sites; `shape` owns the values, and oket.h asserts against them.
+Token :: shape.Style
 
 Theme :: [Token][3]f32
 

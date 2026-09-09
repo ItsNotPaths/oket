@@ -11,6 +11,7 @@ import "core:unicode/utf8"
 import "../desc"
 import "../input"
 import "../plug"
+import "../shape"
 import "../store"
 import "../txt"
 
@@ -781,7 +782,7 @@ api_register_token :: proc "c" (api: ^plug.Api, self: plug.Self, name: [^]u8,
     a, _, ok := api_app(api, self)
     defer api_done()
     if !ok {
-        return plug.Token(plug.Style.Fg)
+        return plug.Token(shape.Style.Fg)
     }
     context = a.api.ctx
     return token_intern(a, string(name[:name_len]))

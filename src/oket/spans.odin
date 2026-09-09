@@ -71,7 +71,7 @@ doc_styles :: proc(
                     // colour in would have made every publisher opaque again.
                     fg    = .Fg in sp.set ? sp.fg : u32(gfx.Token.Fg),
                     bg    = .Bg in sp.set ? sp.bg : u32(gfx.Token.Bg),
-                    attrs = .Attrs in sp.set ? transmute(gfx.Attrs)sp.attrs : {},
+                    attrs = .Attrs in sp.set ? sp.attrs : {},
                 })
             }
         }

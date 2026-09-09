@@ -257,7 +257,7 @@ term_write_cell :: proc(b: ^strings.Builder, cell: vt.ScreenCell) {
 @(private = "file")
 term_close_run :: proc(tm: ^Term, run: ^store.Span, at: int) {
     run.hi = at
-    plain := run.fg == u32(gfx.Token.Fg) && run.bg == u32(gfx.Token.Bg) && run.attrs == 0
+    plain := run.fg == u32(gfx.Token.Fg) && run.bg == u32(gfx.Token.Bg) && run.attrs == {}
     if run.hi > run.lo && !plain {
         append(&tm.spans, run^)
     }
@@ -283,13 +283,13 @@ term_style :: proc(tm: ^Term, cell: vt.ScreenCell, at: int) -> store.Span {
         st.fg, st.bg = st.bg, st.fg
     }
     if cell.attrs.bold {
-        st.attrs |= u8(plug.Attr.Bold)
+        st.attrs |= {.Bold}
     }
     if cell.attrs.italic {
-        st.attrs |= u8(plug.Attr.Italic)
+        st.attrs |= {.Italic}
     }
     if cell.attrs.underline != 0 {
-        st.attrs |= u8(plug.Attr.Underline)
+        st.attrs |= {.Underline}
     }
     return st
 }

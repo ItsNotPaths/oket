@@ -2,6 +2,7 @@ package store
 
 import "core:slice"
 import "../desc"
+import "../shape"
 
 // The span store (§5's `spans`, §9, VIEWS §8). The kernel STORES style runs and never computes
 // them: a parser, a linter, a search and the terminal all publish here, and whoever draws the
@@ -29,7 +30,7 @@ Producer :: distinct u16
 Span :: struct {
     lo, hi: int,
     fg, bg: u32, // a token id, or a literal under gfx.COLOR_LIT
-    attrs:  u8, // the renderer's attribute bits, carried and never read here
+    attrs:  shape.Attrs, // the renderer's own, carried and never read here
     set:    desc.Chans,
 }
 

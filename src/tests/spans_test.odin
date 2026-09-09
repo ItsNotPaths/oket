@@ -126,7 +126,7 @@ an_underline_over_a_colour_draws_as_both :: proc(t: ^testing.T) {
     defer close_spans_app(&a)
 
     color := [?]store.Span{fg(0, 9, RED)}
-    under := transmute(u8)gfx.Attrs{.Underline}
+    under := gfx.Attrs{.Underline}
     mark := [?]store.Span{{lo = 4, hi = 7, attrs = under, set = {.Attrs}}}
     testing.expect(t, publish(&a, id, "aaa", 0, 9, color[:]))
     testing.expect(t, publish(&a, id, "zzz", 4, 7, mark[:]))
@@ -335,7 +335,7 @@ a_run_is_bytes_and_the_renderer_splits_it_by_line :: proc(t: ^testing.T) {
     defer txt.snapshot_release(snap)
 
     // From "a = 1" on line 0 through "let" on line 1: one publish, two drawn rows.
-    across := [?]store.Span{{lo = 4, hi = 13, fg = RED, attrs = 1, set = {.Fg, .Attrs}}}
+    across := [?]store.Span{{lo = 4, hi = 13, fg = RED, attrs = {.Bold}, set = {.Fg, .Attrs}}}
     testing.expect(t, publish(&a, id, "syntax", 0, 20, across[:]))
 
     out := app.doc_styles(&a, id, nil, &snap.text, nil, 0, 4)

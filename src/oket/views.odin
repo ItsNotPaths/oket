@@ -303,7 +303,7 @@ view_run_take :: proc(sp: plug.Span, size: int) -> View_Run {
         st = {
             fg    = .Fg in set ? u32(sp.tok) : u32(gfx.Token.Fg),
             bg    = .Bg in set ? u32(sp.tok) : u32(gfx.Token.Bg),
-            attrs = .Attrs in set ? transmute(gfx.Attrs)sp.attrs : {},
+            attrs = .Attrs in set ? sp.attrs : {},
         },
     }
 }
