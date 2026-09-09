@@ -695,7 +695,9 @@ builtin_pluginify :: proc(a: ^App, args: string, _: CL_Step) -> bool {
 // What to build and what to build it with. Named, or — with nothing named — the plugin you are
 // LOOKING AT, so the write-build-load loop is one chord over the source you just edited. A file
 // resolves to its directory, which is the plugin (§7); a listing already names one.
-@(private = "file")
+//
+// Split out and reachable so the suite can ask what a line RESOLVES TO without spawning a
+// compiler to find out.
 pluginify_target :: proc(a: ^App, args: string) -> (dir, flags: string) {
     raw, first := first_arg(args)
     dir, flags = first, strings.trim_space(args[len(raw):])

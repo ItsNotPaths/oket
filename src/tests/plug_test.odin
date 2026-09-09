@@ -3,11 +3,14 @@ package tests
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
+import "core:reflect"
+import "core:strconv"
 import "core:strings"
 import "core:testing"
 import "../desc"
 import "../gfx"
 import "../input"
+import "../shape"
 import "../store"
 import "../txt"
 import "../view"
@@ -368,4 +371,193 @@ a_bare_pluginify_with_nothing_focused_refuses :: proc(t: ^testing.T) {
     // The USAGE line exactly: without the guard it resolves "." instead, gets past this and
     // fails later with a different complaint, which a looser assertion would not tell apart.
     testing.expect_value(t, a.message, app.USAGE_PLUGINIFY)
+}
+
+// The other half of bare `:pluginify`: with a source file focused it resolves to the DIRECTORY
+// that file is in, which is the plugin. Asked of the resolver directly, because the answer is
+// the claim and spawning a compiler to read it back would test the compiler.
+@(test)
+a_bare_pluginify_resolves_the_focused_file_to_its_plugin :: proc(t: ^testing.T) {
+    a, ok := plug_app(t, "oket-pluginify-focus", "plugins/edit")
+    if !ok {
+        return
+    }
+    defer close_plug_app(&a)
+    app.plug_init(&a)
+    app.plug_autoload(&a) // `edit` is what opens a file at all
+
+    src, _ := filepath.join({REPO, "plugins", "example", "example.c"}, context.temp_allocator)
+    raw, _ := filepath.join({REPO, "plugins", "example"}, context.temp_allocator)
+    dir, _ := filepath.clean(raw, context.temp_allocator)
+    if !testing.expect(t, app.args_open(&a, {src}), a.message) {
+        return
+    }
+
+    got, flags := app.pluginify_target(&a, "")
+    testing.expect_value(t, got, dir)
+    testing.expect_value(t, flags, "")
+
+    // A flag alone is still not a directory, so the focused file answers and the flag survives.
+    got, flags = app.pluginify_target(&a, "--asan")
+    testing.expect_value(t, got, dir)
+    testing.expect_value(t, flags, "--asan")
+
+    // Named beats focused.
+    got, _ = app.pluginify_target(&a, "plugins/fold")
+    testing.expect_value(t, got, "plugins/fold")
+}
+
+// stage.sh refuses what it cannot build, rather than picking one and going quiet. Two arms, and
+// both fixtures are made here: a directory that exists only to fail does not belong in the tree.
+@(test)
+stage_refuses_two_languages_and_no_source :: proc(t: ^testing.T) {
+    dir, ok := scratch(t, "oket-stage-refuse")
+    if !ok {
+        return
+    }
+    defer os.remove_all(dir)
+    script, _ := filepath.join({REPO, "plugins", "stage.sh"}, context.temp_allocator)
+    out, _ := filepath.join({dir, "out"}, context.temp_allocator)
+
+    run :: proc(script, src, out: string) -> bool {
+        state, _, _, err := os.process_exec({command = {script, src, out}},
+                                            context.temp_allocator)
+        return err == nil && state.success
+    }
+
+    // No source of any kind, and no build.sh either.
+    empty, _ := filepath.join({dir, "empty"}, context.temp_allocator)
+    testing.expect_value(t, os.make_directory_all(empty), nil)
+    testing.expect(t, !run(script, empty, out), "an empty directory built")
+
+    // Two toolchains in one folder is a build system, not a plugin.
+    both, _ := filepath.join({dir, "both"}, context.temp_allocator)
+    testing.expect_value(t, os.make_directory_all(both), nil)
+    for name in ([?]string{"both.c", "both.zig"}) {
+        f, _ := filepath.join({both, name}, context.temp_allocator)
+        testing.expect_value(t, os.write_entire_file(f, transmute([]u8)string("")), nil)
+    }
+    testing.expect(t, !run(script, both, out), "two languages built")
+}
+
+// The one thing that crosses the seam as a RAW BYTE. `oket_span.attrs` is a uint8_t in C and a
+// `shape.Attrs` in Odin, and nothing at runtime checked the two agreed — the `#assert`s in
+// shape.odin pin the Odin side only. So a plugin writes OKET_ATTR_BOLD and the renderer is
+// asked what it got.
+@(test)
+a_plugins_attribute_bits_are_the_renderers :: proc(t: ^testing.T) {
+    a, ok := plug_app(t, "oket-plug-attrs", "src/tests/cppplug")
+    if !ok {
+        return
+    }
+    defer close_plug_app(&a)
+    app.plug_init(&a)
+    app.plug_autoload(&a)
+
+    id := scratch_doc(&a, "bold.txt", "abcdef")
+    app.ring_add(&a, id)
+    app.cl_exec(&a, ":cppbold")
+    testing.expect_value(t, a.message, "")
+
+    snap := store.store_snapshot(&a.docs, id)
+    defer txt.snapshot_release(snap)
+    drawn := app.doc_styles(&a, id, nil, &snap.text, nil, 0, 1)
+    if !testing.expect(t, len(drawn) > 0, "the publish reached nothing") {
+        return
+    }
+    testing.expect_value(t, drawn[0].attrs, gfx.Attrs{.Bold})
+}
+
+// --- the seam's two declarations ---
+
+// `oket.h` and `shape` state the same constants in two languages, and until this nothing tied
+// them: the `#assert`s in shape.odin pin the ODIN side, and oket.h's `_Static_assert`s pin
+// struct SIZES, so a value added or reordered on one side was a silent divergence.
+//
+// Every enum `shape` owns, read out of the header by name. Adding a member on the Odin side and
+// forgetting the header fails here, which a hand-written pair list would not have caught.
+@(test)
+the_c_header_and_shape_agree_on_every_value :: proc(t: ^testing.T) {
+    Group :: struct {
+        type:   typeid,
+        prefix: string,
+        bit:    bool, // the C constant is `1 << ordinal`, not the ordinal
+    }
+    GROUPS :: [?]Group {
+        {shape.Render, "OKET_RENDER_", false},
+        {shape.Wrap, "OKET_WRAP_", false},
+        {shape.Numbers, "OKET_NUMBERS_", false},
+        {shape.Align, "OKET_ALIGN_", false},
+        {shape.Follow, "OKET_FOLLOW_", false},
+        {shape.Input, "OKET_INPUT_", false},
+        {shape.Mouse, "OKET_MOUSE_", false},
+        {shape.Selection, "OKET_SELECT_", false},
+        {shape.Style, "OKET_TOK_", false},
+        {shape.Attr, "OKET_ATTR_", true},
+        {shape.Chan, "OKET_SET_", true},
+    }
+
+    path, _ := filepath.join({REPO, "src", "plug", "oket.h"}, context.temp_allocator)
+    raw, err := os.read_entire_file(path, context.temp_allocator)
+    if !testing.expect_value(t, err, nil) {
+        return
+    }
+    header := string(raw)
+
+    for g in GROUPS {
+        names := reflect.enum_field_names(g.type)
+        values := reflect.enum_field_values(g.type)
+        for name, i in names {
+            spelled := strings.concatenate(
+                {g.prefix, strings.to_upper(name, context.temp_allocator)},
+                context.temp_allocator,
+            )
+            want := i64(values[i])
+            if g.bit {
+                want = 1 << uint(want)
+            }
+            got, held := c_constant(header, spelled)
+            if !testing.expectf(t, held, "%s is not in oket.h", spelled) {
+                continue
+            }
+            testing.expectf(t, got == want, "%s is %d in oket.h and %d in shape",
+                            spelled, got, want)
+        }
+    }
+
+    // Not an enum member, so the loop above cannot reach it: the id every interned token sits
+    // above, which is the count of the base vocabulary.
+    base, held := c_constant(header, "OKET_TOKEN_BASE")
+    testing.expect(t, held, "OKET_TOKEN_BASE is not in oket.h")
+    testing.expect_value(t, base, i64(len(shape.Style)))
+}
+
+// The value oket.h gives a constant. Only an occurrence followed by `=` counts, so the name
+// mentioned in a comment is not the one read.
+@(private = "file")
+c_constant :: proc(header, name: string) -> (value: i64, ok: bool) {
+    rest := header
+    for {
+        at := strings.index(rest, name)
+        if at < 0 {
+            return 0, false
+        }
+        rest = rest[at + len(name):]
+        eq := strings.trim_left_space(rest)
+        if !strings.has_prefix(eq, "=") {
+            continue // a mention, not a definition
+        }
+        expr := strings.trim_left_space(eq[1:])
+        // The whole value, up to whatever ends it inside an enum body.
+        if cut := strings.index_any(expr, ",}\n/"); cut >= 0 {
+            expr = expr[:cut]
+        }
+        expr = strings.trim_space(expr)
+        // `1 << N` or a plain integer, which is every form the header uses.
+        if shift := strings.index(expr, "<<"); shift >= 0 {
+            n := strconv.parse_i64(strings.trim_space(expr[shift + 2:])) or_return
+            return 1 << uint(n), true
+        }
+        return strconv.parse_i64(expr)
+    }
 }
