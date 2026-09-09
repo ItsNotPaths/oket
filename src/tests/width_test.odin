@@ -2,6 +2,7 @@ package tests
 
 import "core:testing"
 import "../gfx"
+import "../uni"
 
 // Width decides how many columns a rune eats, so a wrong answer shifts the rest of the line.
 // The zero-width cases are the ones a hand-written table gets wrong.
@@ -30,8 +31,8 @@ rune_width_is_right :: proc(t: ^testing.T) {
         {0x2E80, 2, "CJK radical"},
     }
     for c in cases {
-        testing.expectf(t, gfx.rune_width(c.r) == c.want, "U+%04X %s: want %d, got %d",
-                        c.r, c.name, c.want, gfx.rune_width(c.r))
+        testing.expectf(t, uni.rune_width(c.r) == c.want, "U+%04X %s: want %d, got %d",
+                        c.r, c.name, c.want, uni.rune_width(c.r))
     }
 }
 
@@ -46,11 +47,36 @@ width_tables_are_sorted :: proc(t: ^testing.T) {
             }
         }
     }
-    check(t, gfx.WIDTH_ZERO[:], "WIDTH_ZERO")
-    check(t, gfx.WIDTH_WIDE[:], "WIDTH_WIDE")
+    check(t, uni.WIDTH_ZERO[:], "WIDTH_ZERO")
+    check(t, uni.WIDTH_WIDE[:], "WIDTH_WIDE")
 
     // Nothing may be both zero-width and wide.
-    for r in gfx.WIDTH_ZERO {
-        testing.expect(t, gfx.rune_width(r[0]) == 0)
+    for r in uni.WIDTH_ZERO {
+        testing.expect(t, uni.rune_width(r[0]) == 0)
     }
+}
+
+// The script table's value IS the HarfBuzz tag, so a wrong answer here reaches the shaper
+// as a wrong shaper. Common and Inherited are the two that must never start a run: without
+// that rule a quoted Arabic phrase splits into three runs and the joins break at the quotes.
+@(test)
+script_of_answers_an_iso_tag :: proc(t: ^testing.T) {
+    LATN :: u32(0x4C61746E)
+    ARAB :: u32(0x41726162)
+    DEVA :: u32(0x44657661)
+
+    testing.expect_value(t, uni.script_of('A'), LATN)
+    testing.expect_value(t, uni.script_of('ا'), ARAB)
+    testing.expect_value(t, uni.script_of('क'), DEVA)
+    testing.expect_value(t, uni.script_of('1'), uni.SCRIPT_COMMON)
+    testing.expect_value(t, uni.script_of(' '), uni.SCRIPT_COMMON)
+    testing.expect_value(t, uni.script_of(0x0301), uni.SCRIPT_INHERITED) // combining acute
+    testing.expect_value(t, uni.script_of(0x0378), uni.SCRIPT_UNKNOWN) // unassigned
+
+    // A run keeps its script across the characters that belong to no script.
+    run := uni.SCRIPT_UNKNOWN
+    for r in " \"العربية\" " {
+        run = uni.script_join(run, uni.script_of(r))
+    }
+    testing.expect_value(t, run, ARAB)
 }

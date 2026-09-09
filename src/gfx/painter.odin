@@ -249,12 +249,13 @@ painter_draw :: proc(p: ^Painter, g: ^Grid, win_w, win_h: i32, origin: [2]f32, c
             if .Reverse in c.attrs {
                 fg, bg = bg, fg
             }
-            // ensure, not slot: this is what makes the atlas lazy rather than pre-filled.
+            // A slot the row already resolved, or the rune's own: ensure, not slot, so the
+            // atlas stays lazy rather than pre-filled.
             append(
                 &p.quads,
                 Quad {
                     {f32(x), f32(y)},
-                    u32(atlas_ensure(&p.atlas, c.r)),
+                    u32(c.slot != 0 ? c.slot : atlas_ensure(&p.atlas, c.r)),
                     fg,
                     bg,
                     u32(transmute(u8)c.attrs),
@@ -272,7 +273,13 @@ painter_draw :: proc(p: ^Painter, g: ^Grid, win_w, win_h: i32, origin: [2]f32, c
         base := p.quads[m.cell]
         append(
             &p.overlay,
-            Quad{base.cell, u32(atlas_ensure(&p.atlas, m.r)), base.fg, base.bg, 0},
+            Quad {
+                base.cell,
+                u32(m.slot != 0 ? m.slot : atlas_ensure(&p.atlas, m.r)),
+                base.fg,
+                base.bg,
+                0,
+            },
         )
     }
     if len(p.quads) == 0 {

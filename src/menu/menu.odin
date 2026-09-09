@@ -400,7 +400,7 @@ draw_row :: proc(g: ^gfx.Grid, y, w: int, it: Row, cols: [4]int, th: gfx.Theme, 
         fg, bg = th[.Bg], th[.Accent] // the row the keys are on, and the row a popout hangs off
     }
     for x in 1 ..< w - 1 {
-        gfx.grid_put(g, x, y, {' ', fg, bg, {}})
+        gfx.grid_put(g, x, y, {' ', fg, bg, {}, 0})
     }
     gfx.grid_write(g, col_x(cols, 0), y, it.chord, on ? fg : th[.Accent], bg)
     gfx.grid_write(g, col_x(cols, 1), y, it.name, fg, bg)

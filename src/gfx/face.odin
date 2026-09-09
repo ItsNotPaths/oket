@@ -6,10 +6,12 @@ import tt "vendor:stb/truetype"
 // cell; every other face in the stack is fitted into it rather than setting its own.
 
 Face :: struct {
-    data:     []u8, // the mapped file; stbtt reads through it, so it outlives the load
+    data:     []u8,   // the mapped file; stbtt reads through it, so it outlives the load
     info:     tt.fontinfo,
-    scale:    f32,  // font units to pixels
-    baseline: int,  // rows from the top of the cell down to the baseline
+    hb:       rawptr, // the HarfBuzz font over the same bytes (shape.odin); nil if it would not open
+    ascii:    [128]u32, // every ASCII glyph, looked up once: the shaper's fast path reads it
+    scale:    f32,    // font units to pixels
+    baseline: int,    // rows from the top of the cell down to the baseline
 }
 
 // `px` is the cell height, ascent to descent; face_cell adds the line gap on top.
@@ -22,10 +24,15 @@ face_open :: proc(path: string, px: int) -> (f: Face, ok: bool) {
     }
     f.data = data
     f.scale = tt.ScaleForPixelHeight(&f.info, f32(px))
+    for r in 0 ..< 128 {
+        f.ascii[r] = u32(tt.FindGlyphIndex(&f.info, rune(r)))
+    }
+    shape_open(&f)
     return f, true
 }
 
 face_close :: proc(f: ^Face) {
+    shape_close(f)
     face_unmap(f.data)
     f^ = {}
 }

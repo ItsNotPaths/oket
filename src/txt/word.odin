@@ -1,6 +1,7 @@
 package txt
 
 import "core:unicode/utf8"
+import "../uni"
 
 // Word boundaries over one line's bytes — what the word motions, the word deletes and the
 // double-click all ask for. Positions in and out are BYTE columns, matching Pos, and every step
@@ -100,28 +101,11 @@ Char_Class :: enum {
 // cannot drift; `core:unicode` would have moved with the toolchain instead.
 class_of :: proc(r: rune) -> Char_Class {
     switch {
-    case in_ranges(CLASS_SPACE[:], r):
+    case uni.in_ranges(uni.CLASS_SPACE[:], r):
         return .Space
-    case in_ranges(CLASS_WORD[:], r):
+    case uni.in_ranges(uni.CLASS_WORD[:], r):
         return .Word
     case:
         return .Punct
     }
-}
-
-@(private = "file")
-in_ranges :: proc(rs: [][2]rune, r: rune) -> bool {
-    lo, hi := 0, len(rs) - 1
-    for lo <= hi {
-        mid := (lo + hi) / 2
-        switch {
-        case r < rs[mid][0]:
-            hi = mid - 1
-        case r > rs[mid][1]:
-            lo = mid + 1
-        case:
-            return true
-        }
-    }
-    return false
 }

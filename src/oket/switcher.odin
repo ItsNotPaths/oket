@@ -5,6 +5,7 @@ import "core:strings"
 import "../gfx"
 import "../input"
 import "../store"
+import "../uni"
 
 // The ring while alt is held (§11): the lane `alt+N` addresses, down the side of the panel it
 // addresses it in. A number you have to remember is state that is not on screen, which is the
@@ -180,7 +181,7 @@ switcher_width :: proc(rows: []Switcher_Row, body: Rect) -> int {
 @(private = "file")
 switcher_cells :: proc(text: string) -> (n: int) {
     for r in text {
-        n += max(gfx.rune_width(r), 1)
+        n += max(uni.rune_width(r), 1)
     }
     return
 }
@@ -215,7 +216,7 @@ switcher_fit :: proc(text: string, w: int) -> string {
         n += 1
     }
     for r in text {
-        cw := max(gfx.rune_width(r), 1)
+        cw := max(uni.rune_width(r), 1)
         if n + cw > w - SWITCHER_PAD {
             break
         }

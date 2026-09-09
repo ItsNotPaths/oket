@@ -60,6 +60,7 @@ into :: proc(
     d: desc.Descriptor,
     cols, rows: int,
     v := view.View{},
+    atlas: ^gfx.Atlas = nil,
 ) {
     s: store.Store
     defer store.store_destroy(&s)
@@ -68,7 +69,7 @@ into :: proc(
     defer desc.release(dp)
 
     testing.expect(t, gfx.grid_init(g, cols, rows))
-    view.draw(g, gfx.DEFAULT_THEME, &snap.text, dp, v, 0, 0, cols, rows)
+    view.draw(g, gfx.DEFAULT_THEME, &snap.text, dp, v, 0, 0, cols, rows, atlas = atlas)
 }
 
 @(private = "file")
@@ -433,6 +434,67 @@ a_combining_mark_rides_over_its_base_cell :: proc(t: ^testing.T) {
     if !testing.expect_value(t, len(g.marks), 2) {
         return
     }
-    testing.expect_value(t, g.marks[0], gfx.Mark{0, '\u0301'})
-    testing.expect_value(t, g.marks[1], gfx.Mark{i32(g.cols + 1), '\u0301'})
+    testing.expect_value(t, g.marks[0].cell, i32(0))
+    testing.expect_value(t, g.marks[0].r, '\u0301')
+    testing.expect_value(t, g.marks[1].cell, i32(g.cols + 1))
+    testing.expect_value(t, g.marks[1].r, '\u0301')
 }
+
+
+// The shaper reaches the screen: a drawn cell carries the glyph HarfBuzz chose, and the cell
+// still carries the base RUNE beside it — which is the invariant every screen test rests on,
+// because grid_snapshot reads runes and knows nothing about glyphs (IME.md §6).
+@(test)
+a_drawn_row_carries_the_shapers_glyphs :: proc(t: ^testing.T) {
+    a, ok := stacked(t, 24)
+    if !ok {
+        return
+    }
+    defer gfx.atlas_destroy(&a)
+
+    g: gfx.Grid
+    defer gfx.grid_destroy(&g)
+    into(t, &g, "abc", {}, 8, 1, atlas = &a)
+
+    snap := gfx.grid_snapshot(&g)
+    defer delete(snap)
+    testing.expect_value(t, snap, "abc")
+
+    face, _ := gfx.shape_face(&a, 'a')
+    for r, i in "abc" {
+        cell := gfx.grid_at(&g, i, 0)
+        testing.expect_value(t, cell.r, r)
+        want, _ := gfx.atlas_ensure_glyph(&a, gfx.Glyph{face, gfx.face_glyph(&a.faces[face], r)})
+        testing.expectf(t, cell.slot == want, "cell %d drew slot %d, not %d", i, cell.slot, want)
+    }
+}
+
+// The same, for a row that really does go through HarfBuzz: ASCII takes the fast path, so a
+// Latin row proves the plumbing and not the shaper. A wide cluster also has to leave its
+// continuation cell alone, which is where a slot written one column too far would show.
+@(test)
+a_shaped_row_reaches_the_grid :: proc(t: ^testing.T) {
+    a, ok := stacked(t, 24)
+    if !ok {
+        return
+    }
+    defer gfx.atlas_destroy(&a)
+    if _, covered := gfx.shape_face(&a, '一'); !covered {
+        return
+    }
+
+    g: gfx.Grid
+    defer gfx.grid_destroy(&g)
+    into(t, &g, "一二", {}, 8, 1, atlas = &a)
+
+    testing.expect_value(t, len(a.shaped), 1) // it went through the shaper, not the fast path
+    col := 0
+    for r in "一二" {
+        cell := gfx.grid_at(&g, col, 0)
+        testing.expect_value(t, cell.r, r)
+        testing.expectf(t, cell.slot != 0, "the wide cluster at %d drew from its rune", col)
+        testing.expect_value(t, gfx.grid_at(&g, col + 1, 0).slot, u16(0))
+        col += 2
+    }
+}
+

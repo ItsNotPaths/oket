@@ -2,6 +2,7 @@ package gfx
 
 import "core:encoding/endian"
 import "core:mem"
+import vmem "core:mem/virtual"
 
 // A uniform grid of glyph cells in one 8-bit coverage bitmap. Runes resolve in order:
 // config font stack, bundled bitmap, tofu at slot 0. Face glyphs bake lazily; the bitmap
@@ -28,6 +29,9 @@ Atlas :: struct {
     resized:        bool,          // the texture changed size; the painter must rebuild it
     faces:          []Face,        // config order; empty means the bitmap is all there is
     scratch:        []u8,          // one cell, staged here before blitting into the grid
+    buf:            rawptr,        // one HarfBuzz buffer, reused by every run (shape.odin)
+    shaped:         map[string]Shaped, // a row's bytes to its glyphs, until the faces move
+    shape_arena:    vmem.Arena,        // every byte of that map's contents, so a drop is free
 }
 
 ATLAS_COLS :: 32
@@ -90,6 +94,7 @@ atlas_resize :: proc(a: ^Atlas, px: int) -> bool {
     clear(&a.index)
     clear(&a.by_rune)
     clear(&a.floor)
+    shape_forget(a) // the faces moved, so every glyph a row was shaped into is stale
     clear(&a.dirty)
     a.resized = true // the texture changed size, so the painter uploads the whole of it
 
@@ -98,6 +103,9 @@ atlas_resize :: proc(a: ^Atlas, px: int) -> bool {
 }
 
 atlas_destroy :: proc(a: ^Atlas) {
+    delete(a.shaped)
+    vmem.arena_destroy(&a.shape_arena)
+    shape_buffer_close(a)
     for &f in a.faces {
         face_close(&f)
     }

@@ -19,6 +19,10 @@ Cell :: struct {
     fg:    [3]f32,
     bg:    [3]f32,
     attrs: Attrs,
+    // The atlas slot to draw, 0 meaning "resolve `r` yourself". A shaped run fills it, because
+    // a ligature or a conjunct is a glyph no codepoint names; chrome leaves it alone and the
+    // painter looks the rune up as it always did (IME.md §6).
+    slot:  u16,
 }
 
 // A glyph drawn OVER a cell rather than in it: a combining mark, whose own width is zero.
@@ -27,6 +31,7 @@ Cell :: struct {
 Mark :: struct {
     cell: i32, // index into `cells`
     r:    rune,
+    slot: u16, // as Cell.slot: 0 asks the painter to resolve `r`
 }
 
 Grid :: struct {
@@ -61,7 +66,7 @@ grid_resize :: proc(g: ^Grid, cols, rows: int) -> bool {
 
 grid_clear :: proc(g: ^Grid, fg, bg: [3]f32) {
     for &c in g.cells {
-        c = Cell{' ', fg, bg, {}}
+        c = Cell{' ', fg, bg, {}, 0}
     }
     clear(&g.marks)
 }
@@ -79,11 +84,11 @@ grid_at :: proc(g: ^Grid, x, y: int) -> ^Cell {
 
 // A mark over the cell at x,y. It draws in that cell's colours, but not its attributes: the
 // underline belongs to the base and is already drawn under both.
-grid_mark :: proc(g: ^Grid, x, y: int, r: rune) {
+grid_mark :: proc(g: ^Grid, x, y: int, r: rune, slot: u16 = 0) {
     if !grid_in(g, x, y) {
         return
     }
-    append(&g.marks, Mark{i32(y * g.cols + x), r})
+    append(&g.marks, Mark{i32(y * g.cols + x), r, slot})
 }
 
 grid_put :: proc(g: ^Grid, x, y: int, c: Cell) {
@@ -100,7 +105,7 @@ grid_write :: proc(g: ^Grid, x, y: int, text: string, fg, bg: [3]f32, attrs: Att
         if col >= g.cols {
             break
         }
-        grid_put(g, col, y, Cell{r, fg, bg, attrs})
+        grid_put(g, col, y, Cell{r, fg, bg, attrs, 0})
         col += 1
     }
     return col
@@ -112,17 +117,17 @@ grid_box :: proc(g: ^Grid, x, y, w, h: int, fg, bg: [3]f32) {
         return
     }
     for i in 1 ..< w - 1 {
-        grid_put(g, x + i, y, Cell{'\u2500', fg, bg, {}})
-        grid_put(g, x + i, y + h - 1, Cell{'\u2500', fg, bg, {}})
+        grid_put(g, x + i, y, Cell{'\u2500', fg, bg, {}, 0})
+        grid_put(g, x + i, y + h - 1, Cell{'\u2500', fg, bg, {}, 0})
     }
     for j in 1 ..< h - 1 {
-        grid_put(g, x, y + j, Cell{'\u2502', fg, bg, {}})
-        grid_put(g, x + w - 1, y + j, Cell{'\u2502', fg, bg, {}})
+        grid_put(g, x, y + j, Cell{'\u2502', fg, bg, {}, 0})
+        grid_put(g, x + w - 1, y + j, Cell{'\u2502', fg, bg, {}, 0})
     }
-    grid_put(g, x, y, Cell{'\u250C', fg, bg, {}})
-    grid_put(g, x + w - 1, y, Cell{'\u2510', fg, bg, {}})
-    grid_put(g, x, y + h - 1, Cell{'\u2514', fg, bg, {}})
-    grid_put(g, x + w - 1, y + h - 1, Cell{'\u2518', fg, bg, {}})
+    grid_put(g, x, y, Cell{'\u250C', fg, bg, {}, 0})
+    grid_put(g, x + w - 1, y, Cell{'\u2510', fg, bg, {}, 0})
+    grid_put(g, x, y + h - 1, Cell{'\u2514', fg, bg, {}, 0})
+    grid_put(g, x + w - 1, y + h - 1, Cell{'\u2518', fg, bg, {}, 0})
 }
 
 // The glyphs alone, trailing blanks trimmed. Tests assert on this; colours are deliberately
@@ -143,37 +148,4 @@ grid_snapshot :: proc(g: ^Grid, allocator := context.allocator) -> string {
         }
     }
     return strings.to_string(b)
-}
-
-// Cells a rune occupies: 0 for combining marks, 2 for East Asian wide, 1 for everything else.
-// Tables generated from the Unicode data (width_table.odin). Below U+0300 everything is one
-// column, so nearly all editor content skips the binary searches. ~1 ns a call either way.
-rune_width :: proc(r: rune) -> int {
-    if r < 0x0300 {
-        return r == 0 ? 0 : 1
-    }
-    if in_ranges(WIDTH_ZERO[:], r) {
-        return 0
-    }
-    if in_ranges(WIDTH_WIDE[:], r) {
-        return 2
-    }
-    return 1
-}
-
-@(private = "file")
-in_ranges :: proc(rs: [][2]rune, r: rune) -> bool {
-    lo, hi := 0, len(rs) - 1
-    for lo <= hi {
-        mid := (lo + hi) / 2
-        switch {
-        case r < rs[mid][0]:
-            hi = mid - 1
-        case r > rs[mid][1]:
-            lo = mid + 1
-        case:
-            return true
-        }
-    }
-    return false
 }

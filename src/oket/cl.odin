@@ -147,7 +147,7 @@ cl_draw :: proc(a: ^App, g: ^gfx.Grid, th: gfx.Theme) {
     // the preedit ghost is one, and a composition typed at the prompt has to show there.
     t, dv := views_text(a, a.cl.doc, &snap.text)
     view.draw(g, line, t, d, a.cl.view, b.x, b.y, b.w, 1,
-              dv = dv, over = views_over(a, a.cl.doc), select = a.config.select)
+              dv = dv, over = views_over(a, a.cl.doc), select = a.config.select, atlas = &a.painter.atlas)
 }
 
 // How much darker than a document the bar's row is. Deeper than the chrome between two panels,
@@ -166,6 +166,6 @@ bar_theme :: proc(th: gfx.Theme) -> gfx.Theme {
 
 bar_fill :: proc(g: ^gfx.Grid, th: gfx.Theme, row: int) {
     for x in 0 ..< g.cols {
-        gfx.grid_put(g, x, row, gfx.Cell{' ', th[.Fg], th[.Bg], {}})
+        gfx.grid_put(g, x, row, gfx.Cell{' ', th[.Fg], th[.Bg], {}, 0})
     }
 }

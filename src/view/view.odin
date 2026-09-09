@@ -6,6 +6,7 @@ import "core:unicode/utf8"
 import "../desc"
 import "../gfx"
 import "../txt"
+import "../uni"
 
 // The kernel's one renderer (§5): a snapshot plus a descriptor become cells. Nothing here
 // knows what kind of document it is drawing — a file, a listing and a diff all arrive as text
@@ -91,6 +92,9 @@ draw :: proc(
     // Every interned token resolved, indexed by id: what a Style's `fg` and `bg` mean. nil
     // falls back to the theme's own five, which is all a document with no plugins ever names.
     pal: [][3]f32 = nil,
+    // The face stack, for shaping (IME.md §5). nil draws a codepoint at a time, which is what
+    // a measure and every layout test want: neither asks which glyph a cluster chose.
+    atlas: ^gfx.Atlas = nil,
 ) {
     gut := gutter_width(t, d, dv)
     body := w - gut
@@ -100,7 +104,7 @@ draw :: proc(
     one := [1]txt.Cursor{v.point}
     set := len(carets) > 0 ? carets : one[:]
     if columnar(d) {
-        draw_columns(g, th, t, d, v, x, y, gut, w, h, point, dv, select, set)
+        draw_columns(g, th, t, d, v, x, y, gut, w, h, point, dv, select, set, atlas)
         return
     }
     rs := rows(t, d, v.top, body, h, dv)
@@ -111,7 +115,8 @@ draw :: proc(
         ind := indent(d, body, r.src)
         put_number(g, th, d, v, x, y + i, gut, r)
         left := x + gut + ind
-        run(g, left, y + i, src[clipped.lo:clipped.hi], body - ind, d.tab_width, th[.Fg], th[.Bg])
+        run(g, left, y + i, src[clipped.lo:clipped.hi], body - ind, d.tab_width, th[.Fg],
+            th[.Bg], atlas)
         restyle(g, th, pal, t, d, dv, left, y + i, body - ind, clipped, src, styles)
         overstyle(g, th, pal, d, left, y + i, body - ind, clipped, src, over)
         if point {
@@ -374,54 +379,120 @@ gutter_width :: proc(t: ^txt.Text, d: ^desc.Descriptor, dv: ^Derived = nil) -> i
 // One pass over a row's bytes: places cells when `g` is non-nil, and stops at `width` cells
 // either way. Returns the byte offset it stopped at, so the measure and the paint can never
 // disagree about where a row ends.
+//
+// The unit is the CLUSTER, not the rune (IME.md §4). `a` non-nil shapes the row first, so a
+// cluster's cell carries the glyph the shaper chose rather than a codepoint's own; nil places
+// the base rune and lets the painter look it up, which is what the measure pass wants.
 @(private)
-run :: proc(g: ^gfx.Grid, x, y: int, src: []u8, width, tab: int, fg, bg: [3]f32) -> int {
+run :: proc(
+    g: ^gfx.Grid,
+    x, y: int,
+    src: []u8,
+    width, tab: int,
+    fg, bg: [3]f32,
+    a: ^gfx.Atlas = nil,
+) -> int {
+    sh := g != nil ? gfx.shape_text(a, src) : gfx.Shaped{}
+    gi := 0 // walks `sh` forward in step with the clusters; both are in byte order
     cell, i, base := 0, 0, -1
     for i < len(src) {
-        r, sz := utf8.decode_rune(src[i:])
-        w := advance(r, cell, tab)
+        w, next := step(src, i, cell, tab)
         if cell + w > width {
             break
         }
         if g != nil {
             switch {
-            case r == 0: // no column and no glyph: a raw NUL draws as nothing
-            case w == 0:
-                // A combining mark owns no column, so it rides over the cell its base went
-                // into (IME.md §6). One that opens a row has no base and takes the next
-                // cell's, which is the least wrong place for a defective sequence.
-                gfx.grid_mark(g, base >= 0 ? base : x + cell, y, r)
-            case r == '\t':
+            case src[i] == '\t':
                 for k in 0 ..< w {
-                    gfx.grid_put(g, x + cell + k, y, gfx.Cell{' ', fg, bg, {}})
+                    gfx.grid_put(g, x + cell + k, y, gfx.Cell{' ', fg, bg, {}, 0})
                 }
                 base = x + cell
+            case w == 0:
+                // A cluster with no base owns no column, so it rides over the last cell that
+                // had one — the least wrong place for a defective sequence.
+                place(g, a, base >= 0 ? base : x + cell, y, src, i, next, fg, bg, sh, &gi, true)
             case:
-                // A wide rune leaves its continuation cell empty.
-                gfx.grid_put(g, x + cell, y, gfx.Cell{r, fg, bg, {}})
+                // A wide cluster leaves its continuation cell empty.
+                place(g, a, x + cell, y, src, i, next, fg, bg, sh, &gi, false)
                 base = x + cell
             }
         }
         cell += w
-        i += max(sz, 1)
+        i = next
     }
     return i
 }
 
-// A tab runs to the next stop, so how wide a rune draws depends on where it starts. Shared, so
-// the paint, the wrap measure and the mouse can never disagree about a column.
-@(private)
-advance :: proc(r: rune, cell, tab: int) -> int {
-    return r == '\t' ? tab - cell % tab : gfx.rune_width(r)
+// One cluster into one cell: its first glyph in the cell and the rest as marks over it. The
+// cell keeps the cluster's base RUNE whatever the shaper said, because grid_snapshot is text
+// and every screen test reads it (gfx/grid.odin). `over` is a cluster with no column of its
+// own, where even the base is a mark.
+@(private = "file")
+place :: proc(
+    g: ^gfx.Grid,
+    a: ^gfx.Atlas,
+    cx, y: int,
+    src: []u8,
+    lo, hi: int,
+    fg, bg: [3]f32,
+    sh: gfx.Shaped,
+    gi: ^int,
+    over: bool,
+) {
+    r, _ := utf8.decode_rune(src[lo:])
+    n := 0
+    for gi^ < len(sh.src) && int(sh.src[gi^]) < hi {
+        k := gi^
+        gi^ += 1
+        if int(sh.src[k]) < lo {
+            continue // a glyph of a cluster already placed, or of one `width` cut off
+        }
+        slot, baked := gfx.atlas_ensure_glyph(a, sh.glyphs[k])
+        if !baked {
+            continue
+        }
+        if n == 0 && !over {
+            gfx.grid_put(g, cx, y, gfx.Cell{r, fg, bg, {}, slot})
+        } else {
+            gfx.grid_mark(g, cx, y, r, slot)
+        }
+        n += 1
+    }
+    if n > 0 {
+        return
+    }
+    // No face shaped this cluster, or none could bake it: every rune draws as itself.
+    j := lo
+    if !over {
+        gfx.grid_put(g, cx, y, gfx.Cell{r, fg, bg, {}, 0})
+        j += rune_size(src[lo:])
+    }
+    for j < hi {
+        m, sz := utf8.decode_rune(src[j:])
+        gfx.grid_mark(g, cx, y, m)
+        j += max(sz, 1)
+    }
 }
 
-// The cell a byte offset sits at inside a row.
+// The columns the cluster at `off` owns and where the next one starts. A tab runs to the next
+// stop, so how wide it draws depends on where it began. Shared, so the paint, the wrap measure
+// and the mouse can never disagree about a column.
+@(private)
+step :: proc(src: []u8, off, cell, tab: int) -> (w, next: int) {
+    if src[off] == '\t' {
+        return tab - cell % tab, off + 1
+    }
+    return txt.cluster_cells(src, off), txt.cluster_next(src, off)
+}
+
+// The cell a byte offset sits at inside a row. An offset inside a cluster answers the cell
+// after it, the same way a cursor lands on a boundary.
 @(private)
 cell_of :: proc(src: []u8, off, tab: int) -> (cell: int) {
     for i := 0; i < len(src) && i < off; {
-        r, sz := utf8.decode_rune(src[i:])
-        cell += advance(r, cell, tab)
-        i += max(sz, 1)
+        w, next := step(src, i, cell, tab)
+        cell += w
+        i = next
     }
     return
 }
@@ -432,13 +503,12 @@ cell_of :: proc(src: []u8, off, tab: int) -> (cell: int) {
 byte_of :: proc(src: []u8, want, tab: int) -> int {
     cell, i := 0, 0
     for i < len(src) {
-        r, sz := utf8.decode_rune(src[i:])
-        w := advance(r, cell, tab)
+        w, next := step(src, i, cell, tab)
         if cell + w > want {
             break
         }
         cell += w
-        i += max(sz, 1)
+        i = next
     }
     return i
 }
@@ -469,6 +539,7 @@ draw_columns :: proc(
     dv: ^Derived,
     select: int,
     carets: []txt.Cursor,
+    atlas: ^gfx.Atlas,
 ) {
     on := onscreen(carets, col_span(t, dv, v.top, h))
     for i in 0 ..< h {
@@ -486,7 +557,7 @@ draw_columns :: proc(
             }
             s, _ := field_text(t, d, orig, c.name, dv)
             run(g, col, y + i, transmute([]u8)pad(s, c.width, c.align), min(c.width, left),
-                d.tab_width, th[.Fg], th[.Bg])
+                d.tab_width, th[.Fg], th[.Bg], atlas)
             col += c.width + 1 // one column of air between fields
         }
         // AFTER the columns, never before: `run` writes whole cells, attributes included, so a
@@ -547,7 +618,7 @@ put_number :: proc(
 @(private)
 cells :: proc(s: string) -> (n: int) {
     for r in s {
-        n += gfx.rune_width(r)
+        n += uni.rune_width(r)
     }
     return
 }

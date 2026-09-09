@@ -1,5 +1,8 @@
 package txt
 
+import "core:unicode/utf8"
+import "../uni"
+
 // libgrapheme (vendored; IME.md §3): the one cluster-break authority. The helpers include the
 // same library in C, so the kernel and every plugin read the SAME tables and the no-drift rule
 // costs no generator. The API is forward-only, so every leftward question restarts from the
@@ -31,4 +34,16 @@ cluster_prev :: proc(src: []u8, off: int) -> int {
         i = cluster_next(src, i)
     }
     return prev
+}
+
+// The COLUMNS the cluster at `off` owns: its base rune's, because a cluster is one character
+// however many codepoints spell it (IME.md §4). A conjunct owns one column, a wide base owns
+// two, and the marks riding on either own none of their own. Callers handle the tab, which is
+// the one width that depends on where it starts.
+cluster_cells :: proc(src: []u8, off: int) -> int {
+    if off >= len(src) {
+        return 0
+    }
+    r, _ := utf8.decode_rune(src[off:])
+    return uni.rune_width(r)
 }

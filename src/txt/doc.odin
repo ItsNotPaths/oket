@@ -295,9 +295,10 @@ doc_byte_col :: proc(d: ^Doc, line, cell: int) -> int {
     return i
 }
 
-// The DISPLAY column vertical motion aims at (IME.md §4): a tab expands to its next stop, every
-// other cluster is one cell. Wide runes stay one until §6's cell work carries widths here. The
-// tab width is the DESCRIPTOR'S, threaded through doc_move — never a constant of txt's own.
+// The DISPLAY column vertical motion aims at (IME.md §4): a tab expands to its next stop and
+// every other cluster owns its base rune's columns, which is the same answer view.advance
+// gives the paint. The tab width is the DESCRIPTOR'S, threaded through doc_move — never a
+// constant of txt's own.
 doc_goal_col :: proc(d: ^Doc, p: Pos, tab: int) -> int {
     src := doc_line(d, p.line)
     col := 0
@@ -306,7 +307,7 @@ doc_goal_col :: proc(d: ^Doc, p: Pos, tab: int) -> int {
             col += tab - col % tab
             i += 1
         } else {
-            col += 1
+            col += cluster_cells(src, i)
             i = cluster_next(src, i)
         }
     }
@@ -323,7 +324,7 @@ doc_goal_byte :: proc(d: ^Doc, line, goal, tab: int) -> int {
             col += tab - col % tab
             i += 1
         } else {
-            col += 1
+            col += cluster_cells(src, i)
             i = cluster_next(src, i)
         }
     }

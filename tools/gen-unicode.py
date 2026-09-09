@@ -10,7 +10,7 @@ One script writes every half on purpose. The kernel lays out the grid and a plug
 what it writes into it; the kernel moves a cursor over a word and a plugin decides where that
 word ended. Either disagreement is two views of the same line (PLAN.md §8).
 
-Four tables, each a sorted list of inclusive ranges:
+Four membership tables, each a sorted list of inclusive ranges:
 
   ZERO   combining marks and formatting characters, which occupy no column
   WIDE   East Asian Wide and Fullwidth, which occupy two
@@ -18,7 +18,15 @@ Four tables, each a sorted list of inclusive ranges:
   WORD   letters, decimal digits and '_', the class a word is made of
 
 Everything outside ZERO and WIDE is one column; everything outside SPACE and WORD is
-punctuation. Deriving any of this by hand does not work: a hand-rolled width table gets the
+punctuation.
+
+One VALUED table, because a script is not a yes or no (IME.md §3):
+
+  SCRIPT  a codepoint's script, as its ISO 15924 code packed into four bytes
+
+That packing is deliberate: it is bit for bit what HarfBuzz calls hb_script_t, so the run
+splitter hands the shaper the table's own value and there is no enum in between to drift.
+The kernel picks faces and shapes runs; a plugin does neither, so this half is Odin only. Deriving any of this by hand does not work: a hand-rolled width table gets the
 wide ranges roughly right and misses zero-width entirely, so every combining accent eats a
 cell and shifts the rest of the line.
 """
@@ -28,8 +36,9 @@ UCD = "https://www.unicode.org/Public/17.0.0/ucd/"
 VERSION = "17.0.0"
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-WIDTH_ODIN = os.path.join(ROOT, "src/gfx/width_table.odin")
-CLASS_ODIN = os.path.join(ROOT, "src/txt/class_table.odin")
+SCRIPT_ODIN = os.path.join(ROOT, "src/uni/script_table.odin")
+WIDTH_ODIN = os.path.join(ROOT, "src/uni/width_table.odin")
+CLASS_ODIN = os.path.join(ROOT, "src/uni/class_table.odin")
 HELPERS_H = os.path.join(ROOT, "src/helpers/oket_unicode.h")
 
 
@@ -64,6 +73,47 @@ def ranges(cps):
     return out
 
 
+def scripts(text, aliases):
+    """-> [[lo, hi, iso], ...] merged, sorted, gaps left out"""
+    out = []
+    for line in text.splitlines():
+        line = line.split("#")[0].strip()
+        if not line:
+            continue
+        cps, _, name = line.partition(";")
+        iso = aliases[name.strip()]
+        lo, _, hi = cps.strip().partition("..")
+        out.append([int(lo, 16), int(hi or lo, 16), iso])
+    out.sort()
+    merged = []
+    for lo, hi, iso in out:
+        if merged and merged[-1][2] == iso and lo == merged[-1][1] + 1:
+            merged[-1][1] = hi
+        else:
+            merged.append([lo, hi, iso])
+    return merged
+
+
+def script_aliases(text):
+    """-> {'Arabic': 'Arab', ...} from PropertyValueAliases.txt's sc lines"""
+    out = {}
+    for line in text.splitlines():
+        line = line.split("#")[0].strip()
+        if not line.startswith("sc ;"):
+            continue
+        parts = [p.strip() for p in line.split(";")]
+        out[parts[2]] = parts[1]
+    return out
+
+
+def emit_script(f, name, rs, note):
+    f.write(f"\n// {note}\n@(rodata)\n{name} := [{len(rs)}]Script_Range{{\n")
+    for lo, hi, iso in rs:
+        tag = int.from_bytes(iso.encode("ascii"), "big")
+        f.write(f"    {{0x{lo:04X}, 0x{hi:04X}, 0x{tag:08X}}}, // {iso}\n")
+    f.write("}\n")
+
+
 def emit_c(f, name, rs, note):
     f.write(f"\n/* {note} */\n"
             f"static const oket_crange {name}[{len(rs)}] = {{\n")
@@ -88,6 +138,7 @@ def main():
     cats = fetch("extracted/DerivedGeneralCategory.txt")
     eaw = fetch("EastAsianWidth.txt")
     props = fetch("PropList.txt")
+    script_r = scripts(fetch("Scripts.txt"), script_aliases(fetch("PropertyValueAliases.txt")))
 
     # Mn and Me are nonspacing and enclosing marks; Cf is formatting, which includes the
     # zero-width space family and the variation selectors.
@@ -115,22 +166,33 @@ def main():
                 "// tool to move to a newer Unicode.\n")
 
     with open(WIDTH_ODIN, "w") as f:
-        f.write(head_odin("gfx"))
+        f.write(head_odin("uni"))
         emit(f, "WIDTH_ZERO", zero_r,
              "Combining marks and formatting characters: no column of their own.")
         emit(f, "WIDTH_WIDE", wide_r,
              "East Asian Wide and Fullwidth: two columns.")
 
+    with open(SCRIPT_ODIN, "w") as f:
+        f.write(head_odin("uni"))
+        f.write("\n// A codepoint's script as its ISO 15924 code, four bytes big-endian, which\n"
+                "// is hb_script_t exactly. A codepoint in no range is Unknown (Zzzz).\n"
+                "Script_Range :: struct {\n"
+                "    lo, hi: rune,\n"
+                "    iso:    u32,\n"
+                "}\n")
+        emit_script(f, "SCRIPT_RANGES", script_r,
+                    "Scripts.txt, adjacent ranges of one script merged.")
+
     with open(CLASS_ODIN, "w") as f:
-        f.write(head_odin("txt"))
+        f.write(head_odin("uni"))
         emit(f, "CLASS_SPACE", space_r, "White_Space.")
         emit(f, "CLASS_WORD", word_r, "Letters, decimal digits and '_'.")
 
     with open(HELPERS_H, "w") as f:
         f.write(f"/* GENERATED by tools/gen-unicode.py from Unicode {VERSION}. Do not edit.\n"
                 " *\n"
-                " * The Odin halves of the same run are src/gfx/width_table.odin and\n"
-                " * src/txt/class_table.odin. One script writes them all, because a kernel and\n"
+                " * The Odin halves of the same run are src/uni/width_table.odin and\n"
+                " * src/uni/class_table.odin. One script writes them all, because a kernel and\n"
                 " * a plugin that disagree about a column lay the same line out differently, and\n"
                 " * ones that disagree about a class end a word in different places.\n"
                 " *\n"
@@ -151,7 +213,8 @@ def main():
     for name, cps, rs in (("zero", zero, zero_r), ("wide", wide, wide_r),
                           ("space", space, space_r), ("word", word, word_r)):
         print(f"  {name:5s}: {len(cps)} codepoints in {len(rs)} ranges")
-    for path in (WIDTH_ODIN, CLASS_ODIN, HELPERS_H):
+    print(f"  script: {len({r[2] for r in script_r})} scripts in {len(script_r)} ranges")
+    for path in (SCRIPT_ODIN, WIDTH_ODIN, CLASS_ODIN, HELPERS_H):
         print(f"  -> {os.path.relpath(path, ROOT)}")
 
 

@@ -8,6 +8,7 @@ import "core:strings"
 import "core:testing"
 import "core:time"
 import "../desc"
+import "../font"
 import "../gfx"
 import "../input"
 import "../store"
@@ -324,4 +325,31 @@ listing_doc :: proc(a: ^app.App, dir: string) -> store.Id {
     desc.release(d)
     store.store_drain(s)
     return id
+}
+
+// The whole configured stack, not just the primary: Arabic and Devanagari live in the fallback
+// faces, and shaping is exactly the thing that needs the face that covers the script.
+stacked :: proc(t: ^testing.T, px: int) -> (gfx.Atlas, bool) {
+    stack, found := font.grab()
+    if !found {
+        return {}, false
+    }
+    defer {
+        for e in stack {
+            delete(e.family);delete(e.path)
+        }
+        delete(stack)
+    }
+    faces := make([dynamic]gfx.Face)
+    for e in stack {
+        if f, opened := gfx.face_open(e.path, px); opened {
+            append(&faces, f)
+        }
+    }
+    if len(faces) == 0 {
+        delete(faces)
+        return {}, false
+    }
+    a, made := gfx.atlas_make(faces[:])
+    return a, testing.expect(t, made)
 }
