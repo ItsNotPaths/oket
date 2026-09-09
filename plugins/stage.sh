@@ -30,14 +30,22 @@ done
 # places. In the repo the ABI header sits with its Odin twin under ../src/plug and the helper
 # library under ../src/helpers; beside a shipped oket there is one include directory.
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# ODIN is the collection ROOT, not the package: `plug` imports `../shape` beside it, so what
+# `-collection:oket=` needs is the directory holding both. An Odin plugin then writes
+# `import "oket:plug"` and builds the same in either layout.
+#
+# In the repo that root is all of src/, so `oket:txt` and `oket:store` also resolve there and
+# NOT beside a release, which ships `plug` and `shape` and nothing else. Import those two.
 if [ -d "$HERE/../src/helpers" ]; then
     ROOT="$(cd "$HERE/.." && pwd)"
     SEAM="$ROOT/src/plug"
     HELPERS="$ROOT/src/helpers"
+    ODIN="$ROOT/src"
 elif [ -d "$HERE/helpers" ]; then
     ROOT="$HERE"
     SEAM="$HERE/helpers"
     HELPERS="$HERE/helpers"
+    ODIN="$HERE/helpers/odin"
 else
     echo "stage.sh: cannot find the oket headers" >&2
     exit 1
@@ -132,13 +140,15 @@ odin)
     # Odin builds a DIRECTORY as one package, so there is no root file and no glob. `odin build`
     # drives the linker and takes no `.c`, so the helpers arrive as an archive.
     helpers_archive
-    odin build "$SRC" -build-mode:shared -out:"$SO" -extra-linker-flags:"$HELPERS_A" $FLAGS
+    odin build "$SRC" -build-mode:shared -out:"$SO" -collection:oket="$ODIN" \
+        -extra-linker-flags:"$HELPERS_A" $FLAGS
     ;;
 own)
     # The contract, and all of it: source and output directories as the two arguments, the
     # header directories and the asan flag in the environment because only stage.sh knows which
     # layout it found, and $NAME.so in the output directory when it returns.
-    OKET_ROOT="$ROOT" OKET_SEAM="$SEAM" OKET_HELPERS="$HELPERS" OKET_ASAN="$ASAN" \
+    OKET_ROOT="$ROOT" OKET_SEAM="$SEAM" OKET_HELPERS="$HELPERS" OKET_ODIN="$ODIN" \
+        OKET_ASAN="$ASAN" \
         "$SRC/build.sh" "$SRC" "$OUT/$NAME"
     [ -f "$SO" ] || { echo "stage.sh: $SRC/build.sh left no $NAME.so" >&2; exit 1; }
     ;;

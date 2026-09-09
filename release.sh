@@ -82,6 +82,12 @@ if [ $DO_LOCAL -eq 1 ]; then
     mkdir -p "$RELEASE_DIR/helpers"
     cp "$PROJECT_DIR"/src/plug/oket.h "$PROJECT_DIR"/src/helpers/*.h \
        "$PROJECT_DIR"/src/helpers/*.c "$RELEASE_DIR/helpers/"
+    # The seam's Odin twin, laid out as a COLLECTION: `plug` imports `../shape` beside it, and
+    # stage.sh points `-collection:oket=` at the directory holding both. Two files, because
+    # `plug` imports nothing else.
+    mkdir -p "$RELEASE_DIR/helpers/odin/plug" "$RELEASE_DIR/helpers/odin/shape"
+    cp "$PROJECT_DIR/src/plug/abi.odin" "$RELEASE_DIR/helpers/odin/plug/"
+    cp "$PROJECT_DIR/src/shape/shape.odin" "$RELEASE_DIR/helpers/odin/shape/"
     cp "$PROJECT_DIR/plugins/stage.sh" "$RELEASE_DIR/stage.sh"
     # tree-sitter itself is NOT shipped. plugins/syntax/get-tree-sitter fetches and builds it
     # into $ROOT/vendor, stage.sh carries that script into the plugin's folder, and nothing at

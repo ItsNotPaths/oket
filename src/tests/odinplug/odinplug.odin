@@ -1,14 +1,14 @@
 // A whole plugin in Odin, which is the §8 claim: one command and one helper call. A fixture, so
 // it sits under src/tests like boom.c and not in plugins/.
 //
-// The import resolves in the REPO and nowhere else: `abi.odin` pulls `desc` and `input` behind
-// it, and no release ships those. An Odin plugin beside an installed oket has nothing to import
-// yet (AUTHORING.md §8).
+// `oket:` is the collection stage.sh points at the seam: `src/` in the repo, `helpers/odin/`
+// beside an installed oket. Same import either place, because `plug` imports nothing but
+// `core:c` and `shape` and both ship together.
 package odinplug
 
 import "base:runtime"
 import "core:c"
-import "../../plug"
+import "oket:plug"
 
 NAME := "odinplug"
 DOC := "proof the seam is not C-only"
