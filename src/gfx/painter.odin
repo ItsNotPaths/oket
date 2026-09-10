@@ -5,7 +5,11 @@ import gl "vendor:OpenGL"
 
 // Puts a Grid and an Atlas on the GPU; the only code that talks to OpenGL beyond gl.odin.
 // One instanced draw per grid: a unit quad per cell, background and glyph in the same pass,
-// plus a second blended pass for the grid's marks when it has any.
+// plus a second pass for the grid's marks when it has any.
+//
+// THE PASS IS BLENDED, because a cell background may not be there at all (CHROME.md §13.3).
+// That is also what a mark is — a cell with no background of its own — so the two passes run
+// the same shader with no uniform between them.
 // A grid uploads whole every frame (~860 KB at 300x80); per-cell damage tracking waits for
 // evidence it is needed.
 
@@ -14,7 +18,7 @@ VERT :: `#version 330 core
 layout(location = 0) in vec2 i_cell;
 layout(location = 1) in uint i_slot;
 layout(location = 2) in vec3 i_fg;
-layout(location = 3) in vec3 i_bg;
+layout(location = 3) in vec4 i_bg;
 layout(location = 4) in uint i_attrs;
 
 uniform vec2 u_cell_px;
@@ -24,7 +28,7 @@ uniform vec2 u_slots;
 
 out vec2 v_uv;
 out vec3 v_fg;
-out vec3 v_bg;
+out vec4 v_bg;
 out vec2 v_at; // where in the cell this fragment is, which is what an underline needs
 flat out uint v_attrs;
 
@@ -48,13 +52,12 @@ void main() {
 FRAG :: `#version 330 core
 in vec2 v_uv;
 in vec3 v_fg;
-in vec3 v_bg;
+in vec4 v_bg;
 in vec2 v_at;
 flat in uint v_attrs;
 
 uniform sampler2D u_atlas;
 uniform vec2 u_cell_px;
-uniform int u_over; // the mark pass: coverage becomes alpha so the base glyph shows through
 
 out vec4 o_color;
 
@@ -64,16 +67,16 @@ const uint ATTR_UNDERLINE = 4u;
 
 void main() {
     float cov = texture(u_atlas, v_uv).r;
-    if (u_over != 0) {
-        o_color = vec4(v_fg, cov);
-        return;
-    }
-    vec3 c = mix(v_bg, v_fg, cov);
-    // Two pixels along the cell's bottom edge, so it stays visible as the cell zooms.
+    // Two pixels along the cell's bottom edge, so it stays visible as the cell zooms. Full
+    // coverage, so the rule is ink whether or not the cell has a background under it.
     if ((v_attrs & ATTR_UNDERLINE) != 0u && v_at.y > 1.0 - 2.0 / u_cell_px.y) {
-        c = v_fg;
+        cov = 1.0;
     }
-    o_color = vec4(c, 1.0);
+    // Premultiplied: OPAQUE INK over a background that carries its own alpha. At alpha 1 that
+    // is a plain mix and the cell is opaque; at 0 the background contributes nothing and only
+    // the glyph is laid down, which is what a mark and a transparent cell both want.
+    float a = v_bg.a * (1.0 - cov) + cov;
+    o_color = vec4(v_bg.rgb * v_bg.a * (1.0 - cov) + v_fg * cov, a);
 }
 `
 
@@ -83,7 +86,7 @@ Quad :: struct {
     cell:  [2]f32,
     slot:  u32,
     fg:    [3]f32,
-    bg:    [3]f32,
+    bg:    Rgba,
     attrs: u32,
 }
 
@@ -95,7 +98,7 @@ Painter :: struct {
     overlay:         [dynamic]Quad, // the grid's marks, drawn over the cells (IME.md §6)
     // Whole numbers only: a fractional cell size stops being exact arithmetic.
     scale:           f32,
-    u_cell, u_screen, u_origin, u_slots, u_atlas, u_over: i32,
+    u_cell, u_screen, u_origin, u_slots, u_atlas: i32,
 }
 
 painter_init :: proc(p: ^Painter, atlas: Atlas) -> bool {
@@ -122,7 +125,7 @@ painter_init :: proc(p: ^Painter, atlas: Atlas) -> bool {
     gl.EnableVertexAttribArray(2)
     gl.VertexAttribPointer(2, 3, gl.FLOAT, false, stride, offset_of(Quad, fg))
     gl.EnableVertexAttribArray(3)
-    gl.VertexAttribPointer(3, 3, gl.FLOAT, false, stride, offset_of(Quad, bg))
+    gl.VertexAttribPointer(3, 4, gl.FLOAT, false, stride, offset_of(Quad, bg))
     gl.EnableVertexAttribArray(4)
     gl.VertexAttribIPointer(4, 1, gl.UNSIGNED_INT, stride, offset_of(Quad, attrs))
     for i in u32(0) ..= 4 {
@@ -144,7 +147,6 @@ painter_init :: proc(p: ^Painter, atlas: Atlas) -> bool {
     p.u_origin = gl.GetUniformLocation(p.prog, "u_origin_px")
     p.u_slots = gl.GetUniformLocation(p.prog, "u_slots")
     p.u_atlas = gl.GetUniformLocation(p.prog, "u_atlas")
-    p.u_over = gl.GetUniformLocation(p.prog, "u_over")
     gl.Uniform1i(p.u_atlas, 0)
     return true
 }
@@ -239,10 +241,12 @@ painter_draw :: proc(p: ^Painter, g: ^Grid, win_w, win_h: i32, origin: [2]f32, c
     for y in 0 ..< g.rows {
         for x in 0 ..< g.cols {
             c := g.cells[y * g.cols + x]
-            // Reverse is a swap and needs no shader branch; the rest ride along as bits.
+            // Reverse is a swap and needs no shader branch; the rest ride along as bits. A
+            // swapped cell is OPAQUE both ways round: the ink it paints its ground in is one
+            // colour and never a hole.
             fg, bg := c.fg, c.bg
             if .Reverse in c.attrs {
-                fg, bg = bg, fg
+                fg, bg = bg.rgb, opaque(fg)
             }
             // A slot the row already resolved, or the rune's own: ensure, not slot, so the
             // atlas stays lazy rather than pre-filled.
@@ -258,9 +262,10 @@ painter_draw :: proc(p: ^Painter, g: ^Grid, win_w, win_h: i32, origin: [2]f32, c
             )
         }
     }
-    // A mark draws in its cell's colours with no attributes, or the underline would be laid
-    // down twice. A cell index out of the grid is the only thing between a hand-built Mark
-    // and a read off the end of the quads.
+    // A mark draws in its cell's ink with no background and no attributes: the base glyph is
+    // already down and has to stay visible, and the underline would otherwise be laid twice.
+    // A cell index out of the grid is the only thing between a hand-built Mark and a read off
+    // the end of the quads.
     for m in g.marks {
         if int(m.cell) < 0 || int(m.cell) >= len(p.quads) {
             continue
@@ -272,7 +277,7 @@ painter_draw :: proc(p: ^Painter, g: ^Grid, win_w, win_h: i32, origin: [2]f32, c
                 base.cell,
                 u32(m.slot != 0 ? m.slot : atlas_ensure(&p.atlas, m.r)),
                 base.fg,
-                base.bg,
+                NOTHING,
                 0,
             },
         )
@@ -297,20 +302,20 @@ painter_draw :: proc(p: ^Painter, g: ^Grid, win_w, win_h: i32, origin: [2]f32, c
     gl.Enable(gl.SCISSOR_TEST)
     defer gl.Disable(gl.SCISSOR_TEST) // or the next gl.Clear would be cut to this grid
     gl.Scissor(painter_scissor(clip, win_h))
+    // The fragment premultiplies, so this is the chrome pass's blend and not the blitter's.
+    // An opaque cell writes over what is under it, which is what an unblended pass did.
+    gl.Enable(gl.BLEND)
+    defer gl.Disable(gl.BLEND)
+    gl.BlendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
 
-    gl.Uniform1i(p.u_over, 0)
     gl.BufferData(gl.ARRAY_BUFFER, len(p.quads) * size_of(Quad), raw_data(p.quads), gl.STREAM_DRAW)
     gl.DrawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, i32(len(p.quads)))
 
     if len(p.overlay) == 0 {
         return
     }
-    // Blended, and a second upload into the same buffer: base-instance drawing is GL 4.2 and
-    // this shader is 3.3. Marks are rare, so the cost lands only on text that has them.
-    gl.Enable(gl.BLEND)
-    defer gl.Disable(gl.BLEND)
-    gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-    gl.Uniform1i(p.u_over, 1)
+    // A second upload into the same buffer: base-instance drawing is GL 4.2 and this shader is
+    // 3.3. Marks are rare, so the cost lands only on text that has them.
     gl.BufferData(
         gl.ARRAY_BUFFER, len(p.overlay) * size_of(Quad), raw_data(p.overlay), gl.STREAM_DRAW,
     )

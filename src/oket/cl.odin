@@ -134,7 +134,7 @@ cl_draw :: proc(a: ^App, g: ^gfx.Grid, th: gfx.Theme) {
     b := a.bar
     line := bar_theme(th)
     bar_fill(g, line, b.y)
-    gfx.grid_write(g, b.x - len(CL_PROMPT), b.y, CL_PROMPT, line[.Fg], line[.Bg])
+    gfx.grid_write(g, b.x - len(CL_PROMPT), b.y, CL_PROMPT, line[.Fg], gfx.opaque(line[.Bg]))
     snap := store.store_snapshot(&a.docs, a.cl.doc)
     if snap == nil {
         return
@@ -166,6 +166,6 @@ bar_theme :: proc(th: gfx.Theme) -> gfx.Theme {
 
 bar_fill :: proc(g: ^gfx.Grid, th: gfx.Theme, row: int) {
     for x in 0 ..< g.cols {
-        gfx.grid_put(g, x, row, gfx.Cell{' ', th[.Fg], th[.Bg], {}, 0})
+        gfx.grid_put(g, x, row, gfx.Cell{' ', th[.Fg], gfx.opaque(th[.Bg]), {}, 0})
     }
 }

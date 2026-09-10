@@ -17,7 +17,8 @@ import "../view"
 // anywhere below.
 
 // The surface the panels sit on, and the window's own margins with it: one answer, so a gap and
-// the edge past the strip cannot end up two colours.
+// the edge past the strip cannot end up two colours. Darker than a panel, so the strip reads as
+// documents sitting ON something rather than as holes cut in one surface.
 ground_bg :: proc(a: ^App) -> [3]f32 {
     return gfx.theme_behind(a.theme, a.config.behind)
 }
@@ -37,10 +38,9 @@ surface_draw :: proc(a: ^App) {
     row := a.frame.bar.y
     a.bar = {len(CL_PROMPT), row, max(a.frame.bar.w - len(CL_PROMPT), 0), 1}
 
-    // The ground is what a gap shows through, so it is darker than a panel: the strip then
-    // reads as documents sitting ON something rather than as holes cut in one surface.
-    behind := ground_bg(a)
-    gfx.grid_clear(g, th[.Fg], behind)
+    // NOTHING, not a colour: what a gap shows through is the FRAME's ground, and this grid is
+    // painted over it (§13.3). The bar's row is the only thing written into it.
+    gfx.grid_clear(g, th[.Fg], gfx.NOTHING)
     // The bar is the frame's row (§11), over whatever is below it — the kernel screen included.
     // While the command line is open it IS the bar: a state the user cannot see is the thing
     // §1 exists to kill, and the line is its own label.
@@ -52,7 +52,7 @@ surface_draw :: proc(a: ^App) {
     } else {
         bar := bar_theme(th)
         bar_fill(g, bar, row)
-        gfx.grid_write(g, 0, row, bar_text(a), bar[.Dim], bar[.Bg])
+        gfx.grid_write(g, 0, row, bar_text(a), bar[.Dim], gfx.opaque(bar[.Bg]))
     }
 
     for &p, i in a.panels {
@@ -84,7 +84,7 @@ panel_draw :: proc(a: ^App, p: ^Panel, marked: bool) {
     d := store.store_descriptor(&a.docs, s.doc) // the id just resolved, so this cannot miss
     defer desc.release(d)
 
-    gfx.grid_clear(&p.grid, th[.Fg], th[.Bg])
+    gfx.grid_clear(&p.grid, th[.Fg], gfx.opaque(th[.Bg]))
 
     // What is DRAWN is the view pipeline's document when a stage built one (VIEWS.md §5), and
     // `dv` is the map back to the one being edited. Nil for everything nobody derived.
@@ -165,13 +165,10 @@ surface_paint :: proc(a: ^App, win_w, win_h: i32) {
     gfx.mesher_begin(&a.mesher, win_w, win_h)
     frame_paint(a, ox, oy, ss)
     gfx.mesher_end(&a.mesher)
-    // THE GROUND GRID IS THE BAR'S ROW. surface_draw writes nothing else into it, and a cell's
-    // background is OPAQUE — so painting the whole grid would cover the frame one call after it
-    // drew. Everything outside a panel and off that row belongs to the frame now (§2.1).
-    bar := a.frame.bar
+    // The whole grid: every cell off the bar's row says NOTHING, and what draws there is the
+    // frame under it (§13.3).
     gfx.painter_draw(p, &a.ground, win_w, win_h, {f32(ox), f32(oy)},
-                     {i32(ox + bar.x * cw), i32(oy + bar.y * ch),
-                      i32(bar.w * cw), i32(bar.h * ch)})
+                     {i32(ox), i32(oy), i32(a.ground.cols * cw), i32(a.ground.rows * ch)})
     top := oy + int(a.frame.strip.y) // where the frame's solve put the strip (frame.odin)
     for &pn, i in a.panels {
         it := strip.span(a.strip, ss, i)

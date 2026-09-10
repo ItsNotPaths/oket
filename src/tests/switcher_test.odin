@@ -114,7 +114,7 @@ the_column_runs_the_whole_panel :: proc(t: ^testing.T) {
     _ = drawn_with_alt(&a)
 
     g, body := panel_grid(&a), app.panel_focused(&a).body
-    ground := app.ground_bg(&a)
+    ground := gfx.opaque(app.ground_bg(&a))
     testing.expect_value(t, gfx.grid_at(g, body.x, body.y + body.h - 1).bg, ground)
     // And no wider than it has to be: the cell past the column is the document's own ground.
     testing.expect(t, gfx.grid_at(g, body.w - 1, body.y + body.h - 1).bg != ground)

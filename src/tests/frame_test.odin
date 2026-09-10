@@ -1,6 +1,7 @@
 package tests
 
 import "core:testing"
+import "../gfx"
 import "../strip"
 import app "../oket"
 
@@ -47,4 +48,46 @@ a_shared_edge_rounds_once :: proc(t: ^testing.T) {
     right := strip.Span{106.667, 106.666}
     testing.expect_value(t, app.frame_cols(left, CELL.x), 13)
     testing.expect_value(t, app.frame_cols(right, CELL.x), 14)
+}
+
+// CHROME.md §13.3. The ground grid is drawn OVER the frame's pass, so every cell of it off the
+// bar's row says NOTHING: a colour anywhere else covers the frame one call after it drew.
+@(test)
+the_ground_covers_nothing_but_the_bar :: proc(t: ^testing.T) {
+    a, ok := bare_app(40, 10)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+    app.ring_add(&a, scratch_doc(&a, "note", "x"))
+
+    // Both ways the row is written: the resting line, and the command line that replaces it.
+    for open in ([2]bool{false, true}) {
+        if open {
+            app.handle_chord(&a, chord("AB03", {.Alt})) // alt+c
+            testing.expect(t, app.cl_active(&a), "the second pass is not the second path")
+        }
+        app.surface_draw(&a)
+        lo, hi := solid_rows(&a.ground)
+        testing.expect_value(t, lo, a.frame.bar.y)
+        testing.expect_value(t, hi, a.frame.bar.y)
+    }
+}
+
+// The first and last row holding a cell that would cover the frame; -1, -1 for a grid with none.
+@(private = "file")
+solid_rows :: proc(g: ^gfx.Grid) -> (lo, hi: int) {
+    lo, hi = -1, -1
+    for y in 0 ..< g.rows {
+        for x in 0 ..< g.cols {
+            if gfx.grid_at(g, x, y).bg != gfx.NOTHING {
+                if lo < 0 {
+                    lo = y
+                }
+                hi = y
+                break
+            }
+        }
+    }
+    return
 }

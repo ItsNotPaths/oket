@@ -108,14 +108,14 @@ switcher_draw :: proc(a: ^App) {
     if w <= 0 || p.body.h <= 0 || len(rows) == 0 {
         return
     }
-    th, ground := a.theme, ground_bg(a)
+    th, ground := a.theme, gfx.opaque(ground_bg(a))
     // TOP TO BOTTOM, and not down to the last entry: a column that stops where the slots do
     // reads as a popup sitting on the text. This is a SIDE of the panel, and a side runs the
     // height of it. The ground is the surface behind the panels, so the column reads at the
     // same depth as a gap does.
     blank := switcher_fit("", w)
     for y in 0 ..< p.body.h {
-        gfx.grid_write(&p.grid, p.body.x, p.body.y + y, blank, ground, ground)
+        gfx.grid_write(&p.grid, p.body.x, p.body.y + y, blank, ground.rgb, ground)
     }
     first := switcher_window(len(rows), switcher_here(rows), p.body.h)
     for i in first ..< min(len(rows), first + p.body.h) {
@@ -123,7 +123,8 @@ switcher_draw :: proc(a: ^App) {
         fg, bg := th[.Fg], ground
         switch {
         case r.on:
-            fg, bg = th[.Bg], th[.Accent] // the slot you are in, filled the way a caret is
+            // the slot you are in, filled the way a caret is
+            fg, bg = th[.Bg], gfx.opaque(th[.Accent])
         case i == 0 && a.config.switcher == .Titles:
             fg = th[.Dim] // the lane's name: what the numbers are numbers OF, not one of them
         }

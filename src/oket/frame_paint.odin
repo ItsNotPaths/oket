@@ -10,8 +10,8 @@ import "../strip"
 //
 // WHAT IS VISIBLE TODAY IS THE STRIP'S GROUND: the gap between two panels, and the space past
 // the last one. The bar's row and the menubar's are cell grids painted OVER this pass, and a
-// cell's background is opaque, so a gradient under them draws and is then covered. That is one
-// decision away and it is `Cell.bg` learning to say "nothing".
+// cell background that says `gfx.NOTHING` lets this pass through — so a box drawn under either
+// of them is a box that stays on screen (§13.3).
 
 // Clearlooks' whole trick: a surface is lighter along its top edge than along its bottom. Steps
 // in percent, and small — the ladder has to read on a cream theme as well as a dark one.
@@ -55,7 +55,7 @@ frame_paint :: proc(a: ^App, ox, oy: int, slots: []strip.Span) {
 @(private = "file")
 ground_look :: proc(a: ^App) -> gfx.Look {
     base := ground_bg(a)
-    return {fill = {opaque(lift(a.theme, base, GROUND_LIFT)), opaque(base)}}
+    return {fill = {gfx.opaque(lift(a.theme, base, GROUND_LIFT)), gfx.opaque(base)}}
 }
 
 // A SUNKEN edge, which is a raised one upside down: dark along the top, light along the bottom.
@@ -65,8 +65,9 @@ ground_look :: proc(a: ^App) -> gfx.Look {
 groove_look :: proc(a: ^App) -> gfx.Look {
     base := ground_bg(a)
     return {
-        edge   = {opaque(gfx.shade(base, GROOVE_DARK)), opaque(lift(a.theme, base, GROOVE_LIFT))},
-        fill   = {opaque(a.theme[.Bg]), opaque(a.theme[.Bg])},
+        edge   = {gfx.opaque(gfx.shade(base, GROOVE_DARK)),
+                  gfx.opaque(lift(a.theme, base, GROOVE_LIFT))},
+        fill   = {gfx.opaque(a.theme[.Bg]), gfx.opaque(a.theme[.Bg])},
         border = 1,
         radius = 2,
     }
@@ -78,9 +79,4 @@ groove_look :: proc(a: ^App) -> gfx.Look {
 @(private = "file")
 lift :: proc(th: gfx.Theme, c: [3]f32, percent: int) -> [3]f32 {
     return c + (th[.Fg] - c) * (clamp(f32(percent), 0, 100) / 100)
-}
-
-@(private = "file")
-opaque :: proc(c: [3]f32) -> gfx.Rgba {
-    return {c.r, c.g, c.b, 1}
 }

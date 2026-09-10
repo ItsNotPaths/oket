@@ -116,7 +116,7 @@ draw :: proc(
         put_number(g, th, d, v, x, y + i, gut, r)
         left := x + gut + ind
         run(g, left, y + i, src[clipped.lo:clipped.hi], body - ind, d.tab_width, th[.Fg],
-            th[.Bg], atlas)
+            gfx.opaque(th[.Bg]), atlas)
         restyle(g, th, pal, t, d, dv, left, y + i, body - ind, clipped, src, styles)
         overstyle(g, th, pal, d, left, y + i, body - ind, clipped, src, over)
         if point {
@@ -255,7 +255,7 @@ paint :: proc(g: ^gfx.Grid, th: gfx.Theme, pal: [][3]f32, d: ^desc.Descriptor, r
     if a >= b {
         return
     }
-    fg, bg := tint(th, pal, st.fg), tint(th, pal, st.bg)
+    fg, bg := tint(th, pal, st.fg), gfx.opaque(tint(th, pal, st.bg))
     for cell in cell_of(row, a, d.tab_width) ..< min(cell_of(row, b, d.tab_width), width) {
         if c := gfx.grid_at(g, x + cell, y); c != nil {
             c.fg, c.bg, c.attrs = fg, bg, st.attrs
@@ -389,7 +389,8 @@ run :: proc(
     x, y: int,
     src: []u8,
     width, tab: int,
-    fg, bg: [3]f32,
+    fg: [3]f32,
+    bg: gfx.Rgba,
     a: ^gfx.Atlas = nil,
 ) -> int {
     sh := g != nil ? gfx.shape_text(a, src) : gfx.Shaped{}
@@ -434,7 +435,8 @@ place :: proc(
     cx, y: int,
     src: []u8,
     lo, hi: int,
-    fg, bg: [3]f32,
+    fg: [3]f32,
+    bg: gfx.Rgba,
     sh: gfx.Shaped,
     gi: ^int,
     over: bool,
@@ -557,7 +559,7 @@ draw_columns :: proc(
             }
             s, _ := field_text(t, d, orig, c.name, dv)
             run(g, col, y + i, transmute([]u8)pad(s, c.width, c.align), min(c.width, left),
-                d.tab_width, th[.Fg], th[.Bg], atlas)
+                d.tab_width, th[.Fg], gfx.opaque(th[.Bg]), atlas)
             col += c.width + 1 // one column of air between fields
         }
         // AFTER the columns, never before: `run` writes whole cells, attributes included, so a
@@ -612,7 +614,7 @@ put_number :: proc(
         n = abs(r.src - v.point.head.line)
     }
     s := pad(fmt.tprintf("%d", n), gut - 1, .Right)
-    gfx.grid_write(g, x, y, s, th[.Dim], th[.Bg])
+    gfx.grid_write(g, x, y, s, th[.Dim], gfx.opaque(th[.Bg]))
 }
 
 @(private)
@@ -666,8 +668,8 @@ mark_select :: proc(g: ^gfx.Grid, x, y, from, to, pct: int) {
     for c in from ..< to {
         if cell := gfx.grid_at(g, x + c, y); cell != nil {
             fg, bg := cell.fg, cell.bg
-            cell.fg = fg + (bg - fg) * k
-            cell.bg = bg + (fg - bg) * k
+            cell.fg = fg + (bg.rgb - fg) * k
+            cell.bg = bg + (gfx.opaque(fg) - bg) * k
         }
     }
 }

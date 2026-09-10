@@ -14,10 +14,6 @@ import "core:math"
 // NOTHING HERE TOUCHES GL. It appends vertices, so a test counts them with no window and no
 // context (§12); `mesher.odin` is what uploads and draws them.
 
-// Straight alpha, not premultiplied. The multiply happens at the vertex, which is the one place
-// that knows what blend the chrome pass set (§6).
-Rgba :: [4]f32
-
 Look :: struct {
     fill:   [2]Rgba, // the fill's vertical gradient: top, then bottom
     edge:   [2]Rgba, // the bevel under it, the same way round

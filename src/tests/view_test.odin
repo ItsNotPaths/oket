@@ -296,7 +296,7 @@ a_selection_carries_its_swap_as_far_as_the_percent_says :: proc(t: ^testing.T) {
     cell := gfx.grid_at(&g, 0, 0)
     testing.expect(t, .Reverse not_in cell.attrs, "a percent left the painter's swap on too")
     testing.expect_value(t, cell.fg, th[.Fg] + (th[.Bg] - th[.Fg]) * 0.5)
-    testing.expect_value(t, cell.bg, th[.Bg] + (th[.Fg] - th[.Bg]) * 0.5)
+    testing.expect_value(t, cell.bg, gfx.opaque(th[.Bg] + (th[.Fg] - th[.Bg]) * 0.5))
 
     // Past the selection, the row is untouched.
     testing.expect_value(t, gfx.grid_at(&g, 4, 0).fg, th[.Fg])

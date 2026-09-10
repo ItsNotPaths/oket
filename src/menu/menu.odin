@@ -352,16 +352,17 @@ box_hit :: proc(box: Box, top, count, x, y: int, part: Part) -> (Hit, bool) {
 
 // The bar's own grid, one row. `n` is nil while no menu is up, the same as it is for `hit`.
 draw_bar :: proc(b: Bar, g: ^gfx.Grid, th: gfx.Theme, n: ^Nav = nil) {
-    gfx.grid_clear(g, th[.Fg], th[.Bg])
+    ground := gfx.opaque(th[.Bg])
+    gfx.grid_clear(g, th[.Fg], ground)
     for m, i in b.menus {
         x, _ := name_span(b, i)
         if parted(b, i) {
-            gfx.grid_write(g, x - 2, 0, "│", th[.Dim], th[.Bg])
+            gfx.grid_write(g, x - 2, 0, "│", th[.Dim], ground)
         }
         if n != nil && n.menu == i {
-            gfx.grid_write(g, x, 0, m.name, th[.Bg], th[.Accent])
+            gfx.grid_write(g, x, 0, m.name, th[.Bg], gfx.opaque(th[.Accent]))
         } else {
-            gfx.grid_write(g, x, 0, m.name, th[.Fg], th[.Bg])
+            gfx.grid_write(g, x, 0, m.name, th[.Fg], ground)
         }
     }
 }
@@ -381,8 +382,9 @@ draw_list :: proc(g: ^gfx.Grid, th: gfx.Theme, box: Box, rows: []Row, top, sel: 
     if !has_room(box) {
         return
     }
-    gfx.grid_clear(g, th[.Fg], th[.Bg])
-    gfx.grid_box(g, 0, 0, box.w, box.h, th[.Dim], th[.Bg])
+    ground := gfx.opaque(th[.Bg])
+    gfx.grid_clear(g, th[.Fg], ground)
+    gfx.grid_box(g, 0, 0, box.w, box.h, th[.Dim], ground)
     cols := widths(rows)
     for i in 0 ..< box.h - 2 {
         at := top + i
@@ -395,9 +397,10 @@ draw_list :: proc(g: ^gfx.Grid, th: gfx.Theme, box: Box, rows: []Row, top, sel: 
 
 @(private)
 draw_row :: proc(g: ^gfx.Grid, y, w: int, it: Row, cols: [4]int, th: gfx.Theme, on: bool) {
-    fg, bg := th[.Fg], th[.Bg]
+    fg, bg := th[.Fg], gfx.opaque(th[.Bg])
     if on {
-        fg, bg = th[.Bg], th[.Accent] // the row the keys are on, and the row a popout hangs off
+        // the row the keys are on, and the row a popout hangs off
+        fg, bg = th[.Bg], gfx.opaque(th[.Accent])
     }
     for x in 1 ..< w - 1 {
         gfx.grid_put(g, x, y, {' ', fg, bg, {}, 0})

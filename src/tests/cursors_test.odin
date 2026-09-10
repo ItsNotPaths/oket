@@ -457,7 +457,7 @@ every_caret_is_drawn :: proc(t: ^testing.T) {
 @(private = "file")
 swapped_in_row :: proc(g: ^gfx.Grid, th: gfx.Theme, y: int) -> (n: int) {
     for x in 0 ..< g.cols {
-        if c := gfx.grid_at(g, x, y); c != nil && c.bg != th[.Bg] {
+        if c := gfx.grid_at(g, x, y); c != nil && c.bg != gfx.opaque(th[.Bg]) {
             n += 1
         }
     }

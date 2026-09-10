@@ -9,15 +9,16 @@ import "../store"
 // where kernel-level notices live. A document like any other once §5 exists.
 
 screen_draw :: proc(g: ^gfx.Grid, th: gfx.Theme, a: ^gfx.Atlas) {
-    gfx.grid_clear(g, th[.Fg], th[.Bg])
+    ground := gfx.opaque(th[.Bg])
+    gfx.grid_clear(g, th[.Fg], ground)
     y := 1
-    x := gfx.grid_write(g, 2, y, "oket ", th[.Accent], th[.Bg])
-    gfx.grid_write(g, x, y, version_text(), th[.Dim], th[.Bg])
+    x := gfx.grid_write(g, 2, y, "oket ", th[.Accent], ground)
+    gfx.grid_write(g, x, y, version_text(), th[.Dim], ground)
     y += 2
 
     if gfx.atlas_is_fallback(a) {
         gfx.grid_write(g, 2, y, "! no system font: drawing with the built-in fallback atlas",
-                       th[.Alert], th[.Bg])
+                       th[.Alert], ground)
         y += 2
     }
 
@@ -29,10 +30,10 @@ screen_draw :: proc(g: ^gfx.Grid, th: gfx.Theme, a: ^gfx.Atlas) {
         "░▒▓█▀▄",
     }
     w := 34
-    gfx.grid_box(g, 2, y, w, len(SAMPLES) + 2, th[.Dim], th[.Bg])
-    gfx.grid_write(g, 4, y, " glyph check ", th[.Dim], th[.Bg])
+    gfx.grid_box(g, 2, y, w, len(SAMPLES) + 2, th[.Dim], ground)
+    gfx.grid_write(g, 4, y, " glyph check ", th[.Dim], ground)
     for s, i in SAMPLES {
-        gfx.grid_write(g, 4, y + 1 + i, s, th[.Fg], th[.Bg])
+        gfx.grid_write(g, 4, y + 1 + i, s, th[.Fg], ground)
     }
 }
 

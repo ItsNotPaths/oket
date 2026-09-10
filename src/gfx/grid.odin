@@ -12,7 +12,9 @@ Attrs :: shape.Attrs
 Cell :: struct {
     r:     rune,
     fg:    [3]f32,
-    bg:    [3]f32,
+    // `NOTHING` is a background the cell does not have: the frame under the grid shows through
+    // it, which is what lets a bar's row sit on a gradient (CHROME.md §13.3).
+    bg:    Rgba,
     attrs: Attrs,
     // The atlas slot to draw, 0 meaning "resolve `r` yourself". A shaped run fills it, because
     // a ligature or a conjunct is a glyph no codepoint names; chrome leaves it alone and the
@@ -41,7 +43,7 @@ grid_init :: proc(g: ^Grid, cols, rows: int) -> bool {
     }
     g.cols, g.rows = cols, rows
     g.cells = make([]Cell, cols * rows)
-    grid_clear(g, {}, {})
+    grid_clear(g, {}, NOTHING)
     return true
 }
 
@@ -59,7 +61,7 @@ grid_resize :: proc(g: ^Grid, cols, rows: int) -> bool {
     return grid_init(g, cols, rows)
 }
 
-grid_clear :: proc(g: ^Grid, fg, bg: [3]f32) {
+grid_clear :: proc(g: ^Grid, fg: [3]f32, bg: Rgba) {
     for &c in g.cells {
         c = Cell{' ', fg, bg, {}, 0}
     }
@@ -94,7 +96,8 @@ grid_put :: proc(g: ^Grid, x, y: int, c: Cell) {
 
 // Writes left to right from x, stopping at the row's end. Returns the column after the last
 // cell written, so callers chain runs without re-measuring.
-grid_write :: proc(g: ^Grid, x, y: int, text: string, fg, bg: [3]f32, attrs: Attrs = {}) -> int {
+grid_write :: proc(g: ^Grid, x, y: int, text: string, fg: [3]f32, bg: Rgba,
+                   attrs: Attrs = {}) -> int {
     col := x
     for r in text {
         if col >= g.cols {
@@ -107,7 +110,7 @@ grid_write :: proc(g: ^Grid, x, y: int, text: string, fg, bg: [3]f32, attrs: Att
 }
 
 // A single-line box, from the box-drawing block the fallback atlas carries in full.
-grid_box :: proc(g: ^Grid, x, y, w, h: int, fg, bg: [3]f32) {
+grid_box :: proc(g: ^Grid, x, y, w, h: int, fg: [3]f32, bg: Rgba) {
     if w < 2 || h < 2 {
         return
     }

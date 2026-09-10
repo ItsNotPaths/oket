@@ -8,6 +8,20 @@ Token :: shape.Style
 
 Theme :: [Token][3]f32
 
+// A colour with an alpha, which is what both a chrome box and a cell background are drawn from.
+// Straight alpha, never premultiplied: the multiply happens where the pass is, because that is
+// the only place that knows what blend it set (CHROME.md §6.1).
+Rgba :: [4]f32
+
+// What a cell background says when it does not have one: the quad contributes nothing and what
+// is under the grid — the frame — shows through (CHROME.md §13.3). Zero, so a Cell nobody
+// filled in is transparent rather than black.
+NOTHING :: Rgba{}
+
+opaque :: proc(c: [3]f32) -> Rgba {
+    return {c.r, c.g, c.b, 1}
+}
+
 // A style value on its way to the renderer: a token id, or a literal colour with this bit set.
 // Only the terminal writes literals — an SGR names a colour and no theme has an opinion about
 // it. Everything else names a token and the palette decides at draw time, which is what makes
