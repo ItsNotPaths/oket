@@ -12,6 +12,12 @@ import "../gfx"
 AT :: gfx.Box{0, 0, 20, 10}
 
 @(private = "file")
+flat :: proc(c: [3]f32) -> gfx.Look {
+    rgba := gfx.Rgba{c.r, c.g, c.b, 1}
+    return {fill = {rgba, rgba}}
+}
+
+@(private = "file")
 mesh :: proc(at: gfx.Box, look: gfx.Look) -> ([dynamic]gfx.Chrome_Vertex, [dynamic]c.int) {
     verts := make([dynamic]gfx.Chrome_Vertex, context.temp_allocator)
     idx := make([dynamic]c.int, context.temp_allocator)
@@ -23,7 +29,7 @@ mesh :: proc(at: gfx.Box, look: gfx.Look) -> ([dynamic]gfx.Chrome_Vertex, [dynam
 // radius is not a branch anywhere below — it is the same ring with more steps in it.
 @(test)
 a_square_box_is_four_corners :: proc(t: ^testing.T) {
-    verts, idx := mesh(AT, gfx.box_flat({1, 0, 0}))
+    verts, idx := mesh(AT, flat({1, 0, 0}))
     testing.expect_value(t, len(verts), 5)
     testing.expect_value(t, len(idx), 12)
     // The ring closes on itself: the last triangle's far edge is the first ring vertex.
@@ -32,7 +38,7 @@ a_square_box_is_four_corners :: proc(t: ^testing.T) {
 
 @(test)
 a_radius_is_the_same_ring_with_more_steps :: proc(t: ^testing.T) {
-    look := gfx.box_flat({1, 0, 0})
+    look := flat({1, 0, 0})
     look.radius = 4
     verts, idx := mesh(AT, look)
     testing.expect_value(t, len(verts), 17) // one hub, four steps a corner
@@ -43,7 +49,7 @@ a_radius_is_the_same_ring_with_more_steps :: proc(t: ^testing.T) {
 // radius, and it is why the bevel and the fill can carry the same gradient.
 @(test)
 a_bevel_is_a_second_shape :: proc(t: ^testing.T) {
-    look := gfx.box_flat({1, 0, 0})
+    look := flat({1, 0, 0})
     look.border = 1
     verts, _ := mesh(AT, look)
     testing.expect_value(t, len(verts), 10)
@@ -53,7 +59,7 @@ a_bevel_is_a_second_shape :: proc(t: ^testing.T) {
 // below it has to test for a negative width.
 @(test)
 a_box_thinner_than_its_bevel_is_the_bevel :: proc(t: ^testing.T) {
-    look := gfx.box_flat({1, 0, 0})
+    look := flat({1, 0, 0})
     look.border = 1
     verts, _ := mesh({0, 0, 1, 10}, look)
     testing.expect_value(t, len(verts), 5)
@@ -61,7 +67,7 @@ a_box_thinner_than_its_bevel_is_the_bevel :: proc(t: ^testing.T) {
 
 @(test)
 a_box_with_no_room_draws_nothing :: proc(t: ^testing.T) {
-    verts, idx := mesh({0, 0, 0, 10}, gfx.box_flat({1, 0, 0}))
+    verts, idx := mesh({0, 0, 0, 10}, flat({1, 0, 0}))
     testing.expect_value(t, len(verts), 0)
     testing.expect_value(t, len(idx), 0)
 }

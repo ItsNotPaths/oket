@@ -14,10 +14,6 @@ import "core:math"
 // NOTHING HERE TOUCHES GL. It appends vertices, so a test counts them with no window and no
 // context (§12); `mesher.odin` is what uploads and draws them.
 
-Box :: struct {
-    x, y, w, h: f32,
-}
-
 // Straight alpha, not premultiplied. The multiply happens at the vertex, which is the one place
 // that knows what blend the chrome pass set (§6).
 Rgba :: [4]f32
@@ -99,10 +95,4 @@ vertex :: proc(at: Box, x, y: f32, grad: [2]Rgba) -> Chrome_Vertex {
         b = q(col.b * col.a),
         a = q(col.a),
     }
-}
-
-// A flat box, which is the common one: no bevel, no radius, one colour.
-box_flat :: proc(c: [3]f32, alpha: f32 = 1) -> Look {
-    rgba := Rgba{c.r, c.g, c.b, alpha}
-    return {fill = {rgba, rgba}}
 }

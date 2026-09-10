@@ -11,10 +11,6 @@ import gl "vendor:OpenGL"
 // program, drawn AFTER the cells, which is what lets a surface write blanks and show pictures
 // through them.
 
-Rect :: struct {
-    x, y, w, h: i32,
-}
-
 // A texture the GPU holds and the size it was uploaded at. handle 0 is nothing.
 Image :: struct {
     handle: u32,

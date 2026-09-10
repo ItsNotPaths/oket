@@ -224,21 +224,16 @@ painter_fit :: proc(p: ^Painter, win_w, win_h: i32) -> (cols, rows: int) {
     return max(1, int(win_w) / w), max(1, int(win_h) / h)
 }
 
-// A rectangle in window pixels, counted from the top-left, like every other rectangle above.
-Clip :: struct {
-    x, y, w, h: i32,
-}
-
 // GL's scissor box counts from the BOTTOM-left of the window. This is the only place the two
 // conventions meet, and a wrong flip is invisible on a grid that fills its window.
-painter_scissor :: proc(clip: Clip, win_h: i32) -> (x, y, w, h: i32) {
+painter_scissor :: proc(clip: Rect, win_h: i32) -> (x, y, w, h: i32) {
     return clip.x, win_h - clip.y - clip.h, clip.w, clip.h
 }
 
 // One grid, at an origin the caller decides, clipped to a rectangle the caller decides. The
 // origin is fractional because a panel slides by sub-pixels; the clip is the panel's edge, which
 // is what lets a grid hold a column it is only showing part of.
-painter_draw :: proc(p: ^Painter, g: ^Grid, win_w, win_h: i32, origin: [2]f32, clip: Clip) {
+painter_draw :: proc(p: ^Painter, g: ^Grid, win_w, win_h: i32, origin: [2]f32, clip: Rect) {
     clear(&p.quads)
     clear(&p.overlay)
     for y in 0 ..< g.rows {
