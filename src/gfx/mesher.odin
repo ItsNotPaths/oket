@@ -75,6 +75,9 @@ Mesher :: struct {
 }
 
 mesher_init :: proc(m: ^Mesher) -> bool {
+    if m.prog != 0 {
+        return false // a second start would leak the program and the texture the first made
+    }
     prog, ok := gl.load_shaders_source(VERT, FRAG)
     if !ok {
         fmt.eprintln("mesher: shader compilation failed")
