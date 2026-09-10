@@ -19,6 +19,9 @@ App :: struct {
     // bar, and the ground a panel is drawn onto. A panel is a window onto a document and takes
     // an origin of its own, so it can slide without dragging the bar with it.
     ground:       gfx.Grid,
+    // Where the frame's last solve put every piece of it (frame.odin, CHROME.md §2.1). Read by
+    // the draw, the paint and the hit test; computed by none of them.
+    frame:        Frame,
     // The frame's pass (CHROME.md §6): the boxes AROUND a document, as pixels. `ground` above
     // is still the cell grid, and the two are two lattices on purpose (PANELS.md §7).
     mesher:       gfx.Mesher,

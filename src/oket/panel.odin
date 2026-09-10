@@ -1,6 +1,5 @@
 package main
 
-import "core:math"
 import "../gfx"
 import "../input"
 import "../store"
@@ -20,7 +19,10 @@ Panel :: struct {
     at:    Spot, // the lane, and the slot inside it, this panel shows
     prev:  Spot, // alt+`: the most recent spot IN THIS PANEL
     size:  int, // its share of the view, in hundredths of a percent; `:width` sets it
-    w:     f32, // the pixels it is drawn at NOW; `size` says where it is going (§7)
+    // Where it is drawn NOW, and where the frame's solve says it RESTS (frame.odin). A panel
+    // that is resizing is between the two, and `panels_step` walks it there on the clock (§7).
+    now:   strip.Span,
+    dest:  strip.Span,
     grid:  gfx.Grid,
     // Where the document was drawn, in the panel's OWN cells. A click is placed against it, so
     // the hit test reads the layout the eye saw rather than recomputing one.
@@ -207,41 +209,42 @@ width_next :: proc(now: int, pcts: []int) -> int {
 
 // --- the layout ---
 
-// The strip's input: one width per panel, in strip order, in PIXELS. Two of them, because a
-// panel that is resizing is not yet the width its percent says — this is what is DRAWN, and
-// `panel_dests` is what it is moving to (§7). Temp-allocated, because the widths live on the
+// The strip's input: one slot per panel, in strip order, in PIXELS. Two of them, because a
+// panel that is resizing is not yet where its percent says — this is what is DRAWN, and
+// `panel_dests` is what it is moving to (§7). Temp-allocated, because the slots live on the
 // panels and the strip holds no copy to go stale.
-panel_widths :: proc(a: ^App) -> []f32 {
+panel_spans :: proc(a: ^App) -> []strip.Span {
     panels_ready(a)
-    w := make([]f32, len(a.panels), context.temp_allocator)
+    it := make([]strip.Span, len(a.panels), context.temp_allocator)
     for p, i in a.panels {
-        w[i] = p.w
+        it[i] = p.now
     }
-    return w
+    return it
 }
 
-// Where every panel is going: its percent of the view, in pixels. The camera aims at this
-// layout and not at the one in flight, so a resize and the scroll after it settle in one place.
-panel_dests :: proc(a: ^App) -> []f32 {
+// Where every panel RESTS, as the frame's last solve answered it (frame.odin). The camera aims
+// at this layout and not at the one in flight, so a resize and the scroll after it settle in one
+// place.
+panel_dests :: proc(a: ^App) -> []strip.Span {
     panels_ready(a)
-    w := make([]f32, len(a.panels), context.temp_allocator)
+    it := make([]strip.Span, len(a.panels), context.temp_allocator)
     for p, i in a.panels {
-        w[i] = a.strip.view * f32(p.size) / WIDTH_FULL
+        it[i] = p.dest
     }
-    return w
+    return it
 }
 
 // A grid of no rows is legal and draws nothing, which is what keeps the small end from being a
 // special case.
 panels_fit :: proc(a: ^App, cols, rows: int) {
-    view := f32(cols * a.cell.x)
-    a.strip.gap = f32(a.config.gap)
     a.strip.tau = f32(a.config.tau) / 1000 // the file is milliseconds; the clock is seconds
+    // Every rect below comes out of here, and nothing below computes one (frame.odin, §2.1).
+    frame_fit(a, cols, rows)
     // A WINDOW resize is not a panel resize: the view moved under every panel at once, and
     // animating that would be the window's own resize drawn twice. So they land, and so does
     // everything while tau is zero, which is what motion off means (§7).
-    land := view != a.strip.view || a.strip.tau <= 0
-    a.strip.view = view
+    land := a.frame.strip.w != a.strip.view || a.strip.tau <= 0
+    a.strip.view = a.frame.strip.w
     dest := panel_dests(a)
     // The camera follows the MARK and not the focus (§3, §5): the caret is what says where the
     // next thing lands, and a target you cannot see is a gesture steered blind. Unarmed the two
@@ -250,22 +253,18 @@ panels_fit :: proc(a: ^App, cols, rows: int) {
     if land {
         a.strip.camera = a.strip.aim
     }
-    // The bar's row is the ground's and no panel reaches it, and a constant menubar keeps the
-    // top row the same way (MENU.md §4). A hidden one costs nothing here, which is why opening
-    // it reflows no document and resizes no session.
-    high := max(rows - 1 - menu_rows(a), 0)
     for &p, i in a.panels {
-        if land || p.w <= 0 {
-            p.w = dest[i] // a panel with no width yet lands; nothing slides in from nothing
+        if land || p.now.w <= 0 {
+            p.now = dest[i] // a panel with no width yet lands; nothing slides in from nothing
         }
         // THE DOCUMENT LAYS OUT AT THE WIDTH THE PANEL IS ARRIVING AT, ONCE (§7). So the body
         // is the destination and not what is on screen this frame, and the clip animates over
         // text that is already in its final layout — one reflow per resize, and one winsize.
-        w := panel_cols(strip.span(a.strip, dest, i).w, a.cell.x)
+        w, high := frame_cols(dest[i], a.cell.x), a.frame.body.h
         p.body = {0, 0, w, high}
         // While it moves the grid holds both ends of the motion, so it is allocated once per
         // resize rather than once per frame.
-        gfx.grid_resize(&p.grid, p.w == dest[i] ? w : max(w, p.grid.cols), high)
+        gfx.grid_resize(&p.grid, p.now == dest[i] ? w : max(w, p.grid.cols), high)
     }
 }
 
@@ -273,11 +272,15 @@ panels_fit :: proc(a: ^App, cols, rows: int) {
 // is what keeps the frame loop polling instead of waiting for a key that is not coming.
 panels_step :: proc(a: ^App, dt: f32) -> bool {
     panels_ready(a)
-    dest := panel_dests(a)
     moving := false
-    for &p, i in a.panels {
-        if p.w != dest[i] {
-            p.w = strip.approach(p.w, dest[i], dt, a.strip.tau)
+    for &p in a.panels {
+        // Both ends of the slot, because where a panel rests is a rect the solve answered and
+        // no longer a width somebody accumulated (frame.odin).
+        if p.now != p.dest {
+            p.now = {
+                strip.approach(p.now.x, p.dest.x, dt, a.strip.tau),
+                strip.approach(p.now.w, p.dest.w, dt, a.strip.tau),
+            }
             moving = true
         }
     }
@@ -295,13 +298,6 @@ panels_step :: proc(a: ^App, dt: f32) -> bool {
 // ends here, so a panel is the right size before the next draw rather than after it.
 panels_relayout :: proc(a: ^App) {
     panels_fit(a, a.ground.cols, a.ground.rows)
-}
-
-// The columns a panel's pixel width holds. Its grid rides the panel's OWN origin, so only the
-// right edge can cut a glyph and there is no second column to add for the left one. Half a glyph
-// there is the affordance that says the line continues, and the clip is what takes it (§7).
-panel_cols :: proc(w: f32, cell_w: int) -> int {
-    return cell_w > 0 ? int(math.ceil(w / f32(cell_w))) : 0
 }
 
 panels_destroy :: proc(a: ^App) {
@@ -328,11 +324,11 @@ panel_hit :: proc(a: ^App, px, py: int) -> (panel, x, y: int) {
         return PANEL_MENU, col, win
     }
     // A reserved menubar row pushes every panel down one, so the row a pixel lands on is the
-    // window's minus what the bar kept (MENU.md §4).
-    row := win - menu_rows(a)
-    ws := panel_widths(a)
-    if i := strip.hit(a.strip, ws, f32(px)); i >= 0 && row >= 0 && row < a.panels[i].grid.rows {
-        return i, floor_div(px - int(strip.span(a.strip, ws, i).x), a.cell.x), row
+    // window's minus what the bar kept — which is where the frame put the strip (MENU.md §4).
+    row := win - a.frame.body.y
+    it := panel_spans(a)
+    if i := strip.hit(a.strip, it, f32(px)); i >= 0 && row >= 0 && row < a.panels[i].grid.rows {
+        return i, floor_div(px - int(strip.span(a.strip, it, i).x), a.cell.x), row
     }
     return -1, col, row
 }

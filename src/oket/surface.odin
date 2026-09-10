@@ -33,8 +33,9 @@ surface_fit :: proc(a: ^App, cols, rows: int, cell := [2]int{1, 1}) {
 
 surface_draw :: proc(a: ^App) {
     g, th := &a.ground, a.theme
-    row := max(g.rows - 1, 0)
-    a.bar = {len(CL_PROMPT), row, max(g.cols - len(CL_PROMPT), 0), 1}
+    // The row the frame's solve kept for it, and never `rows - 1` counted here (frame.odin).
+    row := a.frame.bar.y
+    a.bar = {len(CL_PROMPT), row, max(a.frame.bar.w - len(CL_PROMPT), 0), 1}
 
     // The ground is what a gap shows through, so it is darker than a panel: the strip then
     // reads as documents sitting ON something rather than as holes cut in one surface.
@@ -129,8 +130,8 @@ caret_px :: proc(a: ^App, win_w, win_h: i32) -> (x, y: int, ok: bool) {
     if !on {
         return 0, 0, false
     }
-    it := strip.span(a.strip, panel_widths(a), a.focus)
-    return ox + int(it.x) + cx * cw, oy + menu_rows(a) * ch + cy * ch, true
+    it := strip.span(a.strip, panel_spans(a), a.focus)
+    return ox + int(it.x) + cx * cw, oy + int(a.frame.strip.y) + cy * ch, true
 }
 
 @(private = "file")
@@ -159,10 +160,10 @@ surface_paint :: proc(a: ^App, win_w, win_h: i32) {
     ox, oy := gfx.painter_origin(p, win_w, win_h, a.ground.cols, a.ground.rows)
     _, ch := gfx.painter_cell(p)
     gfx.painter_draw(p, &a.ground, win_w, win_h, {f32(ox), f32(oy)}, {0, 0, win_w, win_h})
-    top := oy + menu_rows(a) * ch // the row a constant menubar keeps (MENU.md §4)
-    ws := panel_widths(a)
+    top := oy + int(a.frame.strip.y) // where the frame's solve put the strip (frame.odin)
+    ss := panel_spans(a)
     for &pn, i in a.panels {
-        it := strip.span(a.strip, ws, i)
+        it := strip.span(a.strip, ss, i)
         x := f32(ox) + it.x
         // The clip is the window's share of the panel, not the panel: one scrolled off the left
         // edge draws at a negative origin, and GL takes no negative box.

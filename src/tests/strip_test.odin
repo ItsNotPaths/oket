@@ -8,67 +8,42 @@ import "../strip"
 // literal and never reaches for an App. If it ever needs the fixture, the layout has grown a
 // dependency on documents and it is not a piece any more.
 
-// Pixels, and never percents: a panel that is resizing is between the two widths it travels
-// between, so the layout takes widths in the unit it answers in.
+// SLOTS, and never widths: where a panel rests is the frame's solve now (src/lay), with the gap
+// already taken out of it. What that leaves here is the camera over them, so a slot goes in the
+// unit and the shape the strip answers in.
 @(private = "file")
-FULL :: [?]f32{100, 100, 100}
+FULL :: [?]strip.Span{{0, 100}, {100, 100}, {200, 100}}
 
-// A strip of one is the whole view, gap or no gap: one-panel mode is a length and not a special
-// case (§5), and today's single panel has to land where it always did.
-@(test)
-a_strip_of_one_is_the_whole_view :: proc(t: ^testing.T) {
-    s := strip.Strip {
-        view = 100,
-        gap  = 10,
-    }
-    one := [?]f32{100}
-    it := strip.span(s, one[:], 0)
-    testing.expect_value(t, it.x, f32(0))
-    testing.expect_value(t, it.w, f32(100))
-}
-
-// Two halves are worth one full: the slots tile the view exactly, and the gap comes out of the
-// two panels that meet at it, half each. So both are the same width and neither end is inset.
-@(test)
-two_halves_tile_the_view_with_one_gap_between :: proc(t: ^testing.T) {
-    s := strip.Strip {
-        view = 100,
-        gap  = 10,
-    }
-    half := [?]f32{50, 50}
-    a, b := strip.span(s, half[:], 0), strip.span(s, half[:], 1)
-    testing.expect_value(t, a, strip.Span{0, 45})
-    testing.expect_value(t, b, strip.Span{55, 45})
-    testing.expect_value(t, b.x - (a.x + a.w), f32(10)) // one gap, and it is the whole of it
-}
+// Two halves of a hundred with a gap of ten between them, as `lay.solve` answers it: the ends
+// stay flush and the gap came half out of each (lay_test.odin holds that claim; this file only
+// scrolls what it produced).
+@(private = "file")
+HALF :: [?]strip.Span{{0, 45}, {55, 45}}
 
 // The camera follows focus and moves by the least it can: a panel already on screen does not
 // scroll the strip, and neither end can be passed.
 @(test)
 the_camera_moves_by_the_least_it_can :: proc(t: ^testing.T) {
     s := strip.Strip{view = 100}
-    widths := FULL
+    slots := FULL
 
-    testing.expect_value(t, strip.look_at(s, widths[:], 0), f32(0))
-    testing.expect_value(t, strip.look_at(s, widths[:], 2), f32(200))
+    testing.expect_value(t, strip.look_at(s, slots[:], 0), f32(0))
+    testing.expect_value(t, strip.look_at(s, slots[:], 2), f32(200))
 
     s.camera = 200
-    testing.expect_value(t, strip.look_at(s, widths[:], 2), f32(200)) // already there
-    testing.expect_value(t, strip.look_at(s, widths[:], 1), f32(100))
+    testing.expect_value(t, strip.look_at(s, slots[:], 2), f32(200)) // already there
+    testing.expect_value(t, strip.look_at(s, slots[:], 1), f32(100))
 
     s.camera = 9999 // past the end, whatever asked for it
-    testing.expect_value(t, strip.look_at(s, widths[:], 2), f32(200))
+    testing.expect_value(t, strip.look_at(s, slots[:], 2), f32(200))
 }
 
 // A column number means nothing until this has answered (§7). A pixel in a gap belongs to no
 // panel, and so does one past the last.
 @(test)
 a_pixel_is_in_a_panel_or_in_no_panel :: proc(t: ^testing.T) {
-    s := strip.Strip {
-        view = 100,
-        gap  = 10,
-    }
-    half := [?]f32{50, 50}
+    s := strip.Strip{view = 100}
+    half := HALF
     testing.expect_value(t, strip.hit(s, half[:], 0), 0)
     testing.expect_value(t, strip.hit(s, half[:], 44), 0)
     testing.expect_value(t, strip.hit(s, half[:], 50), -1) // the gap
@@ -85,11 +60,11 @@ a_panel_left_of_the_camera_has_a_negative_origin :: proc(t: ^testing.T) {
         view   = 100,
         camera = 200,
     }
-    widths := FULL
-    testing.expect_value(t, strip.span(s, widths[:], 0), strip.Span{-200, 100})
-    testing.expect_value(t, strip.span(s, widths[:], 2), strip.Span{0, 100})
-    testing.expect_value(t, strip.hit(s, widths[:], 10), 2)
-    testing.expect_value(t, strip.total(s, widths[:]), f32(300))
+    slots := FULL
+    testing.expect_value(t, strip.span(s, slots[:], 0), strip.Span{-200, 100})
+    testing.expect_value(t, strip.span(s, slots[:], 2), strip.Span{0, 100})
+    testing.expect_value(t, strip.hit(s, slots[:], 10), 2)
+    testing.expect_value(t, strip.total(slots[:]), f32(300))
 }
 
 // --- stage 6: motion (§7) ---
@@ -166,8 +141,8 @@ the_camera_decays_toward_what_look_at_answered :: proc(t: ^testing.T) {
         view = 100,
         tau  = TAU,
     }
-    widths := FULL
-    s.aim = strip.look_at(s, widths[:], 2)
+    slots := FULL
+    s.aim = strip.look_at(s, slots[:], 2)
     testing.expect_value(t, s.aim, f32(200))
 
     for s.camera != s.aim {
@@ -175,7 +150,7 @@ the_camera_decays_toward_what_look_at_answered :: proc(t: ^testing.T) {
         s.camera = strip.approach(s.camera, s.aim, HZ_60, s.tau)
         testing.expect(t, s.camera > was, "the camera stalled")
         // Re-aiming from a camera in flight is idempotent, or the target would creep.
-        testing.expect_value(t, strip.look_at(s, widths[:], 2), f32(200))
+        testing.expect_value(t, strip.look_at(s, slots[:], 2), f32(200))
     }
-    testing.expect_value(t, strip.span(s, widths[:], 2), strip.Span{0, 100})
+    testing.expect_value(t, strip.span(s, slots[:], 2), strip.Span{0, 100})
 }

@@ -116,7 +116,9 @@ menu_rows :: proc(a: ^App) -> int {
 menubar_frame :: proc(a: ^App, allocator := context.temp_allocator) -> menu.Bar {
     b := menubar_build(a, allocator)
     b.y = 0 // either way: constant reserves the row, hidden draws over whatever is on it
-    b.cols, b.rows = a.ground.cols, max(a.ground.rows - 1, 0)
+    // Everything but the bar's row, and read off the frame rather than counted here: what a
+    // list may fill is the menubar's own rows plus the strip's (frame.odin).
+    b.cols, b.rows = a.frame.bar.w, a.frame.menu.h + a.frame.body.h
     return b
 }
 

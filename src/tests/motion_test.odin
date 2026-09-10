@@ -106,12 +106,12 @@ the_panel_slides_to_the_width_its_mode_says :: proc(t: ^testing.T) {
     app.surface_fit(&a, 40, 5)
 
     panel_toggle(&a)
-    testing.expect_value(t, app.panel_focused(&a).w, f32(40)) // still where it was drawn
+    testing.expect_value(t, app.panel_focused(&a).now.w, f32(40)) // still where it was drawn
 
     was := f32(40)
     for i in 0 ..< 1000 {
         moving := app.panels_step(&a, HZ_60)
-        w := app.panel_focused(&a).w
+        w := app.panel_focused(&a).now.w
         testing.expect(t, w <= was && w >= 20, "the panel left the interval it was moving in")
         was = w
         if !moving {
@@ -119,7 +119,7 @@ the_panel_slides_to_the_width_its_mode_says :: proc(t: ^testing.T) {
         }
         testing.expect(t, i < 999, "the motion never settled")
     }
-    testing.expect_value(t, app.panel_focused(&a).w, f32(20))
+    testing.expect_value(t, app.panel_focused(&a).now.w, f32(20))
 }
 
 // The camera follows focus on the same clock, and `panels_step` says so: while it is true the
@@ -158,7 +158,7 @@ tau_of_nothing_lands_at_once :: proc(t: ^testing.T) {
     app.panel_open(&a)
     testing.expect_value(t, run_out(&a), 0) // the fit landed it; the first step has nothing left
     testing.expect_value(t, a.strip.camera, f32(40))
-    testing.expect_value(t, app.panel_focused(&a).w, f32(40))
+    testing.expect_value(t, app.panel_focused(&a).now.w, f32(40))
 }
 
 // A window resize LANDS, mid-motion included (§7): the view moved under every panel at once,
@@ -175,11 +175,11 @@ a_window_resize_lands_mid_motion :: proc(t: ^testing.T) {
 
     panel_toggle(&a) // full -> half
     app.panels_step(&a, HZ_60)
-    w := app.panel_focused(&a).w
+    w := app.panel_focused(&a).now.w
     testing.expect(t, w < 40 && w > 20, "the panel was not in flight")
 
     app.surface_fit(&a, 60, 5) // the view moved under it
-    testing.expect_value(t, app.panel_focused(&a).w, f32(30)) // half the new view, at once
+    testing.expect_value(t, app.panel_focused(&a).now.w, f32(30)) // half the new view, at once
     testing.expect_value(t, a.strip.camera, a.strip.aim)
     testing.expect(t, !app.panels_step(&a, HZ_60), "a landed strip still asked for frames")
 }
