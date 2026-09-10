@@ -50,10 +50,12 @@ a_shared_edge_rounds_once :: proc(t: ^testing.T) {
     testing.expect_value(t, app.frame_cols(right, CELL.x), 14)
 }
 
-// CHROME.md §13.3. The ground grid is drawn OVER the frame's pass, so every cell of it off the
-// bar's row says NOTHING: a colour anywhere else covers the frame one call after it drew.
+// CHROME.md §13.3 and §15 stage 5. The ground grid is drawn OVER the frame's pass, so a cell
+// of it that paints a colour is a frame pixel covered one call later. At rest it covers NOTHING
+// AT ALL, because the bar's row is a box. An open command line is the one thing that fills a
+// row of it.
 @(test)
-the_ground_covers_nothing_but_the_bar :: proc(t: ^testing.T) {
+the_ground_covers_nothing_but_an_open_line :: proc(t: ^testing.T) {
     a, ok := bare_app(40, 10)
     if !ok {
         return
@@ -61,17 +63,17 @@ the_ground_covers_nothing_but_the_bar :: proc(t: ^testing.T) {
     defer close_app(&a)
     app.ring_add(&a, scratch_doc(&a, "note", "x"))
 
-    // Both ways the row is written: the resting line, and the command line that replaces it.
-    for open in ([2]bool{false, true}) {
-        if open {
-            app.handle_chord(&a, chord("AB03", {.Alt})) // alt+c
-            testing.expect(t, app.cl_active(&a), "the second pass is not the second path")
-        }
-        app.surface_draw(&a)
-        lo, hi := solid_rows(&a.ground)
-        testing.expect_value(t, lo, a.frame.bar.y)
-        testing.expect_value(t, hi, a.frame.bar.y)
-    }
+    app.surface_draw(&a)
+    lo, hi := solid_rows(&a.ground)
+    testing.expect_value(t, lo, -1)
+    testing.expect_value(t, hi, -1)
+
+    app.handle_chord(&a, chord("AB03", {.Alt})) // alt+c
+    testing.expect(t, app.cl_active(&a), "the second pass is not the second path")
+    app.surface_draw(&a)
+    lo, hi = solid_rows(&a.ground)
+    testing.expect_value(t, lo, a.frame.bar.y)
+    testing.expect_value(t, hi, a.frame.bar.y)
 }
 
 // The first and last row holding a cell that would cover the frame; -1, -1 for a grid with none.

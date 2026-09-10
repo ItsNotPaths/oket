@@ -19,3 +19,9 @@ Rect :: struct {
 Box :: struct {
     x, y, w, h: f32,
 }
+
+// Whole pixels widened to sub-pixel, which is the lossless direction and the only automatic one.
+// A Box narrows to a Rect only where a caller says how it rounds.
+box_of :: proc(r: Rect) -> Box {
+    return {f32(r.x), f32(r.y), f32(r.w), f32(r.h)}
+}

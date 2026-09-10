@@ -351,8 +351,9 @@ box_hit :: proc(box: Box, top, count, x, y: int, part: Part) -> (Hit, bool) {
 // --- the cells ---
 
 // The bar's own grid, one row. `n` is nil while no menu is up, the same as it is for `hit`.
-draw_bar :: proc(b: Bar, g: ^gfx.Grid, th: gfx.Theme, n: ^Nav = nil) {
-    ground := gfx.opaque(th[.Bg])
+// `ground` is what an unlit cell paints: the caller says whether the row has a frame under it
+// to show through, because `src/menu` never learns where its grids are drawn.
+draw_bar :: proc(b: Bar, g: ^gfx.Grid, th: gfx.Theme, ground: gfx.Rgba, n: ^Nav = nil) {
     gfx.grid_clear(g, th[.Fg], ground)
     for m, i in b.menus {
         x, _ := name_span(b, i)

@@ -57,7 +57,7 @@ the_bar_is_names_and_a_separator_where_the_owner_changes :: proc(t: ^testing.T) 
     testing.expect(t, gfx.grid_init(&g, b.cols, 1))
     defer gfx.grid_destroy(&g)
 
-    menu.draw_bar(b, &g, gfx.DEFAULT_THEME)
+    menu.draw_bar(b, &g, gfx.DEFAULT_THEME, gfx.NOTHING)
     text := gfx.grid_snapshot(&g)
     defer delete(text)
     testing.expect_value(t, text, " file  edit  view  panel │ chords │ browser  lsp")

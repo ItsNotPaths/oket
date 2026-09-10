@@ -129,14 +129,18 @@ menubar_draw :: proc(a: ^App) {
         l.on = false
     }
     _, up := a.pending.(input.Pending_Menu)
-    if !up && menu_show(a) == .Hidden {
+    reserved := menu_show(a) == .Constant
+    if !up && !reserved {
         return
     }
     b := menubar_frame(a)
     nav: ^menu.Nav = up ? &a.menu_nav : nil
     menu_layer(a, .Bar, {0, b.y, b.cols, 1})
     th := menu_theme(a)
-    menu.draw_bar(b, &a.menu[.Bar].grid, th, nav)
+    // A reserved row has a frame box under it and nothing reaches it. A hidden bar FLOATS over
+    // a document, and a transparent one would read the text it covers through itself.
+    ground := reserved ? gfx.NOTHING : gfx.opaque(th[.Bg])
+    menu.draw_bar(b, &a.menu[.Bar].grid, th, ground, nav)
     if !up {
         return
     }

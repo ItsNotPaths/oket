@@ -21,6 +21,8 @@ GROUND_LIFT :: 6 // the strip's ground, top against bottom
 GROOVE_DARK :: 45 // the dark half of a SUNKEN edge, which is the dark one on top
 @(private = "file")
 GROOVE_LIFT :: 14 // and the light half under it
+@(private = "file")
+ROW_LIFT :: 8 // the bar's row and the menubar's, lit along the top the way every surface is
 
 // How far proud of a panel its groove is drawn, in pixels. The panel's own grid is painted after
 // this pass and is opaque, so it covers the inside and leaves the ring — which is why a slot
@@ -37,6 +39,11 @@ frame_paint :: proc(a: ^App, ox, oy: int, slots: []strip.Span) {
     st := a.frame.strip
     x0, y0 := f32(ox), f32(oy)
     gfx.box_mesh(&verts, &idx, {x0 + st.x, y0 + st.y, st.w, st.h}, ground_look(a))
+    // The two rows the solve keeps. A hidden menubar is a rect of no height, and `box_mesh`
+    // draws nothing for one, so neither row is a branch here.
+    at := [2]int{ox, oy}
+    gfx.box_mesh(&verts, &idx, gfx.box_of(frame_px(a.frame.menu, at, a.cell)), menu_look(a))
+    gfx.box_mesh(&verts, &idx, gfx.box_of(frame_px(a.frame.bar, at, a.cell)), bar_look(a))
 
     // The camera is applied HERE, which is the whole reason a hand-rolled pass can frame a panel
     // at all: a stylesheet answers the resting strip, and a scrolled one would draw its frames
@@ -49,6 +56,22 @@ frame_paint :: proc(a: ^App, ox, oy: int, slots: []strip.Span) {
     }
 
     gfx.mesher_paint(&a.mesher, verts[:], idx[:])
+}
+
+// The menubar's row, off the theme THE BAR ITSELF is drawn in: an inverted menubar lifts toward
+// its own ink and not the document's (menubar_screen.odin).
+@(private = "file")
+menu_look :: proc(a: ^App) -> gfx.Look {
+    th := menu_theme(a)
+    return {fill = {gfx.opaque(gfx.lift(th, th[.Bg], ROW_LIFT)), gfx.opaque(th[.Bg])}}
+}
+
+// The bar's row, off the shade `bar_theme` writes its cells in — one number, so the box and the
+// command line that covers it cannot end up two darknesses (cl.odin).
+@(private = "file")
+bar_look :: proc(a: ^App) -> gfx.Look {
+    base := gfx.theme_behind(a.theme, BAR_BEHIND)
+    return {fill = {gfx.opaque(gfx.lift(a.theme, base, ROW_LIFT)), gfx.opaque(base)}}
 }
 
 // The surface the panels sit ON, one step lighter at the top than at the bottom.

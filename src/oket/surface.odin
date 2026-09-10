@@ -44,15 +44,13 @@ surface_draw :: proc(a: ^App) {
     // The bar is the frame's row (§11), over whatever is below it — the kernel screen included.
     // While the command line is open it IS the bar: a state the user cannot see is the thing
     // §1 exists to kill, and the line is its own label.
-    // The bar's row is the same dark line either way, so where the kernel talks is one place
-    // that does not change colour when you open it. Only what is written on it changes: the
-    // resting line is `Dim` and the command line is a document.
+    // THE ROW CHANGES TEXTURE WHEN YOU OPEN IT, which is the state made visible: at rest the
+    // cells say NOTHING and the frame's box shows, and the line fills the row flat. A raw text
+    // field on a gradient strip is what an entry looks like.
     defer if cl_active(a) {
         cl_draw(a, g, th)
     } else {
-        bar := bar_theme(th)
-        bar_fill(g, bar, row)
-        gfx.grid_write(g, 0, row, bar_text(a), bar[.Dim], gfx.opaque(bar[.Bg]))
+        gfx.grid_write(g, 0, row, bar_text(a), bar_theme(th)[.Dim], gfx.NOTHING)
     }
 
     for &p, i in a.panels {
@@ -168,7 +166,7 @@ surface_paint :: proc(a: ^App, win_w, win_h: i32) {
     // The whole grid: every cell off the bar's row says NOTHING, and what draws there is the
     // frame under it (§13.3).
     gfx.painter_draw(p, &a.ground, win_w, win_h, {f32(ox), f32(oy)},
-                     {i32(ox), i32(oy), i32(a.ground.cols * cw), i32(a.ground.rows * ch)})
+                     frame_px({0, 0, a.ground.cols, a.ground.rows}, {ox, oy}, {cw, ch}))
     top := oy + int(a.frame.strip.y) // where the frame's solve put the strip (frame.odin)
     for &pn, i in a.panels {
         it := strip.span(a.strip, ss, i)

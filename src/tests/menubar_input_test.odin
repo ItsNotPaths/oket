@@ -269,6 +269,34 @@ a_constant_menubar_costs_one_row_at_the_start :: proc(t: ^testing.T) {
     testing.expect_value(t, a.menu[.Bar].at, [2]int{0, 0})
 }
 
+// CHROME.md §6.1: a row the solve RESERVED has a frame box under it, so its cells say nothing
+// and the box shows. A hidden bar floats over a document, and a transparent one would read the
+// text it covers through itself.
+@(test)
+a_floating_menubar_is_opaque_and_a_reserved_one_is_not :: proc(t: ^testing.T) {
+    a, dir, ok := constant_app(t, "oket-menubar-ground")
+    if !ok {
+        return
+    }
+    defer os.remove_all(dir)
+    defer close_app(&a)
+    defer app.home_destroy(&a.home)
+
+    app.surface_draw(&a)
+    testing.expect_value(t, gfx.grid_at(&a.menu[.Bar].grid, 0, 0).bg, gfx.NOTHING)
+
+    h, hok := primer_app()
+    if !hok {
+        return
+    }
+    defer close_app(&h)
+    app.handle_chord(&h, chord("SPCE", {.Alt})) // the one way a hidden bar reaches the screen
+    app.surface_draw(&h)
+    testing.expect(t, h.menu[.Bar].on, "a hidden bar with a menu up")
+    testing.expect(t, gfx.grid_at(&h.menu[.Bar].grid, 0, 0).bg != gfx.NOTHING,
+                   "a floating bar reads the document through itself")
+}
+
 // --- the mouse (§6) ---
 
 // A press, in cells: a test has no painter and bare_app leaves the cell one pixel, so a pixel IS

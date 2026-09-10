@@ -1,6 +1,7 @@
 package main
 
 import "core:math"
+import "../gfx"
 import "../lay"
 import "../strip"
 
@@ -77,6 +78,15 @@ frame_fit :: proc(a: ^App, cols, rows: int) {
 frame_cells :: proc(r: lay.Rect, cell: [2]int) -> Rect {
     x, y := cell_at(r.x, cell.x), cell_at(r.y, cell.y)
     return {x, y, max(cell_at(r.x + r.w, cell.x) - x, 0), max(cell_at(r.y + r.h, cell.y) - y, 0)}
+}
+
+// And back: a rect the solve answered in CELLS, on screen. §11's snap is what makes this exact
+// — every frame rect is a whole number of cells by the time anyone asks. A CARET is not one of
+// these: it lands on a panel that has slid, so its origin carries the strip's fraction with it
+// (surface.odin, caret_px).
+frame_px :: proc(r: Rect, origin, cell: [2]int) -> gfx.Rect {
+    return {i32(origin.x + r.x * cell.x), i32(origin.y + r.y * cell.y),
+            i32(r.w * cell.x), i32(r.h * cell.y)}
 }
 
 // The columns a slot holds, by the same rounding. This is what `panel_cols`'s `ceil` was: a rect
