@@ -133,7 +133,7 @@ cl_set :: proc(a: ^App, text: string) {
 cl_draw :: proc(a: ^App, g: ^gfx.Grid, th: gfx.Theme) {
     b := a.bar
     line := bar_theme(th)
-    bar_fill(g, line, b.y)
+    cl_fill(g, line, b.y)
     gfx.grid_write(g, b.x - len(CL_PROMPT), b.y, CL_PROMPT, line[.Fg], gfx.opaque(line[.Bg]))
     snap := store.store_snapshot(&a.docs, a.cl.doc)
     if snap == nil {
@@ -150,21 +150,9 @@ cl_draw :: proc(a: ^App, g: ^gfx.Grid, th: gfx.Theme) {
               dv = dv, over = views_over(a, a.cl.doc), select = a.config.select, atlas = &a.painter.atlas)
 }
 
-// How much darker than a document the bar's row is. Deeper than the ground between two panels,
-// so the three layers read in order: a panel, the gap beside it, the line under both.
-BAR_BEHIND :: 45
-
-// The theme the bar's row is drawn in: the same one with a darker `Bg`. Gruvbox has no token
-// under `Bg` and a colour written here would break every other theme, so the shade is derived
-// (§8) — and passing a THEME rather than a colour pair is what lets the one renderer draw the
-// command line without learning that it is one (§5).
-bar_theme :: proc(th: gfx.Theme) -> gfx.Theme {
-    out := th
-    out[.Bg] = gfx.theme_behind(th, BAR_BEHIND)
-    return out
-}
-
-bar_fill :: proc(g: ^gfx.Grid, th: gfx.Theme, row: int) {
+// The line's own flat field. Nothing else fills the row: at rest it is a frame box (bar.odin).
+@(private = "file")
+cl_fill :: proc(g: ^gfx.Grid, th: gfx.Theme, row: int) {
     for x in 0 ..< g.cols {
         gfx.grid_put(g, x, row, gfx.Cell{' ', th[.Fg], gfx.opaque(th[.Bg]), {}, 0})
     }
