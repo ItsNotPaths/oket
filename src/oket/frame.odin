@@ -13,10 +13,10 @@ import "../strip"
 // panel between two of them on the clock, and the camera is an offset applied to what came out
 // (PANELS.md §7). One layouter, one animator, and neither does the other's job.
 //
-// TWO LATTICES, NOT ONE (§7). The solve is in PIXELS, because a gap, a half width and a camera
-// are pixels. What the kernel WRITES into is cells, so what comes back is snapped (§11) — and
-// the snap rounds both EDGES of a rect rather than its width, which is what keeps two slots
-// that touch touching and the strip tiling the view exactly.
+// TWO LATTICES, NOT ONE (PANELS.md §7). The solve is in PIXELS, because a gap, a half width
+// and a camera are pixels. What the kernel WRITES into is cells, so what comes back is snapped
+// (§11) — and the snap rounds both EDGES of a rect rather than its width, which is what keeps
+// two slots that touch touching and the strip tiling the view exactly.
 
 // The frame's boxes, in the order `lay` wants them: a parent is always earlier in the array.
 @(private = "file")

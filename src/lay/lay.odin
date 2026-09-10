@@ -95,6 +95,21 @@ hit :: proc(boxes: []Box, x, y: f32) -> int {
     return found
 }
 
+// A child's extent along its parent's axis. `spare` and `weight` are the whole row's, because a
+// grow is a share of what the pixels and the shares left.
+@(private = "file")
+extent :: proc(size: Size, room, spare, weight: f32) -> f32 {
+    switch size.fit {
+    case .Px:
+        return size.v
+    case .Share:
+        return size.v * room
+    case .Grow:
+        return weight > 0 ? spare * size.v / weight : 0
+    }
+    return 0
+}
+
 // One parent's children, laid along its axis. The scan is over the whole array twice, because a
 // dozen boxes read in order beat a child list somebody has to keep valid.
 @(private = "file")
@@ -110,13 +125,10 @@ children :: proc(boxes: []Box, at: int) {
             continue
         }
         n += 1
-        switch b.size.fit {
-        case .Px:
-            taken += b.size.v
-        case .Share:
-            taken += b.size.v * room
-        case .Grow:
+        if b.size.fit == .Grow {
             weight += b.size.v
+        } else {
+            taken += extent(b.size, room, 0, 0)
         }
     }
     if n == 0 {
@@ -131,15 +143,7 @@ children :: proc(boxes: []Box, at: int) {
         if b.parent != at {
             continue
         }
-        size: f32
-        switch b.size.fit {
-        case .Px:
-            size = b.size.v
-        case .Share:
-            size = b.size.v * room
-        case .Grow:
-            size = weight > 0 ? spare * b.size.v / weight : 0
-        }
+        size := extent(b.size, room, spare, weight)
         lo := seen > 0 ? p.gap / 2 : 0
         hi := seen < n - 1 ? p.gap / 2 : 0
         b.rect = place(p.dir, inner, along + lo, max(size - lo - hi, 0))

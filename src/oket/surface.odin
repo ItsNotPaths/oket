@@ -161,8 +161,9 @@ surface_paint :: proc(a: ^App, win_w, win_h: i32) {
     cw, ch := gfx.painter_cell(p)
     // §6's order: the frame's boxes, then the cell grids into the rects it reserved. The pass
     // brackets its own blend, because a box's colour is premultiplied.
+    ss := panel_spans(a)
     gfx.mesher_begin(&a.mesher, win_w, win_h)
-    frame_paint(a, ox, oy)
+    frame_paint(a, ox, oy, ss)
     gfx.mesher_end(&a.mesher)
     // THE GROUND GRID IS THE BAR'S ROW. surface_draw writes nothing else into it, and a cell's
     // background is OPAQUE — so painting the whole grid would cover the frame one call after it
@@ -172,7 +173,6 @@ surface_paint :: proc(a: ^App, win_w, win_h: i32) {
                      {i32(ox + bar.x * cw), i32(oy + bar.y * ch),
                       i32(bar.w * cw), i32(bar.h * ch)})
     top := oy + int(a.frame.strip.y) // where the frame's solve put the strip (frame.odin)
-    ss := panel_spans(a)
     for &pn, i in a.panels {
         it := strip.span(a.strip, ss, i)
         x := f32(ox) + it.x

@@ -30,7 +30,7 @@ PROUD :: f32(1)
 
 // The frame, as quads. One upload and one draw for all of it (mesher_paint): the whole frame is
 // a few hundred vertices, so there is no handle per box for anyone to release.
-frame_paint :: proc(a: ^App, ox, oy: int) {
+frame_paint :: proc(a: ^App, ox, oy: int, slots: []strip.Span) {
     verts := make([dynamic]gfx.Chrome_Vertex, 0, 64, context.temp_allocator)
     idx := make([dynamic]c.int, 0, 192, context.temp_allocator)
 
@@ -41,9 +41,8 @@ frame_paint :: proc(a: ^App, ox, oy: int) {
     // The camera is applied HERE, which is the whole reason a hand-rolled pass can frame a panel
     // at all: a stylesheet answers the resting strip, and a scrolled one would draw its frames
     // where the panels are not (§2.1).
-    it := panel_spans(a)
     for _, i in a.panels {
-        s := strip.span(a.strip, it, i)
+        s := strip.span(a.strip, slots, i)
         gfx.box_mesh(&verts, &idx,
                      {x0 + s.x - PROUD, y0 + st.y - PROUD, s.w + 2 * PROUD, st.h + 2 * PROUD},
                      groove_look(a))
@@ -56,7 +55,7 @@ frame_paint :: proc(a: ^App, ox, oy: int) {
 @(private = "file")
 ground_look :: proc(a: ^App) -> gfx.Look {
     base := ground_bg(a)
-    return {fill = {opaque(lift(a, base, GROUND_LIFT)), opaque(base)}}
+    return {fill = {opaque(lift(a.theme, base, GROUND_LIFT)), opaque(base)}}
 }
 
 // A SUNKEN edge, which is a raised one upside down: dark along the top, light along the bottom.
@@ -66,7 +65,7 @@ ground_look :: proc(a: ^App) -> gfx.Look {
 groove_look :: proc(a: ^App) -> gfx.Look {
     base := ground_bg(a)
     return {
-        edge   = {opaque(gfx.shade(base, GROOVE_DARK)), opaque(lift(a, base, GROOVE_LIFT))},
+        edge   = {opaque(gfx.shade(base, GROOVE_DARK)), opaque(lift(a.theme, base, GROOVE_LIFT))},
         fill   = {opaque(a.theme[.Bg]), opaque(a.theme[.Bg])},
         border = 1,
         radius = 2,
@@ -77,8 +76,8 @@ groove_look :: proc(a: ^App) -> gfx.Look {
 // That keeps the ladder in the theme's own hue instead of washing it out, and it reads the same
 // way round on a cream theme as on a dark one.
 @(private = "file")
-lift :: proc(a: ^App, c: [3]f32, percent: int) -> [3]f32 {
-    return c + (a.theme[.Fg] - c) * (clamp(f32(percent), 0, 100) / 100)
+lift :: proc(th: gfx.Theme, c: [3]f32, percent: int) -> [3]f32 {
+    return c + (th[.Fg] - c) * (clamp(f32(percent), 0, 100) / 100)
 }
 
 @(private = "file")
