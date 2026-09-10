@@ -55,7 +55,7 @@ frame_paint :: proc(a: ^App, ox, oy: int, slots: []strip.Span) {
 @(private = "file")
 ground_look :: proc(a: ^App) -> gfx.Look {
     base := ground_bg(a)
-    return {fill = {gfx.opaque(lift(a.theme, base, GROUND_LIFT)), gfx.opaque(base)}}
+    return {fill = {gfx.opaque(gfx.lift(a.theme, base, GROUND_LIFT)), gfx.opaque(base)}}
 }
 
 // A SUNKEN edge, which is a raised one upside down: dark along the top, light along the bottom.
@@ -66,17 +66,9 @@ groove_look :: proc(a: ^App) -> gfx.Look {
     base := ground_bg(a)
     return {
         edge   = {gfx.opaque(gfx.shade(base, GROOVE_DARK)),
-                  gfx.opaque(lift(a.theme, base, GROOVE_LIFT))},
+                  gfx.opaque(gfx.lift(a.theme, base, GROOVE_LIFT))},
         fill   = {gfx.opaque(a.theme[.Bg]), gfx.opaque(a.theme[.Bg])},
         border = 1,
         radius = 2,
     }
-}
-
-// `gfx.shade` only darkens, so a lighter step is a lift toward the INK rather than toward white.
-// That keeps the ladder in the theme's own hue instead of washing it out, and it reads the same
-// way round on a cream theme as on a dark one.
-@(private = "file")
-lift :: proc(th: gfx.Theme, c: [3]f32, percent: int) -> [3]f32 {
-    return c + (th[.Fg] - c) * (clamp(f32(percent), 0, 100) / 100)
 }

@@ -37,10 +37,19 @@ color_unpack :: proc(v: u32) -> [3]f32 {
     return {f32(v >> 16 & 255) / 255, f32(v >> 8 & 255) / 255, f32(v & 255) / 255}
 }
 
-// Percent toward black; 0 is the colour itself. Darker is the ONE direction derived colours go,
-// which is what keeps the token set at five: a shade needs no theme author to define it.
+// The derived-colour ladder, and the pair is what keeps the token set at five: neither step
+// asks a theme author to define a colour.
+//
+// `shade` is a percent toward black; 0 is the colour itself.
 shade :: proc(c: [3]f32, percent: int) -> [3]f32 {
     return c * (1 - clamp(f32(percent), 0, 100) / 100)
+}
+
+// And the other way: a percent toward the theme's INK, never toward white. That keeps the step
+// in the theme's own hue instead of washing it out, and it reads the same way round on a cream
+// theme as on a dark one.
+lift :: proc(th: Theme, c: [3]f32, percent: int) -> [3]f32 {
+    return c + (th[.Fg] - c) * (clamp(f32(percent), 0, 100) / 100)
 }
 
 // A shade of `Bg`, for the surface the panels sit ON. Derived rather than a sixth token: a
