@@ -19,6 +19,9 @@ App :: struct {
     // bar, and the ground a panel is drawn onto. A panel is a window onto a document and takes
     // an origin of its own, so it can slide without dragging the bar with it.
     ground:       gfx.Grid,
+    // The frame's pass (CHROME.md §6): the boxes AROUND a document, as pixels. `ground` above
+    // is still the cell grid, and the two are two lattices on purpose (PANELS.md §7).
+    mesher:       gfx.Mesher,
     // The strip (PANELS.md §2, §5). A default start is one panel at full width, which is a
     // strip of length one and not a special case; `focus` says which one the ring and the keys
     // act on. The layout itself is src/strip's: this is the camera and the two measurements it
@@ -217,6 +220,7 @@ app_destroy :: proc(a: ^App) {
     // neither, and freeing a texture into a context that is not there is a crash on the way out.
     if a.window != nil {
         sdl.DestroyCursor(a.hand)
+        gfx.mesher_destroy(&a.mesher)
         gfx.painter_destroy(&a.painter) // the atlas and its faces go with it
     }
 }

@@ -142,6 +142,10 @@ main :: proc() {
     // A baked face is already rasterized at the display's scale; only the bitmap scales up.
     gfx.painter_set_scale(&a.painter, len(faces) > 0 ? 1 : sx)
 
+    // The frame's pass (CHROME.md §6). A program that will not compile costs this frame
+    // nothing: `mesher_paint` answers on a mesher that never started, and the cells still draw.
+    gfx.mesher_init(&a.mesher)
+
     // Input first: binds.conf may spell a chord as a layout glyph, and resolving one needs the
     // scancode base this sets.
     input_init(&a)
