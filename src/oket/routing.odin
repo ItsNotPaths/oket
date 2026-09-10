@@ -36,9 +36,9 @@ active_rect :: proc(a: ^App) -> Rect {
     return cl_active(a) ? a.bar : panel_focused(a).body
 }
 
-// And WHOSE cells that rectangle is in (§7): the chrome's while the line is open, the focused
+// And WHOSE cells that rectangle is in (§7): the ground's while the line is open, the focused
 // panel's otherwise. A click from the other lattice is a different grid's numbers, and placing
-// it against this rectangle would move a caret for a click beside it. -1 is the chrome.
+// it against this rectangle would move a caret for a click beside it. -1 is the ground.
 active_panel :: proc(a: ^App) -> int {
     return cl_active(a) ? -1 : a.focus
 }

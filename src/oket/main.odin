@@ -226,7 +226,7 @@ main :: proc() {
         surface_draw(&a)
         ime_area_update(&a) // after the draw laid out, so a moved caret re-docks the candidates
 
-        gfx.gl_clear(w, h, chrome_bg(&a))
+        gfx.gl_clear(w, h, ground_bg(&a))
         surface_paint(&a, w, h)
         sdl.GL_SwapWindow(a.window)
         free_all(context.temp_allocator) // the frame's cell tables and bar text

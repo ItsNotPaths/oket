@@ -150,7 +150,7 @@ cl_draw :: proc(a: ^App, g: ^gfx.Grid, th: gfx.Theme) {
               dv = dv, over = views_over(a, a.cl.doc), select = a.config.select, atlas = &a.painter.atlas)
 }
 
-// How much darker than a document the bar's row is. Deeper than the chrome between two panels,
+// How much darker than a document the bar's row is. Deeper than the ground between two panels,
 // so the three layers read in order: a panel, the gap beside it, the line under both.
 BAR_BEHIND :: 45
 

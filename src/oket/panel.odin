@@ -250,7 +250,7 @@ panels_fit :: proc(a: ^App, cols, rows: int) {
     if land {
         a.strip.camera = a.strip.aim
     }
-    // The bar's row is the chrome's and no panel reaches it, and a constant menubar keeps the
+    // The bar's row is the ground's and no panel reaches it, and a constant menubar keeps the
     // top row the same way (MENU.md §4). A hidden one costs nothing here, which is why opening
     // it reflows no document and resizes no session.
     high := max(rows - 1 - menu_rows(a), 0)
@@ -294,7 +294,7 @@ panels_step :: proc(a: ^App, dt: f32) -> bool {
 // The strip, laid out again from what the last fit measured. Every verb that changes the strip
 // ends here, so a panel is the right size before the next draw rather than after it.
 panels_relayout :: proc(a: ^App) {
-    panels_fit(a, a.chrome.cols, a.chrome.rows)
+    panels_fit(a, a.ground.cols, a.ground.rows)
 }
 
 // The columns a panel's pixel width holds. Its grid rides the panel's OWN origin, so only the
@@ -318,7 +318,7 @@ PANEL_MENU :: -2
 
 // Which panel a screen PIXEL lands in, and where in that panel's own cells (PANELS.md §7). A
 // column number means nothing until you know whose grid it counts from, so the panel is answered
-// first. -1 is the chrome: the bar's row, a gap, or the space past the last panel.
+// first. -1 is the ground: the bar's row, a gap, or the space past the last panel.
 panel_hit :: proc(a: ^App, px, py: int) -> (panel, x, y: int) {
     col, win := floor_div(px, a.cell.x), floor_div(py, a.cell.y)
     // The menu is painted OVER the panels, so it is asked before the strip (MENU.md §6): a cell

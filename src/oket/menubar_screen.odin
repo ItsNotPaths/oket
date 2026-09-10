@@ -28,7 +28,7 @@ Menu_Part :: enum u8 {
 
 Menu_Layer :: struct {
     grid: gfx.Grid,
-    at:   [2]int, // the chrome's cells, which is what the frame turns into pixels
+    at:   [2]int, // the ground's cells, which is what the frame turns into pixels
     on:   bool,
 }
 
@@ -116,7 +116,7 @@ menu_rows :: proc(a: ^App) -> int {
 menubar_frame :: proc(a: ^App, allocator := context.temp_allocator) -> menu.Bar {
     b := menubar_build(a, allocator)
     b.y = 0 // either way: constant reserves the row, hidden draws over whatever is on it
-    b.cols, b.rows = a.chrome.cols, max(a.chrome.rows - 1, 0)
+    b.cols, b.rows = a.ground.cols, max(a.ground.rows - 1, 0)
     return b
 }
 
@@ -156,10 +156,10 @@ menu_layer :: proc(a: ^App, part: Menu_Part, box: menu.Box) {
 }
 
 // Over the panels, because a menu a panel covers is a menu nobody can read. The origin is the
-// chrome's corner plus the box's own cells; nothing here slides, so there is no camera in it.
+// ground's corner plus the box's own cells; nothing here slides, so there is no camera in it.
 menubar_paint :: proc(a: ^App, win_w, win_h: i32) {
     p := &a.painter
-    ox, oy := gfx.painter_origin(p, win_w, win_h, a.chrome.cols, a.chrome.rows)
+    ox, oy := gfx.painter_origin(p, win_w, win_h, a.ground.cols, a.ground.rows)
     cw, ch := gfx.painter_cell(p)
     for &l in a.menu {
         if !l.on {

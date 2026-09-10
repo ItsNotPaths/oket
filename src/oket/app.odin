@@ -15,10 +15,10 @@ import "../work"
 App :: struct {
     window:       ^sdl.Window,
     painter:      gfx.Painter,
-    // Two lattices, not one (PANELS.md §7). The chrome is the screen's, at whole cells: the
+    // Two lattices, not one (PANELS.md §7). The ground is the screen's, at whole cells: the
     // bar, and the ground a panel is drawn onto. A panel is a window onto a document and takes
     // an origin of its own, so it can slide without dragging the bar with it.
-    chrome:       gfx.Grid,
+    ground:       gfx.Grid,
     // The strip (PANELS.md §2, §5). A default start is one panel at full width, which is a
     // strip of length one and not a special case; `focus` says which one the ring and the keys
     // act on. The layout itself is src/strip's: this is the camera and the two measurements it
@@ -26,8 +26,8 @@ App :: struct {
     panels:       [dynamic]Panel,
     focus:        int,
     // The menubar's three grids and where the last draw put each (MENU.md §4). Painted AFTER
-    // the panels: the chrome is painted first and a panel covers it, so a bar drawn into the
-    // chrome would be invisible. `on` is what the frame DREW, so a box with no room to draw in
+    // the panels: the ground is painted first and a panel covers it, so a bar drawn into the
+    // ground would be invisible. `on` is what the frame DREW, so a box with no room to draw in
     // paints nothing.
     menu:         [Menu_Part]Menu_Layer,
     // Where the keys are while the menu is up (MENU.md §5), the state the pointer moves too.
@@ -121,7 +121,7 @@ App :: struct {
     hand:         ^sdl.Cursor, // the pointer over a field a click would act on
     preedit:      string, // owned; the platform IME's uncommitted text, "" outside composition
     ime_area:     sdl.Rect, // the caret rect last handed to SDL, so a still frame says nothing
-    // Where the command line's row was drawn, past the prompt, in chrome cells. A document's
+    // Where the command line's row was drawn, past the prompt, in ground cells. A document's
     // own rectangle is its panel's (panel.odin), because a cell number counts from one grid.
     bar:          Rect,
     message:      string, // owned; lives until the next keystroke
@@ -212,7 +212,7 @@ app_destroy :: proc(a: ^App) {
     delete(a.preedit)
     panels_destroy(a)
     menubar_destroy(a)
-    gfx.grid_destroy(&a.chrome)
+    gfx.grid_destroy(&a.ground)
     // The window's two: the cursor it set, and the atlas its GL context holds. A harness App has
     // neither, and freeing a texture into a context that is not there is a crash on the way out.
     if a.window != nil {

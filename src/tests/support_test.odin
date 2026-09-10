@@ -57,7 +57,7 @@ bare_app :: proc(cols := 50, rows := 4) -> (a: app.App, ok: bool) {
     // Where oket thinks it is, the way app_init sets it: the home page names it and a terminal
     // is spawned in it, so an App without one is not one this suite can ask about.
     a.dir, _ = os.get_working_directory(context.allocator)
-    if !gfx.grid_init(&a.chrome, cols, rows) {
+    if !gfx.grid_init(&a.ground, cols, rows) {
         return {}, false
     }
     app.surface_fit(&a, cols, rows) // the strip, sized by the one rule that owns the split
@@ -65,7 +65,7 @@ bare_app :: proc(cols := 50, rows := 4) -> (a: app.App, ok: bool) {
 }
 
 // The strip is one panel long (PANELS.md §5), and its grid is where a document is drawn. Every
-// snapshot below diffs that grid rather than the chrome, which carries only the bar.
+// snapshot below diffs that grid rather than the ground, which carries only the bar.
 panel_grid :: proc(a: ^app.App) -> ^gfx.Grid {
     return &app.panel_focused(a).grid
 }
@@ -116,7 +116,7 @@ close_app :: proc(a: ^app.App) {
     app.find_free(a)
     app.panels_destroy(a)
     app.menubar_destroy(a) // the three menu grids, the same as app_destroy
-    gfx.grid_destroy(&a.chrome)
+    gfx.grid_destroy(&a.ground)
 }
 
 // A document with a file and text in it, and no owner behind it. The kernel has no `text` kind

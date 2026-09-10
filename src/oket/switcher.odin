@@ -108,7 +108,7 @@ switcher_draw :: proc(a: ^App) {
     if w <= 0 || p.body.h <= 0 || len(rows) == 0 {
         return
     }
-    th, ground := a.theme, chrome_bg(a)
+    th, ground := a.theme, ground_bg(a)
     // TOP TO BOTTOM, and not down to the last entry: a column that stops where the slots do
     // reads as a popup sitting on the text. This is a SIDE of the panel, and a side runs the
     // height of it. The ground is the surface behind the panels, so the column reads at the

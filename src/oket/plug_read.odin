@@ -163,8 +163,8 @@ world_make :: proc(a: ^App) -> ^Plug_World {
     w.world = {
         panes  = raw_data(w.panes),
         npanes = len(w.panes),
-        cols   = i32(a.chrome.cols),
-        rows   = i32(a.chrome.rows),
+        cols   = i32(a.ground.cols),
+        rows   = i32(a.ground.rows),
     }
     return w
 }

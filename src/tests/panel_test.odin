@@ -10,7 +10,7 @@ import "../store"
 import app "../oket"
 
 // The gates for PANELS.md stages 1, 2 and 3. Stage 1: the frame is two grids, not one — the
-// chrome is the screen lattice and carries the bar, the panel is the window onto a document and
+// ground is the screen lattice and carries the bar, the panel is the window onto a document and
 // carries nothing else. Stage 2: the panel is the UNIT — it holds the cursor into the ring, the
 // rectangle a click is placed against and the hover, and a cell is its cell before it is a
 // number. Stage 3 is the first one you can see: a strip longer than one, gaps, widths and a
@@ -28,14 +28,14 @@ the_panel_is_the_fit_without_the_bar :: proc(t: ^testing.T) {
     defer close_app(&a)
 
     app.surface_fit(&a, 40, 10)
-    testing.expect_value(t, a.chrome.cols, 40)
-    testing.expect_value(t, a.chrome.rows, 10)
+    testing.expect_value(t, a.ground.cols, 40)
+    testing.expect_value(t, a.ground.rows, 10)
     testing.expect_value(t, panel_grid(&a).cols, 40)
     testing.expect_value(t, panel_grid(&a).rows, 9)
 }
 
 // The gate's own sentence: a panel snapshot is its own text block. The document is on the panel
-// and the bar is on the chrome, and neither grid holds a line of the other.
+// and the bar is on the ground, and neither grid holds a line of the other.
 @(test)
 the_panel_diffs_without_the_bar_in_it :: proc(t: ^testing.T) {
     a, _, ok := listing_app(t, "oket-panel-split")
@@ -45,17 +45,17 @@ the_panel_diffs_without_the_bar_in_it :: proc(t: ^testing.T) {
     defer close_app(&a)
 
     panel := gfx.grid_snapshot(panel_grid(&a), context.temp_allocator)
-    chrome := gfx.grid_snapshot(&a.chrome, context.temp_allocator)
+    ground := gfx.grid_snapshot(&a.ground, context.temp_allocator)
     bar := app.bar_text(&a)
 
     testing.expect(t, strings.contains(panel, "alpha.txt"), panel)
     testing.expect_value(t, len(strings.split_lines(panel, context.temp_allocator)), 3)
     testing.expect(t, !strings.contains(panel, bar), panel)
 
-    rows := strings.split_lines(chrome, context.temp_allocator)
+    rows := strings.split_lines(ground, context.temp_allocator)
     testing.expect_value(t, len(rows), 4)
-    testing.expect(t, strings.has_prefix(rows[3], bar), chrome)
-    testing.expect(t, !strings.contains(rows[0], "alpha.txt"), chrome)
+    testing.expect(t, strings.has_prefix(rows[3], bar), ground)
+    testing.expect(t, !strings.contains(rows[0], "alpha.txt"), ground)
 }
 
 // A window one row tall is all bar and no panel. A grid of no rows is legal and draws nothing,
@@ -73,9 +73,9 @@ a_one_row_window_leaves_no_panel :: proc(t: ^testing.T) {
 
     testing.expect_value(t, panel_grid(&a).rows, 0)
     testing.expect_value(t, app.panel_focused(&a).body.h, 0)
-    chrome := gfx.grid_snapshot(&a.chrome, context.temp_allocator)
-    testing.expect_value(t, len(strings.split_lines(chrome, context.temp_allocator)), 1)
-    testing.expect(t, strings.has_prefix(app.bar_text(&a), chrome), chrome) // clipped at 20
+    ground := gfx.grid_snapshot(&a.ground, context.temp_allocator)
+    testing.expect_value(t, len(strings.split_lines(ground, context.temp_allocator)), 1)
+    testing.expect(t, strings.has_prefix(app.bar_text(&a), ground), ground) // clipped at 20
 
     // And back out: the panel regrows from the zeroed grid the no-panel state left behind.
     app.surface_fit(&a, 20, 5)
@@ -119,7 +119,7 @@ the_cursor_into_the_ring_is_the_panels :: proc(t: ^testing.T) {
 }
 
 // A cell number means nothing until you know whose grid it counts from (§7), so the hit test
-// answers a panel first. The bar's row belongs to no panel and stays in chrome cells.
+// answers a panel first. The bar's row belongs to no panel and stays in ground cells.
 @(test)
 a_cell_belongs_to_a_panel_before_it_is_a_cell :: proc(t: ^testing.T) {
     a, ok := bare_app(20, 5) // four rows of panel, then the bar
@@ -135,7 +135,7 @@ a_cell_belongs_to_a_panel_before_it_is_a_cell :: proc(t: ^testing.T) {
 
     pn, _, y = app.panel_hit(&a, 3, 4)
     testing.expect_value(t, pn, -1)
-    testing.expect_value(t, y, 4) // unshifted: the chrome is the lattice it was measured on
+    testing.expect_value(t, y, 4) // unshifted: the ground is the lattice it was measured on
 
     pn, _, _ = app.panel_hit(&a, 99, 0)
     testing.expect_value(t, pn, -1)
@@ -589,7 +589,7 @@ a_browser_and_two_editors_at_once :: proc(t: ^testing.T) {
 }
 
 // A click is placed against the rectangle the active document was drawn in, so the funnel has to
-// know WHOSE cells it arrived in (§7). The line is on the chrome and a document is on its panel:
+// know WHOSE cells it arrived in (§7). The line is on the ground and a document is on its panel:
 // a gap click would otherwise move a panel's caret, and a click on the open line would move
 // nothing at all.
 @(test)

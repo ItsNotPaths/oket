@@ -263,7 +263,7 @@ cell_at :: proc(a: ^App, px, py: f64) -> (panel, x, y: int) {
     fw, fh, ww, wh: c.int
     sdl.GetWindowSizeInPixels(a.window, &fw, &fh)
     sdl.GetWindowSize(a.window, &ww, &wh)
-    ox, oy := gfx.painter_origin(&a.painter, fw, fh, a.chrome.cols, a.chrome.rows)
+    ox, oy := gfx.painter_origin(&a.painter, fw, fh, a.ground.cols, a.ground.rows)
     sx := ww > 0 ? f64(fw) / f64(ww) : 1
     sy := wh > 0 ? f64(fh) / f64(wh) : 1
     return panel_hit(a, int(px * sx) - ox, int(py * sy) - oy)

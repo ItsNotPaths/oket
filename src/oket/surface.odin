@@ -7,39 +7,39 @@ import "../strip"
 import "../txt"
 import "../view"
 
-// The kernel's frame: the strip's documents in their panels, the bar on the chrome's last row.
+// The kernel's frame: the strip's documents in their panels, the bar on the ground's last row.
 // A panel standing on nothing falls through to the kernel screen, which is what that floor
 // exists for (§7, §13).
 //
-// One grid per panel plus the chrome, drawn in a call each (PANELS.md §7). The chrome is the
+// One grid per panel plus the ground, drawn in a call each (PANELS.md §7). The ground is the
 // screen lattice and a panel is a window onto a document, so a panel that is narrower than the
 // screen, or standing at a fractional origin, costs an origin and a clip here and nothing
 // anywhere below.
 
 // The surface the panels sit on, and the window's own margins with it: one answer, so a gap and
 // the edge past the strip cannot end up two colours.
-chrome_bg :: proc(a: ^App) -> [3]f32 {
+ground_bg :: proc(a: ^App) -> [3]f32 {
     return gfx.theme_behind(a.theme, a.config.behind)
 }
 
-// The chrome is the whole fit; the strip gets everything above the bar. The cell size comes in
+// The ground is the whole fit; the strip gets everything above the bar. The cell size comes in
 // because the strip is pixels and the grids are cells (§7); a caller with no painter leaves a
 // cell one pixel, and its strip arithmetic then reads in columns.
 surface_fit :: proc(a: ^App, cols, rows: int, cell := [2]int{1, 1}) {
     a.cell = cell
-    gfx.grid_resize(&a.chrome, cols, rows)
+    gfx.grid_resize(&a.ground, cols, rows)
     panels_fit(a, cols, rows)
 }
 
 surface_draw :: proc(a: ^App) {
-    ch, th := &a.chrome, a.theme
-    row := max(ch.rows - 1, 0)
-    a.bar = {len(CL_PROMPT), row, max(ch.cols - len(CL_PROMPT), 0), 1}
+    g, th := &a.ground, a.theme
+    row := max(g.rows - 1, 0)
+    a.bar = {len(CL_PROMPT), row, max(g.cols - len(CL_PROMPT), 0), 1}
 
-    // The chrome is what a gap shows through, so it is darker than a panel: the strip then
+    // The ground is what a gap shows through, so it is darker than a panel: the strip then
     // reads as documents sitting ON something rather than as holes cut in one surface.
-    behind := chrome_bg(a)
-    gfx.grid_clear(ch, th[.Fg], behind)
+    behind := ground_bg(a)
+    gfx.grid_clear(g, th[.Fg], behind)
     // The bar is the frame's row (§11), over whatever is below it — the kernel screen included.
     // While the command line is open it IS the bar: a state the user cannot see is the thing
     // §1 exists to kill, and the line is its own label.
@@ -47,11 +47,11 @@ surface_draw :: proc(a: ^App) {
     // that does not change colour when you open it. Only what is written on it changes: the
     // resting line is `Dim` and the command line is a document.
     defer if cl_active(a) {
-        cl_draw(a, ch, th)
+        cl_draw(a, g, th)
     } else {
         bar := bar_theme(th)
-        bar_fill(ch, bar, row)
-        gfx.grid_write(ch, 0, row, bar_text(a), bar[.Dim], bar[.Bg])
+        bar_fill(g, bar, row)
+        gfx.grid_write(g, 0, row, bar_text(a), bar[.Dim], bar[.Bg])
     }
 
     for &p, i in a.panels {
@@ -113,7 +113,7 @@ panel_draw :: proc(a: ^App, p: ^Panel, marked: bool) {
 // The focused caret's cell in framebuffer pixels — the same origin math surface_paint draws
 // with, so what the platform IME docks to is where the caret is marked (IME.md §8).
 caret_px :: proc(a: ^App, win_w, win_h: i32) -> (x, y: int, ok: bool) {
-    ox, oy := gfx.painter_origin(&a.painter, win_w, win_h, a.chrome.cols, a.chrome.rows)
+    ox, oy := gfx.painter_origin(&a.painter, win_w, win_h, a.ground.cols, a.ground.rows)
     cw, ch := gfx.painter_cell(&a.painter)
     if cl_active(a) {
         cx, cy, on := doc_caret_cell(a, a.cl.doc, a.cl.view, a.bar.x, a.bar.y, a.bar.w, 1)
@@ -151,14 +151,14 @@ doc_caret_cell :: proc(a: ^App, id: store.Id, v: view.View,
     return view.caret_cell(t, d, v, x, y, w, h, doc.cursors[doc.primary].head, dv)
 }
 
-// The frame, on the GPU: the chrome, then every panel over it. A panel's origin is the chrome's
+// The frame, on the GPU: the ground, then every panel over it. A panel's origin is the ground's
 // corner plus what the strip says, which is pixels and not cells — that is the whole of what a
 // gap, a half width and a camera cost here (§7).
 surface_paint :: proc(a: ^App, win_w, win_h: i32) {
     p := &a.painter
-    ox, oy := gfx.painter_origin(p, win_w, win_h, a.chrome.cols, a.chrome.rows)
+    ox, oy := gfx.painter_origin(p, win_w, win_h, a.ground.cols, a.ground.rows)
     _, ch := gfx.painter_cell(p)
-    gfx.painter_draw(p, &a.chrome, win_w, win_h, {f32(ox), f32(oy)}, {0, 0, win_w, win_h})
+    gfx.painter_draw(p, &a.ground, win_w, win_h, {f32(ox), f32(oy)}, {0, 0, win_w, win_h})
     top := oy + menu_rows(a) * ch // the row a constant menubar keeps (MENU.md §4)
     ws := panel_widths(a)
     for &pn, i in a.panels {

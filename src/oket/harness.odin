@@ -86,7 +86,7 @@ harness_main :: proc(args: []string) -> int {
     // and it would become the place every shell step in the sequence ran in.
     delete(a.dir)
     a.dir, _ = os.get_working_directory(context.allocator)
-    gfx.grid_init(&a.chrome, HARNESS_COLS, HARNESS_ROWS)
+    gfx.grid_init(&a.ground, HARNESS_COLS, HARNESS_ROWS)
     surface_fit(&a, HARNESS_COLS, HARNESS_ROWS)
 
     for plugin in paths[1:] {
