@@ -53,6 +53,12 @@ the_chain_splits_the_way_a_shell_would :: proc(t: ^testing.T) {
     testing.expect_value(t, segs("echo $(a && b)"), "&echo $(a && b)")
     testing.expect_value(t, segs("echo `a | b`"), "&echo `a | b`")
 
+    // A parameter expansion is one word and so is bash's ANSI-C quoting, so an operator inside
+    // either belongs to the shell. The one after the closing brace is still ours.
+    testing.expect_value(t, segs("echo ${x:-a|b}"), "&echo ${x:-a|b}")
+    testing.expect_value(t, segs("echo ${x:-a|b} | :put"), "&echo ${x:-a|b}  | :put")
+    testing.expect_value(t, segs(`echo $'a\'b|c'`), `&echo $'a\'b|c'`)
+
     // `||` is a step operator like `&&`; `|&` is the shell's pipe-with-stderr and stays whole.
     testing.expect_value(t, segs("false || echo x"), "&false  ! echo x")
     testing.expect_value(t, segs("a |& b"), "&a |& b")

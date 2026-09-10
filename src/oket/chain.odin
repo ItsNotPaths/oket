@@ -187,12 +187,14 @@ CL_Seg :: struct {
 }
 
 // Split the way the shell would: only where the shell sees an operator, never inside quotes,
-// after a backslash, or inside `...`, $(...) or a subshell. Segments go on verbatim — nothing
-// here expands or unquotes. An unclosed quote or paren swallows the rest, as the shell would.
+// after a backslash, or inside `...`, $(...), ${...}, $'...' or a subshell. Segments go on
+// verbatim — nothing here expands or unquotes. An unclosed quote, brace or paren swallows the
+// rest, as the shell would.
 // Temp-allocated slices of s.
 cl_split_chain :: proc(s: string, alloc := context.temp_allocator) -> []CL_Seg {
     out := make([dynamic]CL_Seg, 0, 4, alloc)
     depth: int // unquoted ( ) / $( ) nesting
+    brace: int // ${ } nesting
     tick: bool // inside `...`
     start, i := 0, 0
     op: CL_Op // what opened the segment being scanned
@@ -205,12 +207,28 @@ cl_split_chain :: proc(s: string, alloc := context.temp_allocator) -> []CL_Seg {
             i += ok ? n : len(s) - i
             word = false
             continue
+        // bash's ANSI-C quoting, whose backslash hides the closing quote. Read as a plain
+        // `'...'` the span ends at the `\'` and the operator after it splits a line the shell
+        // reads as one word.
+        case c == '$' && i + 1 < len(s) && s[i + 1] == '\'':
+            end := quote_end(s, i + 1, true)
+            i = end > 0 ? end : len(s)
+            word = false
+            continue
+        // A parameter expansion is one word, the operators inside it included: `${x:-a|b}`.
+        case c == '$' && i + 1 < len(s) && s[i + 1] == '{':
+            brace += 1
+            i += 2
+            word = false
+            continue
+        case c == '}':
+            brace = max(brace - 1, 0)
         // The rest of the line is the shell's comment, and it is DROPPED rather than passed on:
         // a step is injected on one line with its exit report after it (job.odin), so a comment
         // carried through would take the report with it and the chain would wait forever. That
         // reason is the shell's alone, and a builtin has no comments: `#` there is a ring slot
         // (PANELS.md §4), which is exactly a word that starts with one.
-        case c == '#' && word && !tick && depth == 0 && !seg_builtin(s[start:i]):
+        case c == '#' && word && !tick && depth == 0 && brace == 0 && !seg_builtin(s[start:i]):
             append(&out, CL_Seg{s[start:i], op})
             return out[:]
         case c == '\\':
@@ -221,7 +239,7 @@ cl_split_chain :: proc(s: string, alloc := context.temp_allocator) -> []CL_Seg {
             depth += 1
         case c == ')':
             depth = max(depth - 1, 0)
-        case c == '&' && !tick && depth == 0 && i + 1 < len(s) && s[i + 1] == '&':
+        case c == '&' && !tick && depth == 0 && brace == 0 && i + 1 < len(s) && s[i + 1] == '&':
             append(&out, CL_Seg{s[start:i], op})
             op, word = .And, true
             i += 2
@@ -229,7 +247,7 @@ cl_split_chain :: proc(s: string, alloc := context.temp_allocator) -> []CL_Seg {
             continue
         // `||` is a step operator like `&&`: adjacent shell steps coalesce with it put back, so
         // it only decides anything at a boundary a builtin is on.
-        case c == '|' && !tick && depth == 0 && i + 1 < len(s) && s[i + 1] == '|':
+        case c == '|' && !tick && depth == 0 && brace == 0 && i + 1 < len(s) && s[i + 1] == '|':
             append(&out, CL_Seg{s[start:i], op})
             op, word = .Or, true
             i += 2
@@ -237,13 +255,16 @@ cl_split_chain :: proc(s: string, alloc := context.temp_allocator) -> []CL_Seg {
             continue
         // One `|` alone is ours. `|&` is the shell's pipe-with-stderr and stays inside a shell
         // step for bash to read.
-        case c == '|' && !tick && depth == 0 && (i + 1 >= len(s) || s[i + 1] != '&'):
+        case c == '|' && !tick && depth == 0 && brace == 0 && (i + 1 >= len(s) || s[i + 1] != '&'):
             append(&out, CL_Seg{s[start:i], op})
             op, word = .Pipe, true
             i += 1
             start = i
             continue
-        case c == '|':
+        // Named exactly rather than left as a catch-all: any `|` an operator case declines
+        // used to eat the byte after it, and inside `${...}` or `...` that byte can be the
+        // closer the scan is waiting for.
+        case c == '|' && i + 1 < len(s) && s[i + 1] == '&':
             i += 1 // the second byte of `|&`, skipped with the first
         }
         word = c == ' ' || c == '\t'
@@ -419,16 +440,26 @@ quoted_span :: proc(s: string) -> (inner: string, n: int, ok: bool) {
     if len(s) == 0 || (s[0] != '\'' && s[0] != '"') {
         return "", 0, false
     }
-    for i := 1; i < len(s); i += 1 {
-        if s[0] == '"' && s[i] == '\\' && i + 1 < len(s) {
+    end := quote_end(s, 0, s[0] == '"')
+    return end > 0 ? s[1:end - 1] : "", end, end > 0
+}
+
+// Where the quote opened at `q` closes, one byte past its partner, or 0 when it never does.
+// `esc` is whether a backslash hides that partner: `"..."` and `$'...'` say yes, `'...'` says
+// no. The ONE reading of a closing quote, so an argument and the chain split cannot disagree
+// about where a value ends.
+@(private = "file")
+quote_end :: proc(s: string, q: int, esc: bool) -> int {
+    for i := q + 1; i < len(s); i += 1 {
+        if esc && s[i] == '\\' && i + 1 < len(s) {
             i += 1 // an escaped quote is content, not the partner
             continue
         }
-        if s[i] == s[0] {
-            return s[1:i], i + 1, true
+        if s[i] == s[q] {
+            return i + 1
         }
     }
-    return "", 0, false
+    return 0
 }
 
 // The same span read as an ARGUMENT: double-quote escaping comes back off; a single-quoted span
