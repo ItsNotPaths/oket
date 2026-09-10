@@ -158,8 +158,19 @@ doc_caret_cell :: proc(a: ^App, id: store.Id, v: view.View,
 surface_paint :: proc(a: ^App, win_w, win_h: i32) {
     p := &a.painter
     ox, oy := gfx.painter_origin(p, win_w, win_h, a.ground.cols, a.ground.rows)
-    _, ch := gfx.painter_cell(p)
-    gfx.painter_draw(p, &a.ground, win_w, win_h, {f32(ox), f32(oy)}, {0, 0, win_w, win_h})
+    cw, ch := gfx.painter_cell(p)
+    // §6's order: the frame's boxes, then the cell grids into the rects it reserved. The pass
+    // brackets its own blend, because a box's colour is premultiplied.
+    gfx.mesher_begin(&a.mesher, win_w, win_h)
+    frame_paint(a, ox, oy)
+    gfx.mesher_end(&a.mesher)
+    // THE GROUND GRID IS THE BAR'S ROW. surface_draw writes nothing else into it, and a cell's
+    // background is OPAQUE — so painting the whole grid would cover the frame one call after it
+    // drew. Everything outside a panel and off that row belongs to the frame now (§2.1).
+    bar := a.frame.bar
+    gfx.painter_draw(p, &a.ground, win_w, win_h, {f32(ox), f32(oy)},
+                     {i32(ox + bar.x * cw), i32(oy + bar.y * ch),
+                      i32(bar.w * cw), i32(bar.h * ch)})
     top := oy + int(a.frame.strip.y) // where the frame's solve put the strip (frame.odin)
     ss := panel_spans(a)
     for &pn, i in a.panels {
