@@ -570,6 +570,7 @@ static void *open_browser(const oket_api *api, oket_self self, oket_doc doc,
         return NULL;
     }
     l->file = b->root;
+    b->hidden = 1; /* dotfiles are listed until :br.hidden hides them */
     rows_read(b, 0);
     oket_list_publish(api, self, l);
     oket_list_point(api, self, l, l->nrows > 1 ? 1 : 0);
