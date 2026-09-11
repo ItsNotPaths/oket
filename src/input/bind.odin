@@ -650,6 +650,19 @@ bind_scan :: proc(binds: []Bind, chord: Chord, want: Bind_Ctxs, kind: Kind,
     return {}, false
 }
 
+// Does anything in the table HOLD this key — is it a qualifier at all (PANELS.md §6). A key
+// that qualifies nothing must not qualify the next one: two keys overlapping is one hand moving
+// fast, and `left+right` is a chord no row answers. Asked of the whole table, because a gesture
+// is a gesture in every ctx and every kind.
+bind_holds :: proc(binds: []Bind, code: Code) -> bool {
+    for b in binds {
+        if b.chord.held == code {
+            return true
+        }
+    }
+    return false
+}
+
 // One tier, no fallthrough: is THIS ctx-and-kind already holding the chord. The clash check
 // wants this and not bind_lookup, because a narrower row shadowing a wider one is the feature
 // (§6) and a resolving lookup reports it as a collision.

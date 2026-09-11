@@ -4,6 +4,23 @@ import "core:strings"
 import "core:testing"
 import "../input"
 
+// A KEY QUALIFIES THE NEXT ONE ONLY IF A ROW HOLDS IT (PANELS.md §6). `tab` does, because the
+// picker's rows hold it. An arrow does not, and two arrows overlapping is one hand moving fast —
+// a `left+right` nobody wrote would resolve to nothing and eat the keystroke, which is what shut
+// the menubar under a quick left-then-right.
+@(test)
+only_a_bound_qualifier_holds :: proc(t: ^testing.T) {
+    binds := input.binds_default()
+    defer input.binds_destroy(&binds)
+
+    tab, _ := input.key_code("TAB")
+    testing.expect(t, input.bind_holds(binds[:], tab), "nothing holds tab")
+    for name in ([?]string{"LEFT", "RGHT", "UP", "DOWN", "RTRN", "ESC"}) {
+        code, _ := input.key_code(name)
+        testing.expectf(t, !input.bind_holds(binds[:], code), "%s qualifies the next key", name)
+    }
+}
+
 // The gate for build order step 2: describe answers for every chord, including unbound ones.
 
 @(test)

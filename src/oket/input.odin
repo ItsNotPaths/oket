@@ -96,11 +96,14 @@ key_event :: proc(a: ^App, ev: ^sdl.KeyboardEvent) {
         pick_release(a, code)
         return
     }
-    if a.held == 0 {
+    // A key that is down QUALIFIES the next one only if SOMETHING BINDS IT AS A QUALIFIER.
+    // `tab` holds because rows hold it; two arrows overlapping is one hand moving fast, and a
+    // `left+right` nobody wrote would resolve to nothing and eat the keystroke.
+    if a.held == 0 && input.bind_holds(a.binds[:], code) {
         a.held = code
     }
-    // The key that is down QUALIFIES the next one: `tab+enter` is a chord and `tab` on its own
-    // still is one, which is why holding it shadows nothing and repeats it instead.
+    // `tab+enter` is a chord and `tab` on its own still is one, which is why holding it shadows
+    // nothing and repeats it instead.
     handle_chord(a, input.Chord{code, mods_of(ev.mod), a.held == code ? 0 : a.held}, ev.repeat)
 }
 
