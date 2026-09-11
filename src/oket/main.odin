@@ -207,9 +207,8 @@ main :: proc() {
     for !a.quit {
         w, h: i32
         sdl.GetWindowSizeInPixels(a.window, &w, &h)
-        cols, rows := gfx.painter_fit(&a.painter, w, h)
         cw, ch := gfx.painter_cell(&a.painter)
-        surface_fit(&a, cols, rows, {cw, ch})
+        surface_fit(&a, int(w), int(h), {cw, ch})
         now := time.tick_now()
         moving := panels_step(&a, f32(time.duration_seconds(time.tick_diff(last, now))))
         last = now

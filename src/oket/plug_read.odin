@@ -163,8 +163,9 @@ world_make :: proc(a: ^App) -> ^Plug_World {
     w.world = {
         panes  = raw_data(w.panes),
         npanes = len(w.panes),
-        cols   = i32(a.ground.cols),
-        rows   = i32(a.ground.rows),
+        // The whole surface in cells: the window floored over the cell (§11).
+        cols   = i32(a.win.x / max(a.cell.x, 1)),
+        rows   = i32(a.win.y / max(a.cell.y, 1)),
     }
     return w
 }

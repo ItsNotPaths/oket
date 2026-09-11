@@ -5,22 +5,23 @@ import "../gfx"
 import "../strip"
 import app "../oket"
 
-// CHROME.md §11, which nothing gated. The frame solves in PIXELS and the kernel writes in CELLS,
-// so every rect crosses back through a snap that rounds both EDGES of a rect rather than its
-// width. `panel_cols`' `ceil` is what that replaced, and a width rounded on its own is what it
-// must not become.
+// CHROME.md §11. The frame solves in PIXELS against the WINDOW, so its edges are not cell
+// edges: the menubar sits on the top one and the bar on the bottom one. A pane FLOORS the
+// cells of text it holds and CEILS the cells of its grid, so no glyph is clipped, no pixel
+// goes uncovered, and the difference is the pane's own background.
 
-// A cell wide enough that a third of the view does not land on one, which is the case the snap
-// exists for. Rows are exact by construction: the solve's window is whole cells either way.
+// A cell wide enough that a third of the view does not land on one, and a window that does
+// not divide into rows, which is the case the floor and the ceil exist for.
 @(private = "file")
 CELL :: [2]int{8, 12}
 
-// 320 pixels over three panels is 106.667 each, or 13.333 cells. Rounding each WIDTH answers
-// 13+13+13 and loses a column off the end of the strip; `ceil` answers 14+14+14 and invents two.
-// Rounding the shared edges answers 13+14+13, which is the view.
+// 320 pixels over three panes is 106.667 each, or 13.333 cells. The text floors to 13 columns
+// and keeps the pane's left edge; the grid ceils to 14, so the pane's own background covers the
+// column the text does not reach and the strip loses no pixel to its ends. 103 pixels of height
+// do the same to the rows.
 @(test)
-three_panels_tile_the_view_in_whole_cells :: proc(t: ^testing.T) {
-    a, ok := bare_app(40, 10)
+three_panes_pin_their_text_and_cover_their_spans :: proc(t: ^testing.T) {
+    a, ok := bare_app()
     if !ok {
         return
     }
@@ -30,24 +31,43 @@ three_panels_tile_the_view_in_whole_cells :: proc(t: ^testing.T) {
     for &p in a.panels {
         p.size = app.WIDTH_FULL / 3
     }
-    app.surface_fit(&a, 40, 10, CELL)
+    app.surface_fit(&a, 320, 115, CELL)
 
-    cols := 0
-    for &p in a.panels {
-        cols += p.body.w
-    }
     testing.expect_value(t, a.frame.body.w, 40)
-    testing.expect_value(t, cols, 40)
+    for &p in a.panels {
+        testing.expect_value(t, p.body.w, 13)
+        testing.expect_value(t, p.grid.cols, 14)
+        testing.expect_value(t, p.body.h, 8)
+        testing.expect_value(t, p.grid.rows, 9)
+    }
 }
 
-// The mechanism on its own, so a failure above says which half broke: a shared edge rounds ONCE,
-// so neither slot can gain the column the other lost.
+// The mechanism on its own, so a failure above says which half broke: the run floors into
+// text and ceils into coverage, so a glyph is never clipped and no pixel is left uncovered.
 @(test)
-a_shared_edge_rounds_once :: proc(t: ^testing.T) {
-    left := strip.Span{0, 106.667}
-    right := strip.Span{106.667, 106.666}
-    testing.expect_value(t, app.frame_cols(left, CELL.x), 13)
-    testing.expect_value(t, app.frame_cols(right, CELL.x), 14)
+a_run_floors_its_text_and_ceils_its_cover :: proc(t: ^testing.T) {
+    testing.expect_value(t, app.frame_cols(106.667, CELL.x), 13)
+    testing.expect_value(t, app.frame_cover(106.667, CELL.x), 14)
+    testing.expect_value(t, app.frame_cols(104.0, CELL.x), 13)
+    testing.expect_value(t, app.frame_cover(104.0, CELL.x), 13)
+}
+
+// The small end: a strip that holds less than one cell floors the text to nothing and ceils
+// the cover to one, so the pane is a sliver of its own background and nothing faults.
+@(test)
+a_pane_smaller_than_a_cell_holds_no_text :: proc(t: ^testing.T) {
+    a, ok := bare_app()
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+    app.surface_fit(&a, 5, 20, CELL)
+
+    p := app.panel_focused(&a)
+    testing.expect_value(t, p.body.w, 0)
+    testing.expect_value(t, p.body.h, 0)
+    testing.expect_value(t, p.grid.cols, 1)
+    testing.expect_value(t, p.grid.rows, 1)
 }
 
 // CHROME.md §15 stage 6. The frame's pass runs AFTER the panels, so the strip's ground is the
@@ -65,10 +85,10 @@ the_strips_ground_is_the_gaps :: proc(t: ^testing.T) {
         p.size = app.WIDTH_FULL / 2
     }
     a.config.gap = 4
-    app.surface_fit(&a, 40, 10, CELL)
+    app.surface_fit(&a, 320, 120, CELL)
 
     ss := app.panel_spans(&a)
-    gaps := app.ground_gaps(&a, 0, 0, ss)
+    gaps := app.ground_gaps(&a, ss)
     testing.expect_value(t, len(gaps), 3) // two ends and the one gap between them
 
     left, right := strip.span(a.strip, ss, 0), strip.span(a.strip, ss, 1)
@@ -83,12 +103,12 @@ the_strips_ground_is_the_gaps :: proc(t: ^testing.T) {
     }
 }
 
-// CHROME.md §13.3 and §15 stage 5. The ground grid is drawn OVER the frame's pass, so a cell
-// of it that paints a colour is a frame pixel covered one call later. At rest it covers NOTHING
-// AT ALL, because the bar's row is a box. An open command line is the one thing that fills a
-// row of it.
+// CHROME.md §13.3 and §15 stage 5. The bar's grid is drawn OVER the frame's pass, so a cell
+// of it that paints a colour is a frame pixel covered one call later. At rest it covers
+// NOTHING AT ALL, because the bar's row is a box. An open command line is the one thing that
+// fills its one row.
 @(test)
-the_ground_covers_nothing_but_an_open_line :: proc(t: ^testing.T) {
+the_bar_covers_nothing_but_an_open_line :: proc(t: ^testing.T) {
     a, ok := bare_app(40, 10)
     if !ok {
         return
@@ -97,16 +117,16 @@ the_ground_covers_nothing_but_an_open_line :: proc(t: ^testing.T) {
     app.ring_add(&a, scratch_doc(&a, "note", "x"))
 
     app.surface_draw(&a)
-    lo, hi := solid_rows(&a.ground)
+    lo, hi := solid_rows(&a.bar_grid)
     testing.expect_value(t, lo, -1)
     testing.expect_value(t, hi, -1)
 
     app.handle_chord(&a, chord("AB03", {.Alt})) // alt+c
     testing.expect(t, app.cl_active(&a), "the second pass is not the second path")
     app.surface_draw(&a)
-    lo, hi = solid_rows(&a.ground)
-    testing.expect_value(t, lo, a.frame.bar.y)
-    testing.expect_value(t, hi, a.frame.bar.y)
+    lo, hi = solid_rows(&a.bar_grid)
+    testing.expect_value(t, lo, 0)
+    testing.expect_value(t, hi, 0)
 }
 
 // The first and last row holding a cell that would cover the frame; -1, -1 for a grid with none.

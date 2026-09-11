@@ -212,21 +212,6 @@ painter_cell :: proc(p: ^Painter) -> (w, h: int) {
     return int(f32(p.atlas.cell_w) * p.scale), int(f32(p.atlas.cell_h) * p.scale)
 }
 
-// Where the grid's top-left corner sits. A whole number of cells almost never fills a window
-// exactly, and the remainder is split evenly rather than left along the right and bottom edges:
-// the mismatch then reads as a border and not as the grid having slipped. Under one cell in
-// each axis, so the two margins differ by at most the odd pixel.
-painter_origin :: proc(p: ^Painter, win_w, win_h: i32, cols, rows: int) -> (x, y: int) {
-    w, h := painter_cell(p)
-    return max(0, (int(win_w) - w * cols) / 2), max(0, (int(win_h) - h * rows) / 2)
-}
-
-// Cells the grid holds at the painter's cell size, for the window it is drawn into.
-painter_fit :: proc(p: ^Painter, win_w, win_h: i32) -> (cols, rows: int) {
-    w, h := painter_cell(p)
-    return max(1, int(win_w) / w), max(1, int(win_h) / h)
-}
-
 // Convert top-left float bounds to an outward-rounded GL scissor box.
 painter_scissor :: proc(clip: Rect, win_h: i32) -> (x, y, w, h: i32) {
     x0 := i32(math.floor(clip.x))

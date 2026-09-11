@@ -67,8 +67,8 @@ screen_has_no_tofu :: proc(t: ^testing.T) {
     testing.expect(t, strings.contains(snap, "oket"))
 }
 
-// The grid follows the window: a resize re-fits and the screen still draws inside it. The
-// smallest fit painter_fit will hand back is one cell, and a one-cell grid must not fault.
+// The grid follows the window: a resize re-fits and the screen still draws inside it. A
+// one-cell fit is the smallest there is, and a one-cell grid must not fault.
 @(test)
 screen_survives_any_fit :: proc(t: ^testing.T) {
     a, ok := gfx.atlas_fallback()

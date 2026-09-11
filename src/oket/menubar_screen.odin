@@ -117,9 +117,10 @@ menu_rows :: proc(a: ^App) -> int {
 menubar_frame :: proc(a: ^App, allocator := context.temp_allocator) -> menu.Bar {
     b := menubar_build(a, allocator)
     b.y = 0 // either way: constant reserves the row, hidden draws over whatever is on it
-    // Everything but the bar's row, and read off the frame rather than counted here: what a
+    // The width CEILS over the window, so a name can clip on its last glyph (§11). What a
     // list may fill is the menubar's own rows plus the strip's (frame.odin).
-    b.cols, b.rows = a.frame.bar.w, a.frame.menu.h + a.frame.body.h
+    b.cols = frame_cover(f32(a.win.x), a.cell.x)
+    b.rows = a.frame.menu + a.frame.body.h
     b.cell = {f32(a.cell.x), f32(a.cell.y)}
     return b
 }
@@ -163,19 +164,17 @@ menu_layer :: proc(a: ^App, part: Menu_Part, box: menu.Box) {
     l.at, l.lit, l.on = box.at, -1, true
 }
 
-// Over the panels, because a menu a panel covers is a menu nobody can read. The origin is the
-// ground's corner plus the box's own cells; nothing here slides, so there is no camera in it.
+// Over the panels, because a menu a panel covers is a menu nobody can read. The layers sit at
+// the window's own pixels; nothing here slides, so there is no camera in it.
 menubar_paint :: proc(a: ^App, win_w, win_h: i32) {
     p := &a.painter
-    ox, oy := gfx.painter_origin(p, win_w, win_h, a.ground.cols, a.ground.rows)
     cw, ch := gfx.painter_cell(p)
     for &l in a.menu {
         if !l.on {
             continue
         }
-        x, y := f32(ox) + l.at.x, f32(oy) + l.at.y
-        gfx.painter_draw(p, &l.grid, win_w, win_h, {x, y},
-                         {x, y, f32(l.grid.cols * cw), f32(l.grid.rows * ch)})
+        gfx.painter_draw(p, &l.grid, win_w, win_h, l.at,
+                         {l.at.x, l.at.y, f32(l.grid.cols * cw), f32(l.grid.rows * ch)})
     }
 }
 

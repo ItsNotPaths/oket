@@ -321,8 +321,8 @@ the_listing_draws_ls_la_through_the_kernels_renderer :: proc(t: ^testing.T) {
         testing.expect(t, strings.has_suffix(rows[i], want), rows[i])
         testing.expect_value(t, len(rows[i]), PREFIX + len(want))
     }
-    bar := gfx.grid_snapshot(&a.ground, context.temp_allocator)
-    testing.expect(t, strings.has_prefix(strings.split_lines(bar, context.temp_allocator)[4],
+    bar := gfx.grid_snapshot(&a.bar_grid, context.temp_allocator)
+    testing.expect(t, strings.has_prefix(strings.split_lines(bar, context.temp_allocator)[0],
                                          "files 1"), bar)
 }
 

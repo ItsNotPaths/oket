@@ -48,25 +48,23 @@ PROUD :: f32(1)
 
 // The frame, as quads. One upload and one draw for all of it (mesher_paint): the whole frame is
 // a few hundred vertices, so there is no handle per box for anyone to release.
-frame_paint :: proc(a: ^App, ox, oy: int, slots: []strip.Span) {
+frame_paint :: proc(a: ^App, slots: []strip.Span) {
     verts := make([dynamic]gfx.Chrome_Vertex, 0, 64, context.temp_allocator)
     idx := make([dynamic]c.int, 0, 192, context.temp_allocator)
 
-    for gap in ground_gaps(a, ox, oy, slots) {
+    for gap in ground_gaps(a, slots) {
         gfx.box_mesh(&verts, &idx, gap, ground_look(a))
     }
-    at := [2]int{ox, oy}
-    gfx.box_mesh(&verts, &idx, frame_px(a.frame.bar, at, a.cell), bar_look(a))
+    gfx.box_mesh(&verts, &idx, a.frame.bar, bar_look(a))
 
     // The camera is applied HERE, which is the whole reason a hand-rolled pass can frame a panel
     // at all: a stylesheet answers the resting strip, and a scrolled one would draw its frames
     // where the panels are not (§2.1).
     st := a.frame.strip
-    x0, y0 := f32(ox), f32(oy)
     for _, i in a.panels {
         s := strip.span(a.strip, slots, i)
         gfx.box_mesh(&verts, &idx,
-                     {x0 + s.x - PROUD, y0 + st.y - PROUD, s.w + 2 * PROUD, st.h + 2 * PROUD},
+                       {s.x - PROUD, st.y - PROUD, s.w + 2 * PROUD, st.h + 2 * PROUD},
                      groove_look(a))
     }
 
@@ -78,7 +76,7 @@ frame_paint :: proc(a: ^App, ox, oy: int, slots: []strip.Span) {
         if !l.on {
             continue
         }
-        grid := gfx.Rect{f32(ox) + l.at.x, f32(oy) + l.at.y,
+        grid := gfx.Rect{l.at.x, l.at.y,
                         f32(l.grid.cols * a.cell.x), f32(l.grid.rows * a.cell.y)}
         if part == .Bar {
             gfx.box_mesh(&verts, &idx, grid, menu_look(a))
@@ -109,20 +107,19 @@ row_px :: proc(box: gfx.Rect, row: int, cell: [2]int) -> gfx.Rect {
 // past the last. One rect spanning the strip would cover the documents, which is what the
 // reorder cost it. Each keeps the strip's own `y` and `h`, so `box_mesh` lerps one gradient down
 // all of them and no seam shows between one gap and the next.
-ground_gaps :: proc(a: ^App, ox, oy: int, slots: []strip.Span,
+ground_gaps :: proc(a: ^App, slots: []strip.Span,
                     allocator := context.temp_allocator) -> []gfx.Rect {
     st := a.frame.strip
-    x0, y0 := f32(ox), f32(oy)
     out := make([dynamic]gfx.Rect, 0, len(a.panels) + 1, allocator)
     left := st.x
     for _, i in a.panels {
         s := strip.span(a.strip, slots, i)
-        append(&out, gfx.Rect{x0 + left, y0 + st.y, s.x - left, st.h})
+        append(&out, gfx.Rect{left, st.y, s.x - left, st.h})
         // A panel scrolled off the left edge starts behind the last one's end, and a gap that
         // walked backwards would be drawn OVER the document beside it.
         left = max(left, s.x + s.w)
     }
-    append(&out, gfx.Rect{x0 + left, y0 + st.y, st.x + st.w - left, st.h})
+    append(&out, gfx.Rect{left, st.y, st.x + st.w - left, st.h})
     return out[:]
 }
 

@@ -15,15 +15,15 @@ import "../work"
 App :: struct {
     window:       ^sdl.Window,
     painter:      gfx.Painter,
-    // Two lattices, not one (PANELS.md §7). The ground is the screen's, at whole cells: the
-    // bar, and the ground a panel is drawn onto. A panel is a window onto a document and takes
-    // an origin of its own, so it can slide without dragging the bar with it.
-    ground:       gfx.Grid,
+    // The bar's own one-row grid (§11), anchored to the window's bottom edge: the one thing the
+    // kernel writes onto the window itself. A panel is a window onto a document and takes a
+    // grid of its own, so it can slide without dragging the bar with it.
+    bar_grid:     gfx.Grid,
     // Where the frame's last solve put every piece of it (frame.odin, CHROME.md §2.1). Read by
     // the draw, the paint and the hit test; computed by none of them.
     frame:        Frame,
-    // The frame's pass (CHROME.md §6): the boxes AROUND a document, as pixels. `ground` above
-    // is still the cell grid, and the two are two lattices on purpose (PANELS.md §7).
+    // The frame's pass (CHROME.md §6): the boxes AROUND a document, as pixels. The grids are
+    // cells and these are pixels, two lattices on purpose (PANELS.md §7).
     mesher:       gfx.Mesher,
     // The strip (PANELS.md §2, §5). A default start is one panel at full width, which is a
     // strip of length one and not a special case; `focus` says which one the ring and the keys
@@ -40,9 +40,10 @@ App :: struct {
     // meaningful then, and menu_open resets it.
     menu_nav:     Menu_Nav,
     strip:        strip.Strip,
-    // The cell, in pixels, as the last fit measured it. The grids are cells and the strip is
-    // pixels, so the conversion is written down once rather than asked of the painter from
-    // every rectangle that needs it — a test has no painter and still has a strip.
+    // The window and the cell, in pixels, as the last fit measured them. The grids are cells
+    // and the strip is pixels, so the conversion is written down once rather than asked of the
+    // painter from every rectangle that needs it — a test has no painter and still has a strip.
+    win:          [2]int,
     cell:         [2]int,
     theme:        gfx.Theme,
     docs:         store.Store,
@@ -126,8 +127,9 @@ App :: struct {
     hand:         ^sdl.Cursor, // the pointer over a field a click would act on
     preedit:      string, // owned; the platform IME's uncommitted text, "" outside composition
     ime_area:     sdl.Rect, // the caret rect last handed to SDL, so a still frame says nothing
-    // Where the command line's row was drawn, past the prompt, in ground cells. A document's
-    // own rectangle is its panel's (panel.odin), because a cell number counts from one grid.
+    // Where the command line's row was drawn, past the prompt, in the bar grid's cells. A
+    // document's own rectangle is its panel's (panel.odin), because a cell number counts from
+    // one grid.
     bar:          Cells,
     message:      string, // owned; lives until the next keystroke
     clips:        [dynamic]Clip, // owned; the kill ring, newest first
@@ -217,7 +219,7 @@ app_destroy :: proc(a: ^App) {
     delete(a.preedit)
     panels_destroy(a)
     menubar_destroy(a)
-    gfx.grid_destroy(&a.ground)
+    gfx.grid_destroy(&a.bar_grid)
     // The window's two: the cursor it set, and the atlas its GL context holds. A harness App has
     // neither, and freeing a texture into a context that is not there is a crash on the way out.
     if a.window != nil {

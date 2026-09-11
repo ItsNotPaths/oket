@@ -15,8 +15,8 @@ import "../store"
 import "../txt"
 import app "../oket"
 
-// The App harness the end-to-end tests share: a kernel with the frame's two grids and a bind
-// table and no window, which is what lets a click or a chain be driven from a test at all.
+// The App harness the end-to-end tests share: a kernel with the bar's grid, the panel grids
+// and a bind table, and no window, which is what lets a click or a chain be driven from a test.
 
 // A directory of its own per test: the runner is threaded, and two tests sharing one would each
 // be reading the other's setup.
@@ -57,15 +57,12 @@ bare_app :: proc(cols := 50, rows := 4) -> (a: app.App, ok: bool) {
     // Where oket thinks it is, the way app_init sets it: the home page names it and a terminal
     // is spawned in it, so an App without one is not one this suite can ask about.
     a.dir, _ = os.get_working_directory(context.allocator)
-    if !gfx.grid_init(&a.ground, cols, rows) {
-        return {}, false
-    }
-    app.surface_fit(&a, cols, rows) // the strip, sized by the one rule that owns the split
+    app.surface_fit(&a, cols, rows) // the bar's grid and the strip, from the one fit
     return a, true
 }
 
 // The strip is one panel long (PANELS.md §5), and its grid is where a document is drawn. Every
-// snapshot below diffs that grid rather than the ground, which carries only the bar.
+// snapshot below diffs that grid rather than the bar's, which carries only the bar.
 panel_grid :: proc(a: ^app.App) -> ^gfx.Grid {
     return &app.panel_focused(a).grid
 }
@@ -116,7 +113,7 @@ close_app :: proc(a: ^app.App) {
     app.find_free(a)
     app.panels_destroy(a)
     app.menubar_destroy(a) // the three menu grids, the same as app_destroy
-    gfx.grid_destroy(&a.ground)
+    gfx.grid_destroy(&a.bar_grid)
 }
 
 // A document with a file and text in it, and no owner behind it. The kernel has no `text` kind

@@ -46,9 +46,9 @@ stack_free :: proc(stack: []font.Entry) {
     delete(stack)
 }
 
-// The zoom, and it is the atlas that changes rather than the layout: the frame loop asks
-// `painter_cell` for the cell and `painter_fit` for the grid every frame, so a new size relays
-// itself. The viewport is view state and survives it, the same way it survives a resize (§11).
+// The zoom, and it is the atlas that changes rather than the layout: the frame loop re-fits
+// the grids from the window every frame, so a new size relays itself. The viewport is view
+// state and survives it, the same way it survives a resize (§11).
 
 // The size baked into the atlas now, and the one the display asked for at startup.
 font_init :: proc(a: ^App, px: int) {

@@ -236,10 +236,10 @@ panel_dests :: proc(a: ^App) -> []strip.Span {
 
 // A grid of no rows is legal and draws nothing, which is what keeps the small end from being a
 // special case.
-panels_fit :: proc(a: ^App, cols, rows: int) {
+panels_fit :: proc(a: ^App) {
     a.strip.tau = f32(a.config.tau) / 1000 // the file is milliseconds; the clock is seconds
     // Every rect below comes out of here, and nothing below computes one (frame.odin, §2.1).
-    frame_fit(a, cols, rows)
+    frame_fit(a, a.win.x, a.win.y)
     // A WINDOW resize is not a panel resize: the view moved under every panel at once, and
     // animating that would be the window's own resize drawn twice. So they land, and so does
     // everything while tau is zero, which is what motion off means (§7).
@@ -253,6 +253,8 @@ panels_fit :: proc(a: ^App, cols, rows: int) {
     if land {
         a.strip.camera = a.strip.aim
     }
+    // The grid covers the strip; the text floors onto the pane's top-left (§11).
+    tall := frame_cover(a.frame.strip.h, a.cell.y)
     for &p, i in a.panels {
         if land || p.now.w <= 0 {
             p.now = dest[i] // a panel with no width yet lands; nothing slides in from nothing
@@ -260,11 +262,11 @@ panels_fit :: proc(a: ^App, cols, rows: int) {
         // THE DOCUMENT LAYS OUT AT THE WIDTH THE PANEL IS ARRIVING AT, ONCE (§7). So the body
         // is the destination and not what is on screen this frame, and the clip animates over
         // text that is already in its final layout — one reflow per resize, and one winsize.
-        w, high := frame_cols(dest[i], a.cell.x), a.frame.body.h
-        p.body = {0, 0, w, high}
+        wide := frame_cover(dest[i].w, a.cell.x)
+        p.body = {0, 0, frame_cols(dest[i].w, a.cell.x), a.frame.body.h}
         // While it moves the grid holds both ends of the motion, so it is allocated once per
         // resize rather than once per frame.
-        gfx.grid_resize(&p.grid, p.now == dest[i] ? w : max(w, p.grid.cols), high)
+        gfx.grid_resize(&p.grid, p.now == dest[i] ? wide : max(wide, p.grid.cols), tall)
     }
 }
 
@@ -297,7 +299,7 @@ panels_step :: proc(a: ^App, dt: f32) -> bool {
 // The strip, laid out again from what the last fit measured. Every verb that changes the strip
 // ends here, so a panel is the right size before the next draw rather than after it.
 panels_relayout :: proc(a: ^App) {
-    panels_fit(a, a.ground.cols, a.ground.rows)
+    panels_fit(a)
 }
 
 panels_destroy :: proc(a: ^App) {

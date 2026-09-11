@@ -7,14 +7,13 @@ import "../strip"
 import "../txt"
 import "../view"
 
-// The kernel's frame: the strip's documents in their panels, the bar on the ground's last row.
+// The kernel's frame: the strip's documents in their panels, the bar on the window's bottom row.
 // A panel standing on nothing falls through to the kernel screen, which is what that floor
 // exists for (§7, §13).
 //
-// One grid per panel plus the ground, drawn in a call each (PANELS.md §7). The ground is the
-// screen lattice and a panel is a window onto a document, so a panel that is narrower than the
-// screen, or standing at a fractional origin, costs an origin and a clip here and nothing
-// anywhere below.
+// One grid per panel plus the bar's, drawn in a call each (PANELS.md §7). A panel is a window
+// onto a document, so a panel that is narrower than the strip, or standing at a fractional
+// origin, costs an origin and a clip here and nothing anywhere below.
 
 // The surface the panels sit on, and the window's own margins with it: one answer, so a gap and
 // the edge past the strip cannot end up two colours. Darker than a panel, so the strip reads as
@@ -23,25 +22,23 @@ ground_bg :: proc(a: ^App) -> [3]f32 {
     return gfx.theme_behind(a.theme, a.config.behind)
 }
 
-// The ground is the whole fit; the strip gets everything above the bar. The cell size comes in
-// because the strip is pixels and the grids are cells (§7); a caller with no painter leaves a
-// cell one pixel, and its strip arithmetic then reads in columns.
-surface_fit :: proc(a: ^App, cols, rows: int, cell := [2]int{1, 1}) {
-    a.cell = cell
-    gfx.grid_resize(&a.ground, cols, rows)
-    panels_fit(a, cols, rows)
+// The window is the fit's root, in pixels (§11): the bar's one-row grid sits on the bottom
+// edge, the strip takes everything above it, and the panes cover what the cells cannot split.
+// The cell comes in because the strip is pixels and the grids are cells (§7).
+surface_fit :: proc(a: ^App, win_w, win_h: int, cell := [2]int{1, 1}) {
+    a.cell, a.win = cell, {win_w, win_h}
+    gfx.grid_resize(&a.bar_grid, frame_cover(f32(win_w), cell.x), 1)
+    panels_fit(a)
 }
 
 surface_draw :: proc(a: ^App) {
-    g, th := &a.ground, a.theme
-    // The row the frame's solve kept for it, and never `rows - 1` counted here (frame.odin).
-    row := a.frame.bar.y
-    a.bar = {len(CL_PROMPT), row, max(a.frame.bar.w - len(CL_PROMPT), 0), 1}
+    g, th := &a.bar_grid, a.theme
+    // The line's row past the prompt; the bar grid is one row, at the window's bottom (§11).
+    a.bar = {len(CL_PROMPT), 0, max(g.cols - len(CL_PROMPT), 0), 1}
 
     // NOTHING, not a colour: what a gap shows through is the FRAME's ground, and this grid is
     // painted over it (§13.3). The bar's row is the only thing written into it.
     gfx.grid_clear(g, th[.Fg], gfx.NOTHING)
-    // The bar is the frame's row (§11), over whatever is below it — the kernel screen included.
     // While the command line is open it IS the bar: a state the user cannot see is the thing
     // §1 exists to kill, and the line is its own label.
     // THE ROW CHANGES TEXTURE WHEN YOU OPEN IT, which is the state made visible: at rest the
@@ -50,7 +47,7 @@ surface_draw :: proc(a: ^App) {
     defer if cl_active(a) {
         cl_draw(a, g, th)
     } else {
-        gfx.grid_write(g, 0, row, bar_text(a), bar_theme(th)[.Dim], gfx.NOTHING)
+        gfx.grid_write(g, 0, 0, bar_text(a), bar_theme(th)[.Dim], gfx.NOTHING)
     }
 
     for &p, i in a.panels {
@@ -109,14 +106,13 @@ panel_draw :: proc(a: ^App, p: ^Panel, marked: bool) {
     }
 }
 
-// The focused caret's cell in framebuffer pixels — the same origin math surface_paint draws
-// with, so what the platform IME docks to is where the caret is marked (IME.md §8).
-caret_px :: proc(a: ^App, win_w, win_h: i32) -> (x, y: int, ok: bool) {
-    ox, oy := gfx.painter_origin(&a.painter, win_w, win_h, a.ground.cols, a.ground.rows)
+// The focused caret's cell in framebuffer pixels — the same anchors surface_paint draws with,
+// so what the platform IME docks to is where the caret is marked (IME.md §8).
+caret_px :: proc(a: ^App) -> (x, y: int, ok: bool) {
     cw, ch := gfx.painter_cell(&a.painter)
     if cl_active(a) {
         cx, cy, on := doc_caret_cell(a, a.cl.doc, a.cl.view, a.bar.x, a.bar.y, a.bar.w, 1)
-        return ox + cx * cw, oy + cy * ch, on
+        return cx * cw, int(a.frame.bar.y) + cy * ch, on
     }
     p := panel_focused(a)
     s := panel_slot(a, p)
@@ -129,7 +125,7 @@ caret_px :: proc(a: ^App, win_w, win_h: i32) -> (x, y: int, ok: bool) {
         return 0, 0, false
     }
     it := strip.span(a.strip, panel_spans(a), a.focus)
-    return ox + int(it.x) + cx * cw, oy + int(a.frame.strip.y) + cy * ch, true
+    return int(it.x) + cx * cw, int(a.frame.strip.y) + cy * ch, true
 }
 
 @(private = "file")
@@ -150,38 +146,34 @@ doc_caret_cell :: proc(a: ^App, id: store.Id, v: view.View,
     return view.caret_cell(t, d, v, x, y, w, h, doc.cursors[doc.primary].head, dv)
 }
 
-// The frame, on the GPU: every panel, then the frame in what they left. A panel's origin is the
-// ground's corner plus what the strip says, which is pixels and not cells — that is the whole of
-// what a gap, a half width and a camera cost here (§7).
+// The frame, on the GPU: every panel, then the frame in what they left. A panel's origin is
+// what the strip says, in the window's own pixels — that is the whole of what a gap, a half
+// width and a camera cost here (§7).
 //
 // §6's order, and the DOCUMENTS GO FIRST (§15 stage 6): `gl_clear` has already laid the flat
 // ground under the window, so a box is a gradient over the pixels nothing claimed — the gaps,
-// the two rows, a ring around each panel and a dropdown across the lot.
+// the bar's row, a ring around each panel and a dropdown across the lot.
 surface_paint :: proc(a: ^App, win_w, win_h: i32) {
     p := &a.painter
-    ox, oy := gfx.painter_origin(p, win_w, win_h, a.ground.cols, a.ground.rows)
-    cw, ch := gfx.painter_cell(p)
     ss := panel_spans(a)
-    top := oy + int(a.frame.strip.y) // where the frame's solve put the strip (frame.odin)
+    st := a.frame.strip
     for &pn, i in a.panels {
         it := strip.span(a.strip, ss, i)
-        x := f32(ox) + it.x
         // The clip is the window's share of the panel, not the panel: one scrolled off the left
         // edge draws at a negative origin, and GL takes no negative box.
-        lo, hi := max(x, 0), min(x + it.w, f32(win_w))
+        lo, hi := max(it.x, 0), min(it.x + it.w, f32(win_w))
         if hi <= lo {
             continue
         }
-        gfx.painter_draw(p, &pn.grid, win_w, win_h, {x, f32(top)},
-                         {lo, f32(top), hi - lo, f32(pn.grid.rows * ch)})
+        // The clip is the strip's height, not the grid's rows: the pane covers what the
+        // cells cannot split.
+        gfx.painter_draw(p, &pn.grid, win_w, win_h, {it.x, st.y}, {lo, st.y, hi - lo, st.h})
     }
     // The pass brackets its own blend, because a box's colour is premultiplied.
     gfx.mesher_begin(&a.mesher, win_w, win_h)
-    frame_paint(a, ox, oy, ss)
+    frame_paint(a, ss)
     gfx.mesher_end(&a.mesher)
-    // The whole grid, over the boxes: every cell off the bar's row says NOTHING, and what draws
-    // there is the frame under it (§13.3).
-    gfx.painter_draw(p, &a.ground, win_w, win_h, {f32(ox), f32(oy)},
-                     frame_px({0, 0, a.ground.cols, a.ground.rows}, {ox, oy}, {cw, ch}))
+    // The bar's row, over the box the frame drew for it: every cell of it says NOTHING at rest.
+    gfx.painter_draw(p, &a.bar_grid, win_w, win_h, {a.frame.bar.x, a.frame.bar.y}, a.frame.bar)
     menubar_paint(a, win_w, win_h) // last, over the boxes the frame drew for its grids
 }
