@@ -352,13 +352,15 @@ a_recover_rewrites_the_page_that_offered_it :: proc(t: ^testing.T) {
     defer close_plug_app(&a)
     app.home_set(&a.home, home)
 
-    append(&a.quarantined, strings.clone("hello"))
+    // Must not collide with baked notes.md fallback which contains "hello".
+    tag := "qtest_hello_xyz"
+    append(&a.quarantined, strings.clone(tag))
     page := app.home_open(&a)
-    testing.expect(t, strings.contains(doc_text(&a, page), "hello"), doc_text(&a, page))
+    testing.expect(t, strings.contains(doc_text(&a, page), tag), doc_text(&a, page))
 
-    app.quarantine_clear(&a, "hello")
+    app.quarantine_clear(&a, tag)
     app.home_refresh(&a)
-    testing.expect(t, !strings.contains(doc_text(&a, page), "hello"),
+    testing.expect(t, !strings.contains(doc_text(&a, page), tag),
                    "the page kept a plugin that had been taken back")
 }
 

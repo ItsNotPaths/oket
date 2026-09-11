@@ -105,6 +105,16 @@ install_run :: proc(a: ^App, t: Install_Target) -> (ok: bool, msg: string) {
             fmt.sbprintfln(&b, "  %s -> %s (%d file%s)", name, dst, n, n == 1 ? "" : "s")
         }
     }
+    stage_ensure_installed(t.dirs.data)
+    {
+        dst, _ := filepath.join({t.dirs.data, NOTES_NAME}, context.temp_allocator)
+        if !os.exists(dst) && len(NOTES_BAKED) != 0 {
+            _ = os.make_directory_all(filepath.dir(dst))
+            if os.write_entire_file(dst, transmute([]u8)NOTES_BAKED) == nil {
+                fmt.sbprintfln(&b, "  %s -> %s (from binary)", NOTES_NAME, dst)
+            }
+        }
+    }
 
     // The one place config.conf is ever created. Written from the settings table, so what an
     // install lays down and what the kernel reads cannot drift (config.odin). binds.conf is NOT

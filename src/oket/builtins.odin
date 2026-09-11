@@ -785,7 +785,11 @@ builtin_pluginify :: proc(a: ^App, args: string, _: CL_Step) -> bool {
     if abs == "" {
         abs = dir
     }
-    script, _ := filepath.join({a.home.data, PLUGINIFY_SCRIPT}, context.temp_allocator)
+    script := stage_script_path(a)
+    if script == "" || (!os.exists(script) && len(STAGE_BAKED) == 0) {
+        message_set(a, fmt.tprintf(":pluginify: no build script at %s", script))
+        return false
+    }
     if !os.exists(script) {
         message_set(a, fmt.tprintf(":pluginify: no build script at %s", script))
         return false
@@ -829,7 +833,6 @@ pluginify_target :: proc(a: ^App, args: string) -> (dir, flags: string) {
 }
 
 USAGE_PLUGINIFY :: ":pluginify [<dir>] [--asan]"
-PLUGINIFY_SCRIPT :: "stage.sh"
 
 // `:harness [<sequence>] [<plugin>...]`: run a repro in a second oket with the fault net
 // uninstalled (AUTHORING.md §6). It hands the chain a command line rather than spawning

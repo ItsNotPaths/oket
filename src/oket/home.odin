@@ -30,6 +30,8 @@ import "../txt"
 // oket: notes are what shipped, so nothing at runtime has an opinion about them.
 NOTES_NAME :: "notes.md"
 
+NOTES_BAKED :: string(#load("../../notes.md"))
+
 // How many lines of the newest section the page shows before it stops and offers the file.
 NOTES_LINES :: 8
 
@@ -257,17 +259,26 @@ home_binds :: proc(a: ^App, p: ^Page) {
 
 // What changed in the build you are running, off notes.md in the data directory. The newest section
 // and no more: the page is a start's report and not a changelog, and the file is one row away.
+// File first, baked fallback: a dropped data/notes.md still wins, but the binary carries what
+// shipped.
 @(private = "file")
 home_notes :: proc(a: ^App, p: ^Page) {
     if a.home.data == "" {
         return
     }
     path, _ := filepath.join({a.home.data, NOTES_NAME}, context.temp_allocator)
-    raw, err := os.read_entire_file(path, context.temp_allocator)
-    if err != nil {
+    text: string
+    has_file := false
+    if raw, err := os.read_entire_file(path, context.temp_allocator); err == nil {
+        text = string(raw)
+        has_file = true
+    } else if len(NOTES_BAKED) != 0 {
+        path = fmt.tprintf("baked %s", NOTES_NAME)
+        text = NOTES_BAKED
+    } else {
         return
     }
-    title, body, found := notes_head(string(raw))
+    title, body, found := notes_head(text)
     if !found {
         return
     }
@@ -275,7 +286,11 @@ home_notes :: proc(a: ^App, p: ^Page) {
     for line in body[:min(len(body), NOTES_LINES)] {
         say(p, fmt.tprintf("  %s", line))
     }
-    row(p, "file", path, "   the rest of them")
+    if has_file {
+        row(p, "file", path, "   the rest of them")
+    } else {
+        row(p, "file", path, "   in the binary")
+    }
 }
 
 // The first `## <title>` in the file and the lines under it, blank ones at either end dropped.

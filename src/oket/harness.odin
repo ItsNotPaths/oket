@@ -118,7 +118,13 @@ harness_plug :: proc(a: ^App, arg: string) -> bool {
         }
         return harness_loaded(a, plug_load(a, so))
     }
-    script, _ := filepath.join({real.data, PLUGINIFY_SCRIPT}, context.temp_allocator)
+    script := stage_script_for_dir(real.data)
+    if script == "" || !os.exists(script) {
+        if len(STAGE_BAKED) == 0 {
+            fmt.eprintfln("%s: no build script at %s", HARNESS, script)
+            return false
+        }
+    }
     out, _ := filepath.join({a.home.data, PLUGIN_DIR}, context.temp_allocator)
     state, outs, errs, err := os.process_exec({command = {script, arg, out}},
                                               context.temp_allocator)
