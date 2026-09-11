@@ -10,8 +10,8 @@ import "../input"
 // binds.conf (§8). The kernel's defaults live in code and this file lays over them, so a release
 // that adds a verb needs no migration of anybody's file.
 //
-//     # --- browser ---
-//     [browser]
+//     # --- files ---
+//     [files]
 //     enter       = stage :open <path>
 //     click       = exec :open <path>
 //     right-click = stage :open <path>

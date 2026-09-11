@@ -1,5 +1,5 @@
 /* The file browser (§5, stage 10, and §14's link answer). A DIRECTORY IS A BUFFER FULL OF
- * NAMES: the document is `ls -la` output, typing into a row renames it, and `:br.commit` does
+ * NAMES: the document is `ls -la` output, typing into a row renames it, and `:fs.commit` does
  * the renames on disk. There is no listing widget here and no second, smaller editor — the
  * names go into a kernel document and the kernel draws and edits it.
  *
@@ -8,8 +8,8 @@
  * this file's is the platter — the walk, the open set, and the commit that renames.
  *
  * WHAT MAKES IT WORK is that a field carries a VALUE (desc.Field). The `path` field spans the
- * NAME and its value is the whole path, so a row DRAWS `browser.c` and ACTS on
- * `plugins/browser/browser.c`. Without a value the path has to hide in a column nothing
+ * NAME and its value is the whole path, so a row DRAWS `files.c` and ACTS on
+ * `plugins/files/files.c`. Without a value the path has to hide in a column nothing
  * renders, and a `columns` document cannot draw a caret — no caret, no typing.
  *
  * THE CARET IS PINNED TO THE END OF A NAME, and everything else follows from that. There is no
@@ -24,18 +24,18 @@
  * is a row in binds.conf:
  *
  *     [files]
- *     enter          = exec :br.enter <path> && :open <path>
- *     ctrl+backspace = br.up
+ *     enter          = exec :fs.enter <path> && :open <path>
+ *     ctrl+backspace = fs.up
  *
- * `br.enter` VISITS a directory — the buffer becomes that directory, the way dired's RET does —
+ * `fs.enter` VISITS a directory — the buffer becomes that directory, the way dired's RET does —
  * and STOPS the chain; over a file it does nothing and lets the chain reach the kernel's own
  * `:open`, which hands the file to the `edit` kind. An exit code is the only thing the plugin
  * contributes, and `&&` is doing the rest.
  *
- * `br.toggle` is still here and opens a subtree UNDER a row without leaving the directory. It
+ * `fs.toggle` is still here and opens a subtree UNDER a row without leaving the directory. It
  * is unbound by default — one binds.conf line from any key.
  *
- *     :pluginify plugins/browser      build it and load it
+ *     :pluginify plugins/files      build it and load it
  *     alt+f                           the listing, rooted where oket was started
  */
 /* stage.sh compiles with -std=c11, which hides the POSIX names this file reads the platter
@@ -438,7 +438,7 @@ static void b_row(void *ctx, oket_build *out, oket_list_row *lr, int32_t idx) {
  * `editable` and `char` selection come from the spec — point is a caret in a name and not a
  * highlighted row — and the ctrl+f filter reports through the echo line instead. */
 static const oket_list_spec LSPEC = {
-    "files", "br", OKET_SELECT_CHAR, 1, INDENT,
+    "files", "fs", OKET_SELECT_CHAR, 1, INDENT,
     b_count, b_match, b_row, NULL, NULL,
 };
 
@@ -454,7 +454,7 @@ static void harvest(oket_list *l, const oket_snapshot *s) {
     browser *b = l->ctx;
     size_t j;
 
-    if (s == NULL || s->lines != l->nrows) {
+    if (s == NULL || s->lines != 1 + l->nrows) {
         return;
     }
     for (j = 0; j < l->nrows; j++) {
@@ -466,11 +466,11 @@ static void harvest(oket_list *l, const oket_snapshot *s) {
         if (r->fixed) {
             continue;
         }
-        oket_line_range(s, j, &lo, &hi);
+        oket_line_range(s, 1 + j, &lo, &hi);
         if (hi - lo < (size_t)l->rows[j].name_off) {
             continue; /* the prefix is gone: not a row a name can be read out of */
         }
-        n = oket_list_name(s, l, j, name, sizeof name);
+        n = oket_list_name(s, l, 1 + j, name, sizeof name);
         shown = oket_dup(name, n);
         if (shown != NULL) {
             free(r->shown);
@@ -508,7 +508,7 @@ static void rebuild(const oket_api *api, oket_self self, oket_list *l, const oke
 
 /* The listing, rooted somewhere else, with the caret on `land`'s name once the rows exist.
  * Shared by every verb that MOVES rather than opens: visiting a directory, going back up, and
- * `:br.root`. The filter is this directory's, so it goes too. */
+ * `:fs.root`. The filter is this directory's, so it goes too. */
 static void reroot(const oket_api *api, oket_self self, oket_list *l, const oket_at *at,
                    const char *root, const char *land) {
     browser *b = l->ctx;
@@ -570,10 +570,10 @@ static void *open_browser(const oket_api *api, oket_self self, oket_doc doc,
         return NULL;
     }
     l->file = b->root;
-    b->hidden = 1; /* dotfiles are listed until :br.hidden hides them */
+    b->hidden = 1; /* dotfiles are listed until :fs.hidden hides them */
     rows_read(b, 0);
     oket_list_publish(api, self, l);
-    oket_list_point(api, self, l, l->nrows > 1 ? 1 : 0);
+    oket_list_point(api, self, l, l->nrows > 1 ? 2 : 1);
     return l;
 }
 
@@ -627,7 +627,7 @@ static int arg_path(const char *args, size_t args_len, char *out, size_t cap) {
     return 1;
 }
 
-/* `br.enter <path>` — the first half of the `enter` row.
+/* `fs.enter <path>` — the first half of the `enter` row.
  *
  * A directory is VISITED: the buffer becomes that directory, the way dired's RET does, and not
  * a subtree opening underneath the row. One document, one place, and the row you were standing
@@ -651,7 +651,7 @@ static int32_t enter_cmd(const oket_api *api, oket_self self, const oket_at *at,
     return 1;
 }
 
-/* `br.up` — out of whatever you are inside of: an open subtree closes, and otherwise the
+/* `fs.up` — out of whatever you are inside of: an open subtree closes, and otherwise the
  * listing goes up a directory and lands on the row it came from. `ctrl+backspace`, and the
  * same place the `..` row takes you. */
 static int32_t up_cmd(const oket_api *api, oket_self self, const oket_at *at,
@@ -666,7 +666,7 @@ static int32_t up_cmd(const oket_api *api, oket_self self, const oket_at *at,
     (void)args;
     (void)args_len;
     if (l == NULL) {
-        return refuse(api, self, "br.up: this document is not the browser's");
+        return refuse(api, self, "fs.up: this document is not the files list");
     }
     b = l->ctx;
     r = row_at_point(l, at, &line);
@@ -685,7 +685,7 @@ static int32_t up_cmd(const oket_api *api, oket_self self, const oket_at *at,
     return 0;
 }
 
-/* `br.into` — the directory under point, visited. The mirror of `br.up`, and UNBOUND by
+/* `fs.into` — the directory under point, visited. The mirror of `fs.up`, and UNBOUND by
  * default: `enter` already visits a directory, so this is one binds.conf line away for anyone
  * who wants the pair on two chords. Over a file it does nothing. */
 static int32_t into_cmd(const oket_api *api, oket_self self, const oket_at *at,
@@ -697,7 +697,7 @@ static int32_t into_cmd(const oket_api *api, oket_self self, const oket_at *at,
     (void)args;
     (void)args_len;
     if (l == NULL) {
-        return refuse(api, self, "br.into: this document is not the browser's");
+        return refuse(api, self, "fs.into: this document is not the files list");
     }
     r = row_at_point(l, at, &line);
     if (r == NULL || !r->dir) {
@@ -707,7 +707,7 @@ static int32_t into_cmd(const oket_api *api, oket_self self, const oket_at *at,
     return 0;
 }
 
-/* `br.up.row` and `br.down.row` — one row, and the caret lands at the END OF ITS NAME. That is
+/* `fs.up.row` and `fs.down.row` — one row, and the caret lands at the END OF ITS NAME. That is
  * the whole of what navigation means here: there is no column to keep, because every row is
  * arrived at ready to type into. */
 static int32_t step(const oket_api *api, oket_self self, oket_list *l, const oket_at *at,
@@ -728,7 +728,7 @@ static int32_t up_row_cmd(const oket_api *api, oket_self self, const oket_at *at
     (void)args;
     (void)args_len;
     if (l == NULL) {
-        return refuse(api, self, "br.up.row: this document is not the browser's");
+        return refuse(api, self, "fs.up.row: this document is not the files list");
     }
     return step(api, self, l, at, -1);
 }
@@ -740,12 +740,12 @@ static int32_t down_row_cmd(const oket_api *api, oket_self self, const oket_at *
     (void)args;
     (void)args_len;
     if (l == NULL) {
-        return refuse(api, self, "br.down.row: this document is not the browser's");
+        return refuse(api, self, "fs.down.row: this document is not the files list");
     }
     return step(api, self, l, at, 1);
 }
 
-/* `br.snap` — the caret back onto the end of the name of whatever row it is on. What `click` is
+/* `fs.snap` — the caret back onto the end of the name of whatever row it is on. What `click` is
  * bound to: the kernel moves point before it dispatches a button chord (§8), so this lands it
  * where a name is edited from rather than where the pointer happened to be. */
 static int32_t snap_cmd(const oket_api *api, oket_self self, const oket_at *at,
@@ -755,13 +755,13 @@ static int32_t snap_cmd(const oket_api *api, oket_self self, const oket_at *at,
     (void)args;
     (void)args_len;
     if (l == NULL) {
-        return refuse(api, self, "br.snap: this document is not the browser's");
+        return refuse(api, self, "fs.snap: this document is not the files list");
     }
     oket_list_point(api, self, l, oket_list_line(at->snap));
     return 0;
 }
 
-/* `br.toggle <path>` — the subtree under a row, opened or closed IN PLACE. Unbound by default:
+/* `fs.toggle <path>` — the subtree under a row, opened or closed IN PLACE. Unbound by default:
  * `enter` and the arrows are the hierarchy, and this is for the key you want it on. */
 static int32_t toggle_cmd(const oket_api *api, oket_self self, const oket_at *at,
                           const char *args, size_t args_len) {
@@ -782,7 +782,7 @@ static int32_t toggle_cmd(const oket_api *api, oket_self self, const oket_at *at
     return 1;
 }
 
-/* `:br.commit` — every name that has been typed over, renamed on disk.
+/* `:fs.commit` — every name that has been typed over, renamed on disk.
  *
  * The rows say what each line USED to be, so the diff is the whole of what to do: a line whose
  * text still matches its row is not touched, and the ones that do not are renamed in place.
@@ -790,7 +790,7 @@ static int32_t toggle_cmd(const oket_api *api, oket_self self, const oket_at *at
  * already exists is reported and skipped, which is the one failure worth being loud about.
  *
  * A document with a different number of lines than rows is one somebody has split or joined,
- * and no row can be trusted to name its own line any more. That refuses whole: `:br.reload` is
+ * and no row can be trusted to name its own line any more. That refuses whole: `:fs.reload` is
  * one key away and undo is the kernel's. */
 static int32_t commit_cmd(const oket_api *api, oket_self self, const oket_at *at,
                           const char *args, size_t args_len) {
@@ -804,11 +804,11 @@ static int32_t commit_cmd(const oket_api *api, oket_self self, const oket_at *at
     (void)args;
     (void)args_len;
     if (l == NULL) {
-        return refuse(api, self, "br.commit: this document is not the browser's");
+        return refuse(api, self, "fs.commit: this document is not the files list");
     }
     b = l->ctx;
-    if (s->lines != l->nrows) {
-        return refuse(api, self, "br.commit: a row was split or joined; f5 re-reads the listing");
+    if (s->lines != 1 + l->nrows) {
+        return refuse(api, self, "fs.commit: a row was split or joined; f5 re-reads the listing");
     }
     line = oket_list_line(s);
     harvest(l, s);
@@ -836,12 +836,12 @@ static int32_t commit_cmd(const oket_api *api, oket_self self, const oket_at *at
     rows_read(b, 0);
     oket_list_publish(api, self, l);
     oket_list_point(api, self, l, line);
-    snprintf(report, sizeof report, "br.commit: %d renamed, %d refused", done, failed);
+    snprintf(report, sizeof report, "fs.commit: %d renamed, %d refused", done, failed);
     oket_say(api, self, report);
     return failed == 0 ? 0 : 1;
 }
 
-/* `:br.reload` — the listing as the disk has it, and typed names dropped. The abort half of a
+/* `:fs.reload` — the listing as the disk has it, and typed names dropped. The abort half of a
  * rename, and the way back from an edit that broke a row. */
 static int32_t reload_cmd(const oket_api *api, oket_self self, const oket_at *at,
                           const char *args, size_t args_len) {
@@ -851,7 +851,7 @@ static int32_t reload_cmd(const oket_api *api, oket_self self, const oket_at *at
     (void)args;
     (void)args_len;
     if (l == NULL) {
-        return refuse(api, self, "br.reload: this document is not the browser's");
+        return refuse(api, self, "fs.reload: this document is not the files list");
     }
     line = oket_list_line(at->snap);
     rebuild(api, self, l, at, 0);
@@ -859,7 +859,7 @@ static int32_t reload_cmd(const oket_api *api, oket_self self, const oket_at *at
     return 0;
 }
 
-/* `:br.hidden` — dotfiles, shown or not. A row rather than a mode: it answers to `describe` and
+/* `:fs.hidden` — dotfiles, shown or not. A row rather than a mode: it answers to `describe` and
  * it is one line in binds.conf away from any key. */
 static int32_t hidden_cmd(const oket_api *api, oket_self self, const oket_at *at,
                           const char *args, size_t args_len) {
@@ -869,16 +869,16 @@ static int32_t hidden_cmd(const oket_api *api, oket_self self, const oket_at *at
     (void)args;
     (void)args_len;
     if (l == NULL) {
-        return refuse(api, self, "br.hidden: this document is not the browser's");
+        return refuse(api, self, "fs.hidden: this document is not the files list");
     }
     b = l->ctx;
     b->hidden = !b->hidden;
     rebuild(api, self, l, at, 1);
-    oket_list_point(api, self, l, 0);
+    oket_list_point(api, self, l, 1);
     return 0;
 }
 
-/* `:br.root <path>` — the listing, somewhere else. The lane already holds this document, so the
+/* `:fs.root <path>` — the listing, somewhere else. The lane already holds this document, so the
  * root moves rather than a second listing opening beside it. */
 static int32_t root_cmd(const oket_api *api, oket_self self, const oket_at *at,
                         const char *args, size_t args_len) {
@@ -886,10 +886,10 @@ static int32_t root_cmd(const oket_api *api, oket_self self, const oket_at *at,
     char root[PATH_CAP];
 
     if (l == NULL) {
-        return refuse(api, self, "br.root: this document is not the browser's");
+        return refuse(api, self, "fs.root: this document is not the files list");
     }
     if (!arg_path(args, args_len, root, sizeof root) || !is_dir(root)) {
-        return refuse(api, self, "br.root <path>, and it has to be a directory");
+        return refuse(api, self, "fs.root <path>, and it has to be a directory");
     }
     reroot(api, self, l, at, root, NULL);
     return 0;
@@ -909,30 +909,30 @@ OKET_MAIN {
     if (FILES == 0) {
         return 1;
     }
-    /* The typing, the erase pair, the filter and esc are the list core's: br.erase on
-     * backspace, br.erase.fwd for del, br.filter on ctrl+f, br.clear on esc. */
+    /* The typing, the erase pair, the filter and esc are the list core's: fs.erase on
+     * backspace, fs.erase.fwd for del, fs.filter on ctrl+f, fs.clear on esc. */
     oket_list_register(api, self, &LSPEC, FILES);
-    api->register_command(api, self, LIT("br.enter"),
+    api->register_command(api, self, LIT("fs.enter"),
                           LIT("visit the directory, and stop the chain if it was one"), enter_cmd);
-    api->register_command(api, self, LIT("br.up"),
+    api->register_command(api, self, LIT("fs.up"),
                           LIT("close this subtree, or visit the directory above"), up_cmd);
-    api->register_command(api, self, LIT("br.into"), LIT("visit the directory under point"),
+    api->register_command(api, self, LIT("fs.into"), LIT("visit the directory under point"),
                           into_cmd);
-    api->register_command(api, self, LIT("br.up.row"),
+    api->register_command(api, self, LIT("fs.up.row"),
                           LIT("one row up, caret at the end of its name"), up_row_cmd);
-    api->register_command(api, self, LIT("br.down.row"),
+    api->register_command(api, self, LIT("fs.down.row"),
                           LIT("one row down, caret at the end of its name"), down_row_cmd);
-    api->register_command(api, self, LIT("br.snap"),
+    api->register_command(api, self, LIT("fs.snap"),
                           LIT("caret back to the end of this row's name"), snap_cmd);
-    api->register_command(api, self, LIT("br.toggle"),
+    api->register_command(api, self, LIT("fs.toggle"),
                           LIT("open or close the subtree under the row, in place"), toggle_cmd);
-    api->register_command(api, self, LIT("br.commit"),
+    api->register_command(api, self, LIT("fs.commit"),
                           LIT("rename every row whose name has been typed over"), commit_cmd);
-    api->register_command(api, self, LIT("br.reload"),
+    api->register_command(api, self, LIT("fs.reload"),
                           LIT("read the directory again, dropping names typed and not committed"),
                           reload_cmd);
-    api->register_command(api, self, LIT("br.hidden"), LIT("show or hide dotfiles"), hidden_cmd);
-    api->register_command(api, self, LIT("br.root"), LIT("move the listing to another directory"),
+    api->register_command(api, self, LIT("fs.hidden"), LIT("show or hide dotfiles"), hidden_cmd);
+    api->register_command(api, self, LIT("fs.root"), LIT("move the listing to another directory"),
                           root_cmd);
     /* ASKED FOR, never claimed (§8). Every one shadows something wider — `enter` the
      * surface-tier `:open <path>`, the vertical arrows the kernel's own motion — and the
@@ -944,21 +944,21 @@ OKET_MAIN {
      * renamed. The hierarchy is on `enter` (a directory is visited) and on `ctrl+backspace` (out
      * of one), with the `..` row as the way up that needs no chord at all. */
     api->request_bind(api, self, LIT("files"), LIT("enter"),
-                      LIT("exec :br.enter <path> && :open <path>"));
+                      LIT("exec :fs.enter <path> && :open <path>"));
     /* Out, and it shadows nothing: `edit.delete_word_back` is written for the `text` context and
      * a listing is a surface. Backspace erases inside a name, so the modified one leaving the
      * directory reads the same way round. */
-    api->request_bind(api, self, LIT("files"), LIT("ctrl+backspace"), LIT("br.up"));
-    /* DOUBLE click, not single: a single one moves point and `br.snap` lands it on the name, so
+    api->request_bind(api, self, LIT("files"), LIT("ctrl+backspace"), LIT("fs.up"));
+    /* DOUBLE click, not single: a single one moves point and `fs.snap` lands it on the name, so
      * clicking into a row to rename it does not also take you somewhere. */
     api->request_bind(api, self, LIT("files"), LIT("double-click"),
-                      LIT("exec :br.enter <path> && :open <path>"));
-    api->request_bind(api, self, LIT("files"), LIT("click"), LIT("br.snap"));
-    api->request_bind(api, self, LIT("files"), LIT("up"), LIT("br.up.row"));
-    api->request_bind(api, self, LIT("files"), LIT("down"), LIT("br.down.row"));
-    api->request_bind(api, self, LIT("files"), LIT("del"), LIT("br.erase.fwd"));
-    api->request_bind(api, self, LIT("files"), LIT("ctrl+@AC02"), LIT("exec :br.commit"));
-    api->request_bind(api, self, LIT("files"), LIT("f5"), LIT("exec :br.reload"));
-    api->request_bind(api, self, LIT("files"), LIT("ctrl+@AB05"), LIT("exec :br.hidden"));
+                      LIT("exec :fs.enter <path> && :open <path>"));
+    api->request_bind(api, self, LIT("files"), LIT("click"), LIT("fs.snap"));
+    api->request_bind(api, self, LIT("files"), LIT("up"), LIT("fs.up.row"));
+    api->request_bind(api, self, LIT("files"), LIT("down"), LIT("fs.down.row"));
+    api->request_bind(api, self, LIT("files"), LIT("del"), LIT("fs.erase.fwd"));
+    api->request_bind(api, self, LIT("files"), LIT("ctrl+@AC02"), LIT("exec :fs.commit"));
+    api->request_bind(api, self, LIT("files"), LIT("f5"), LIT("exec :fs.reload"));
+    api->request_bind(api, self, LIT("files"), LIT("ctrl+@AB05"), LIT("exec :fs.hidden"));
     return 0;
 }

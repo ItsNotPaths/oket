@@ -344,13 +344,14 @@ the_grammar_list_is_a_document_of_rows :: proc(t: ^testing.T) {
         return
     }
     rows := lines_of(&a, id)
+    testing.expect_value(t, rows[0], "")
     testing.expectf(t, len(rows) > 100, "a registry of %d rows is not a registry", len(rows))
-    testing.expect(t, strings.contains(rows[0], "installed"), rows[0])
+    testing.expect(t, strings.contains(rows[1], "installed"), rows[1])
 
     // The gate built json into this directory, so its row is the one that is marked. Every
     // other row is a language you could have, drawn the same and starred when you do.
     marked, plain := 0, 0
-    for row in rows[1:] {
+    for row in rows[2:] {
         if strings.has_prefix(row, "*") {
             marked += 1
             testing.expect(t, strings.contains(row, "json"), row)
@@ -382,8 +383,9 @@ typing_into_the_list_filters_it :: proc(t: ^testing.T) {
     app.handle_chord(&a, chord("AC04", {.Ctrl})) // ctrl+f arms the filter
     type_text(&a, "rust")
     rows := lines_of(&a, id)
-    testing.expectf(t, len(rows) < whole && len(rows) > 1, "%d rows matched `rust`", len(rows) - 1)
-    for row in rows[1:] {
+    testing.expect(t, rows[0] == "/rust", rows[0])
+    testing.expectf(t, len(rows) < whole && len(rows) > 2, "%d rows matched `rust`", len(rows) - 2)
+    for row in rows[2:] {
         testing.expect(t, strings.contains(row, "rust"), row)
     }
     // Point is put on the first match, because the row it was standing on may not be in the
@@ -396,14 +398,14 @@ typing_into_the_list_filters_it :: proc(t: ^testing.T) {
     app.handle_chord(&a, chord("AC04", {.Ctrl}))
     type_text(&a, "rs")
     found := false
-    for row in lines_of(&a, id)[1:] {
+    for row in lines_of(&a, id)[2:] {
         found ||= strings.contains(row, " rust ")
     }
     testing.expect(t, found, "`rs` did not reach the grammar that colours one")
 
     // Backspace takes a rune off it and esc drops it, both through rows the plugin ASKED for.
     app.handle_chord(&a, chord("BKSP"))
-    testing.expect(t, strings.contains(lines_of(&a, id)[0], "/r"), lines_of(&a, id)[0])
+    testing.expect(t, lines_of(&a, id)[0] == "/r", lines_of(&a, id)[0])
     app.handle_chord(&a, chord("ESC"))
     testing.expect(t, !a.quit, "esc quit oket instead of clearing the filter")
     testing.expect_value(t, len(lines_of(&a, id)), whole)

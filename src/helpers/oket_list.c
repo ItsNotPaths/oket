@@ -17,7 +17,7 @@ static oket_list            *LISTS;
 static char LIST_FILTER_CMD[48], LIST_ERASE_CMD[48], LIST_ERASE_FWD_CMD[56], LIST_CLEAR_CMD[48];
 
 static size_t list_first(void) {
-    return LIST_SPEC != NULL && LIST_SPEC->head != NULL ? 1 : 0;
+    return 1 + (LIST_SPEC != NULL && LIST_SPEC->head != NULL ? 1 : 0);
 }
 
 static size_t list_clamp(size_t v, size_t lo, size_t hi) {
@@ -146,6 +146,17 @@ void oket_list_publish(const oket_api *api, oket_self self, oket_list *l) {
         shown += sp->match(l->ctx, i, l->filter, l->nfilter) ? 1 : 0;
     }
     memset(&out, 0, sizeof out);
+    {
+        char filt[OKET_LIST_FILTER_CAP + 2];
+        size_t flen = 0;
+        if (l->filtering) {
+            filt[0] = '/';
+            memcpy(filt + 1, l->filter, l->nfilter);
+            flen = 1 + l->nfilter;
+        }
+        oket_build_cell(&out, "filter", filt, flen);
+        oket_build_row(&out);
+    }
     if (sp->head != NULL) {
         size_t hn = sp->head(l->ctx, head, sizeof head, l, shown);
 
@@ -243,15 +254,10 @@ void oket_list_refilter(const oket_api *api, oket_self self, oket_list *l) {
     oket_list_point(api, self, l, line);
 }
 
-/* A list with no head row says its filter through the echo line instead. */
 static void list_feedback(const oket_api *api, oket_self self, oket_list *l) {
-    char msg[OKET_LIST_FILTER_CAP + 48];
-
-    if (LIST_SPEC->head != NULL || (!l->filtering && l->nfilter == 0)) {
-        return;
-    }
-    snprintf(msg, sizeof msg, "/%s   %zu shown; esc clears", l->filter, l->nrows);
-    oket_say(api, self, msg);
+    (void)api;
+    (void)self;
+    (void)l;
 }
 
 static void list_filter_changed(const oket_api *api, oket_self self, oket_list *l) {
@@ -389,11 +395,7 @@ static int32_t list_filter_cmd(const oket_api *api, oket_self self, const oket_a
     }
     if (!l->filtering) {
         l->filtering = 1;
-        if (LIST_SPEC->head != NULL) {
-            oket_list_publish(api, self, l); /* the head shows the prompt */
-        } else {
-            list_feedback(api, self, l);
-        }
+        oket_list_publish(api, self, l);
     }
     return 0;
 }

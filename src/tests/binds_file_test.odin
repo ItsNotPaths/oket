@@ -124,11 +124,11 @@ a_requested_row_becomes_a_file_row :: proc(t: ^testing.T) {
     defer close(&a)
     app.home_set(&a.home, dir)
 
-    app.binds_request(&a, "browser", "surface", "click", "exec :open <path>")
+    app.binds_request(&a, "files", "surface", "click", "exec :open <path>")
     app.binds_sync(&a)
 
     text := read(t, app.binds_path(&a))
-    testing.expect(t, strings.contains(text, app.binds_header("browser")))
+    testing.expect(t, strings.contains(text, app.binds_header("files")))
     testing.expect(t, strings.contains(text, "[surface]"))
     testing.expect(t, strings.contains(text, "click = exec :open <path>"))
 
@@ -189,7 +189,7 @@ a_shadowing_row_goes_in_live_with_a_note :: proc(t: ^testing.T) {
     app.home_set(&a.home, dir)
 
     // f1 is describe.key at Global; a surface row covers it there and nowhere else.
-    app.binds_request(&a, "browser", "surface", "f1", "exec :help <path>")
+    app.binds_request(&a, "files", "surface", "f1", "exec :help <path>")
     app.binds_sync(&a)
 
     text := read(t, app.binds_path(&a))

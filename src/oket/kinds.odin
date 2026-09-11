@@ -100,7 +100,7 @@ files_open :: proc(a: ^App, dir: string) -> (store.Id, bool) {
     kind, registered := kind_named(a, KIND_BROWSE)
     if !registered {
         message_set(a, fmt.tprintf(":open: nothing registers the %s kind, so nothing opens a directory (:plug load %s)",
-                                   KIND_BROWSE, "browser"))
+                                   KIND_BROWSE, "files"))
         return {}, false
     }
     return plug_open(a, kind, dir)

@@ -318,7 +318,7 @@ static void *open_list(const oket_api *api, oket_self self, oket_doc doc, const 
     }
     scan();
     oket_list_publish(api, self, l);
-    oket_list_point(api, self, l, 1);
+    oket_list_point(api, self, l, 2);
     if (ROOT[0] != 0 && !cache_present()) {
         fetch(api, self, doc);
     }

@@ -422,8 +422,7 @@ typedef struct {
      * typing must put its name LAST on the line: the edit machinery reads the name's end off
      * the line's own end. */
     void    (*row)(void *ctx, oket_build *b, oket_list_row *r, int32_t i);
-    /* Line 0, or NULL for a list with no head row — the filter then reports through the echo
-     * line instead. Called once per publish, before any row. */
+    /* Line 1 (line 0 is the filter), or NULL for a list with no head row. Called once per publish, before any row. */
     size_t  (*head)(void *ctx, char *out, size_t cap, const oket_list *l, int32_t shown);
     void    (*filtered)(void *ctx); /* the filter changed; may be NULL */
 } oket_list_spec;

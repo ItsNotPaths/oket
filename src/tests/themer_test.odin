@@ -45,7 +45,7 @@ themer_app :: proc(t: ^testing.T, name: string) -> (a: app.App, dir: string, ok:
     return a, dir, true
 }
 
-// THE GATE. Line 0 is the head; the rows sort here-first, then by name: dracula, gruvbox,
+// THE GATE. Line 1 is the head; line 0 is the filter; the rows sort here-first, then by name: dracula, gruvbox,
 // nord, zenburn.
 @(test)
 each_row_carries_the_chain_its_state_means :: proc(t: ^testing.T) {
@@ -65,20 +65,20 @@ each_row_carries_the_chain_its_state_means :: proc(t: ^testing.T) {
     d := store.store_descriptor(&a.docs, id)
     defer desc.release(d)
 
-    act, _ := desc.field_of(d, 1, "act") // dracula is here: a bare switch
+    act, _ := desc.field_of(d, 2, "act") // dracula is here: a bare switch
     testing.expect_value(t, act.value, ":set theme.name dracula")
-    rm, _ := desc.field_of(d, 1, "rm") // and pulled: the one kind of row del may remove
+    rm, _ := desc.field_of(d, 2, "rm") // and pulled: the one kind of row del may remove
     testing.expect(t, strings.contains(rm.value, "rm '"), rm.value)
     testing.expect(t, strings.contains(rm.value, "dracula.toml"), rm.value)
     testing.expect(t, strings.contains(rm.value, ":set theme.name gruvbox"), rm.value)
     testing.expect(t, strings.contains(rm.value, ".themer"), rm.value)
 
-    act2, _ := desc.field_of(d, 2, "act") // gruvbox is here but hand-made: switch only
+    act2, _ := desc.field_of(d, 3, "act") // gruvbox is here but hand-made: switch only
     testing.expect_value(t, act2.value, ":set theme.name gruvbox")
-    rm2, held := desc.field_of(d, 2, "rm") // NO removal: an empty span fills an empty hole
+    rm2, held := desc.field_of(d, 3, "rm") // NO removal: an empty span fills an empty hole
     testing.expect(t, held && rm2.value == "" && rm2.lo == rm2.hi, "a hand-made file grew an rm")
 
-    act3, _ := desc.field_of(d, 3, "act") // nord is a curl away: pull, manifest, switch, done
+    act3, _ := desc.field_of(d, 4, "act") // nord is a curl away: pull, manifest, switch, done
     testing.expect(t, strings.contains(act3.value, "curl -fsSL"), act3.value)
     testing.expect(t, strings.contains(act3.value, "nord.toml"), act3.value)
     testing.expect(t, strings.contains(act3.value, ".themer"), act3.value)

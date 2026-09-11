@@ -14,7 +14,7 @@ import "../menu"
 KIDS := [?]menu.Row {
     {chord = "alt+a", name = ":select-all", tag = "lsp", id = 10},
     {chord = "alt+h", name = ":dothing", tag = "lsp", id = 11},
-    {chord = "alt+d", name = ":br.hidden", tag = "browser", id = 12},
+    {chord = "alt+d", name = ":fs.hidden", tag = "files", id = 12},
 }
 
 @(private = "file")
@@ -36,7 +36,7 @@ MENUS := [?]menu.Menu {
     {name = "view", region = .Kernel},
     {name = "panel", region = .Kernel},
     {name = "chords", region = .Chords, rows = CHORDS[:]},
-    {name = "browser", region = .Plugin},
+    {name = "files", region = .Plugin},
     {name = "lsp", region = .Plugin},
 }
 
@@ -62,7 +62,7 @@ the_bar_is_names_and_a_separator_where_the_owner_changes :: proc(t: ^testing.T) 
     menu.draw_bar(b, &g, gfx.DEFAULT_THEME)
     text := gfx.grid_snapshot(&g)
     defer delete(text)
-    testing.expect_value(t, text, " file  edit  view  panel │ chords │ browser  lsp")
+    testing.expect_value(t, text, " file  edit  view  panel │ chords │ files  lsp")
 }
 
 // A dropdown is a box of columns, and a column no row fills costs nothing: the chords menu holds
@@ -128,7 +128,7 @@ a_popout_hangs_off_the_row_that_opened_it :: proc(t: ^testing.T) {
     drop, box := menu.drop_box(b, n), menu.kid_box(b, n)
     testing.expect_value(t, box.at.x, drop.at.x + f32(drop.w))
     testing.expect_value(t, box.at.y, drop.at.y + f32(n.row))
-    testing.expect_value(t, box, menu.Box{{40, 2}, 31, 3})
+    testing.expect_value(t, box, menu.Box{{40, 2}, 29, 3})
 
     g: gfx.Grid
     testing.expect(t, gfx.grid_init(&g, box.w, box.h))
@@ -140,9 +140,9 @@ a_popout_hangs_off_the_row_that_opened_it :: proc(t: ^testing.T) {
     testing.expect_value(
         t,
         text,
-        `  alt+a  :select-all      lsp
-  alt+h  :dothing         lsp
-  alt+d  :br.hidden   browser`,
+        `  alt+a  :select-all    lsp
+  alt+h  :dothing       lsp
+  alt+d  :fs.hidden   files`,
     )
 }
 
@@ -161,7 +161,7 @@ enter_opens_a_primer_and_runs_a_child :: proc(t: ^testing.T) {
     menu.down(b, &n)
     id, run = menu.enter(b, &n)
     testing.expect(t, run)
-    testing.expect_value(t, id, 12) // the browser's row, third of the popout
+    testing.expect_value(t, id, 12) // the files row, third of the popout
 }
 
 // Six keys and no mode (§5). `left` gives the popout back before it gives the menu back, and

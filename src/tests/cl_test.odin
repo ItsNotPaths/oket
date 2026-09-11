@@ -119,13 +119,13 @@ exec_runs_a_bind_line_and_stage_aims_it :: proc(t: ^testing.T) {
     // The browser, because a DIRECTORY is what `:open` hands to the `files` kind and there is no
     // listing of the kernel's own behind it any more. What is under test is the aiming; the
     // plugin is here so the line at the end of it opens something.
-    a, ok := plug_app(t, "oket-cl-bind", "plugins/browser")
+    a, ok := plug_app(t, "oket-cl-bind", "plugins/files")
     if !ok {
         return
     }
     defer close_plug_app(&a)
     app.plug_init(&a)
-    if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "browser")), a.message) {
+    if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "files")), a.message) {
         return
     }
     dir := home_dir(a.home)
@@ -141,8 +141,8 @@ exec_runs_a_bind_line_and_stage_aims_it :: proc(t: ^testing.T) {
     // The chord is spelled PHYSICALLY: a layout glyph needs the scancode base input_init sets,
     // and a test has no window to set it from.
     app.binds_parse(&a, "[files]\nenter = stage :open <path>\n", "binds.conf")
-    // Row 2: the root, then its directories in name order (`plugins`, `sub`), then its files.
-    txt.doc_set_head(store.store_doc(&a.docs, id), {2, 0}, false)
+    // Row 3 after filter: 0 filter, 1 .., 2 plugins, 3 sub
+    txt.doc_set_head(store.store_doc(&a.docs, id), {3, 0}, false)
     app.point_sync(&a)
 
     // stage: the expanded line is sitting in the command line, unrun and editable.

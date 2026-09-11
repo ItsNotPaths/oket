@@ -530,13 +530,13 @@ marked :: proc(p: ^app.Panel) -> bool {
 // could not do.
 @(test)
 a_browser_and_two_editors_at_once :: proc(t: ^testing.T) {
-    a, ok := plug_app(t, "oket-panel-gate", "plugins/browser", "plugins/edit")
+    a, ok := plug_app(t, "oket-panel-gate", "plugins/files", "plugins/edit")
     if !ok {
         return
     }
     defer close_plug_app(&a)
     app.plug_init(&a)
-    for plugin in ([?]string{"browser", "edit"}) {
+    for plugin in ([?]string{"files", "edit"}) {
         if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, plugin)), a.message) {
             return
         }
@@ -673,13 +673,13 @@ a_builtin_line_has_no_comments_in_it :: proc(t: ^testing.T) {
 // slot — the panel was standing on a browser and now stands on an edit slot that did not exist.
 @(test)
 a_panel_takes_a_file_whatever_it_held :: proc(t: ^testing.T) {
-    a, ok := plug_app(t, "oket-panel-aim", "plugins/browser", "plugins/edit")
+    a, ok := plug_app(t, "oket-panel-aim", "plugins/files", "plugins/edit")
     if !ok {
         return
     }
     defer close_plug_app(&a)
     app.plug_init(&a)
-    for plugin in ([?]string{"browser", "edit"}) {
+    for plugin in ([?]string{"files", "edit"}) {
         if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, plugin)), a.message) {
             return
         }

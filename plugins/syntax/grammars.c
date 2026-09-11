@@ -334,7 +334,7 @@ static void *open_list(const oket_api *api, oket_self self, oket_doc doc, const 
     }
     count_installed();
     oket_list_publish(api, self, l);
-    oket_list_point(api, self, l, 1);
+    oket_list_point(api, self, l, 2);
     return l;
 }
 

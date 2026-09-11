@@ -64,7 +64,7 @@ the_report_is_read_by_the_next_start :: proc(t: ^testing.T) {
         return
     }
     // What the handler does, minus the signal: one append of a name and a newline.
-    _, err := os.write(a.report, transmute([]u8)string("browser\n"))
+    _, err := os.write(a.report, transmute([]u8)string("files\n"))
     testing.expect_value(t, err, nil)
     close_plug_app(&a)
 
@@ -75,7 +75,7 @@ the_report_is_read_by_the_next_start :: proc(t: ^testing.T) {
     defer close_plug_app(&b)
     app.home_set(&b.home, home)
     app.quarantine_open(&b)
-    testing.expect(t, app.quarantined(&b, "browser"), "the next start read no report")
+    testing.expect(t, app.quarantined(&b, "files"), "the next start read no report")
 }
 
 // --- the home page ---
@@ -373,7 +373,7 @@ a_session_restores_the_ring :: proc(t: ^testing.T) {
     // The browser, because a session is a list of `:open` lines and a DIRECTORY is the `files`
     // kind's — there is no listing of the kernel's own to restore into. Its home is the session
     // home, so both Apps below find the same plugin beside the same config.
-    a, ok := plug_app(t, "oket-start-session", "plugins/browser")
+    a, ok := plug_app(t, "oket-start-session", "plugins/files")
     if !testing.expect(t, ok, "no App") {
         return
     }
@@ -394,7 +394,7 @@ a_session_restores_the_ring :: proc(t: ^testing.T) {
                          nil)
 
     app.plug_init(&a)
-    testing.expect(t, app.plug_load(&a, app.plug_path(&a, "browser")), a.message)
+    testing.expect(t, app.plug_load(&a, app.plug_path(&a, "files")), a.message)
     app.config_load(&a)
     testing.expect(t, a.config.restore, "config.conf said on and the App read off")
 
@@ -410,7 +410,7 @@ a_session_restores_the_ring :: proc(t: ^testing.T) {
     defer close_plug_app(&b)
     app.home_set(&b.home, home)
     app.plug_init(&b)
-    testing.expect(t, app.plug_load(&b, app.plug_path(&b, "browser")), b.message)
+    testing.expect(t, app.plug_load(&b, app.plug_path(&b, "files")), b.message)
     app.config_load(&b)
     testing.expect(t, app.session_restore(&b), "the session restored nothing")
     // Both slots came back, and the one that was focused is the one you come back to.
@@ -424,7 +424,7 @@ a_session_restores_the_ring :: proc(t: ^testing.T) {
 // along, and its line runs before the strip is built so it cannot drag the focused panel.
 @(test)
 a_session_restores_the_strip :: proc(t: ^testing.T) {
-    a, ok := plug_app(t, "oket-start-strip", "plugins/browser")
+    a, ok := plug_app(t, "oket-start-strip", "plugins/files")
     if !testing.expect(t, ok, "no App") {
         return
     }
@@ -445,7 +445,7 @@ a_session_restores_the_strip :: proc(t: ^testing.T) {
                                               transmute([]u8)string("[session]\nrestore = on\n")),
                          nil)
     app.plug_init(&a)
-    testing.expect(t, app.plug_load(&a, app.plug_path(&a, "browser")), a.message)
+    testing.expect(t, app.plug_load(&a, app.plug_path(&a, "files")), a.message)
     app.config_load(&a)
 
     app.cl_exec(&a, fmt.tprintf(":open %s", one))
@@ -464,7 +464,7 @@ a_session_restores_the_strip :: proc(t: ^testing.T) {
     defer close_plug_app(&b)
     app.home_set(&b.home, home)
     app.plug_init(&b)
-    testing.expect(t, app.plug_load(&b, app.plug_path(&b, "browser")), b.message)
+    testing.expect(t, app.plug_load(&b, app.plug_path(&b, "files")), b.message)
     app.config_load(&b)
     testing.expect(t, app.session_restore(&b), "the session restored nothing")
 
