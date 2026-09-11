@@ -47,10 +47,80 @@ holding_arrow_does_not_jump_on_release :: proc(t: ^testing.T) {
     testing.expect_value(t, a.menu_nav.row, (want + 1) % len(rows2))
 }
 
-// Stale repeats queued after KEY_UP must be flushed.
+// The order SDL really queues: the last due repeats sit in front of their own release, in one
+// batch, because the release is what synthesizes them. A repeat that peeks its up behind it
+// drops itself, so the batch moves nothing.
 @(test)
-arrow_release_flushes_queued_repeats :: proc(t: ^testing.T) {
-    // Headless CI: skip SDL queue path if display unavailable.
+repeats_queued_before_the_up_move_nothing :: proc(t: ^testing.T) {
+    // Headless CI: skip the queue path when SDL cannot start.
+    inited := sdl.Init({.VIDEO})
+    if !inited {
+        inited = sdl.Init({})
+        if !inited {
+            return
+        }
+    }
+    defer sdl.Quit()
+    sdl.FlushEvents(.KEY_DOWN, .KEY_UP)
+
+    a, ok := bare_app(80, 24)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+    for name in ([?]string{"UP", "DOWN", "LEFT", "RIGHT"}) {
+        app.handle_chord(&a, chord("SPCE", {.Alt}))
+        _, up := a.pending.(input.Pending_Menu)
+        if !testing.expect(t, up, "menu not open") {
+            return
+        }
+        a.menu_nav = menu.nav(0)
+        b := app.menubar_frame(&a)
+        rows := menu.rows_of(b, a.menu_nav)
+        if len(rows) == 0 {
+            continue
+        }
+        want_row := a.menu_nav.row
+        want_top := a.menu_nav.top
+        sc, _ := input.key_code(name)
+
+        // The batch as the release queues it: five repeats, then the up. The repeats are stale.
+        ev: sdl.Event
+        ev.type = .KEY_DOWN
+        ev.key.scancode = sdl.Scancode(sc)
+        ev.key.down = true
+        ev.key.repeat = true
+        if !sdl.PushEvent(&ev) {
+            continue // no queue to push into
+        }
+        for _ in 1 ..< 5 {
+            _ = sdl.PushEvent(&ev)
+        }
+        ev.type = .KEY_UP
+        ev.key.down = false
+        ev.key.repeat = false
+        _ = sdl.PushEvent(&ev)
+
+        app.input_pump(&a, false)
+
+        testing.expectf(t, a.menu_nav.row == want_row, "%s: the row moved on release: want %d got %d", name, want_row, a.menu_nav.row)
+        testing.expectf(t, a.menu_nav.top == want_top, "%s: the top moved on release", name)
+        tmp: sdl.Event
+        leaked := 0
+        for sdl.PollEvent(&tmp) {
+            if tmp.type == .KEY_DOWN && tmp.key.scancode == sdl.Scancode(sc) && tmp.key.repeat {
+                leaked += 1
+            }
+        }
+        testing.expectf(t, leaked == 0, "%s: repeats leaked: %d", name, leaked)
+        sdl.FlushEvents(.KEY_DOWN, .KEY_UP)
+        app.handle_chord(&a, chord("ESC")) // shut before the next case opens it again
+    }
+}
+
+// A repeat with no up behind it is a live hold: it moves.
+@(test)
+live_repeats_still_move :: proc(t: ^testing.T) {
     inited := sdl.Init({.VIDEO})
     if !inited {
         inited = sdl.Init({})
@@ -71,86 +141,26 @@ arrow_release_flushes_queued_repeats :: proc(t: ^testing.T) {
     if !testing.expect(t, up, "menu not open") {
         return
     }
-    // Include every popup arrow direction: UP, DOWN, LEFT, RIGHT
-    cases := [?]string{"UP", "DOWN", "LEFT", "RIGHT"}
-    for name in cases {
-        // Reset to known position
-        a.menu_nav = menu.nav(0)
-        // Simulate hold: N repeats already dispatched via handle_chord
-        b0 := app.menubar_frame(&a)
-        rows0 := menu.rows_of(b0, a.menu_nav)
-        if len(rows0) == 0 {
-            continue
-        }
-        N :: 7
-        for i in 0 ..< N {
-            app.handle_chord(&a, chord(name), i != 0)
-        }
-        want_row := a.menu_nav.row
-        want_top := a.menu_nav.top
-
-        // Queue the release first, then stale repeats that arrived after
-        // it but before the flush. Those must be dropped; an unrelated
-        // key must survive.
-        sc, _ := input.key_code(name)
-        // Push the KEY_UP for the held arrow – this is the release.
-        {
-            ev: sdl.Event
-            ev.type = .KEY_UP
-            ev.key.scancode = sdl.Scancode(sc)
-            ev.key.down = false
-            if !sdl.PushEvent(&ev) {
-                // No queue – skip SDL path
-                continue
-            }
-        }
-        // Push 5 stale repeats for this arrow (repeat=true) that were
-        // queued after the up (the extra jump case)
-        for _ in 0 ..< 5 {
-            ev: sdl.Event
-            ev.type = .KEY_DOWN
-            ev.key.scancode = sdl.Scancode(sc)
-            ev.key.down = true
-            ev.key.repeat = true
-            _ = sdl.PushEvent(&ev)
-        }
-        // Push an unrelated KEY_DOWN that must survive (e.g. 'A' press)
-        {
-            ev: sdl.Event
-            acode, _ := input.key_code("A")
-            ev.type = .KEY_DOWN
-            ev.key.scancode = sdl.Scancode(acode)
-            ev.key.down = true
-            ev.key.repeat = false
-            _ = sdl.PushEvent(&ev)
-        }
-        // Drain via the real input path (WaitEvent would block, so poll)
-        // Call input_pump with wait=false to drain without blocking.
-        // It will handle the KEY_UP and flush the 5 stale repeats.
-        app.input_pump(&a, false)
-
-        // The 5 stale repeats must not have moved the popup
-        testing.expectf(t, a.menu_nav.row == want_row, "%s: row jumped on release flush: want %d got %d", name, want_row, a.menu_nav.row)
-        testing.expectf(t, a.menu_nav.top == want_top, "%s: top jumped on release flush", name)
-
-        // The unrelated 'A' event must have survived – next pump should
-        // deliver it (it will be handled as a chord, not a menu move).
-        // We verify at least one event remains by peeking.
-        // Drain again to see if queue is empty of arrow repeats but not of other keys.
-        // After flush, the 5 arrow repeats should be gone, the 'A' should have been dispatched.
-        // Check no arrow repeat remains queued
-        tmp: sdl.Event
-        dropped := 0
-        for sdl.PollEvent(&tmp) {
-            if tmp.type == .KEY_DOWN && tmp.key.scancode == sdl.Scancode(sc) && tmp.key.repeat {
-                dropped += 1
-            }
-        }
-        testing.expectf(t, dropped == 0, "%s: stale arrow repeats leaked after flush: %d", name, dropped)
-        sdl.FlushEvents(.KEY_DOWN, .KEY_UP)
-        // Close menu for next case
-        app.handle_chord(&a, chord("ESC"))
+    b := app.menubar_frame(&a)
+    rows := menu.rows_of(b, a.menu_nav)
+    if len(rows) == 0 {
+        return
     }
+    start := a.menu_nav.row
+    sc, _ := input.key_code("DOWN")
+    ev: sdl.Event
+    ev.type = .KEY_DOWN
+    ev.key.scancode = sdl.Scancode(sc)
+    ev.key.down = true
+    ev.key.repeat = true
+    if !sdl.PushEvent(&ev) {
+        return
+    }
+    for _ in 1 ..< 3 {
+        _ = sdl.PushEvent(&ev)
+    }
+    app.input_pump(&a, false)
+    testing.expect_value(t, a.menu_nav.row, (start + 3) % len(rows))
 }
 
 @(private = "file")

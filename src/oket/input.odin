@@ -85,15 +85,17 @@ key_event :: proc(a: ^App, ev: ^sdl.KeyboardEvent) {
         switcher_hold(a, code, ev.down)
         return // a held modifier is not a chord; wait for what it qualifies
     }
+    // A repeat whose up is already in the queue arrived after the hand came off the key: SDL queues
+    // the last due repeats behind their own release. The move is stale.
+    if ev.repeat && up_queued(ev.scancode) {
+        return
+    }
     // Releases never enter the bind table.
     if !ev.down {
         if a.held == code {
             a.held = 0
         }
         pick_release(a, code)
-        if is_arrow_scancode(ev.scancode) {
-            flush_stale_arrow_repeats(ev.scancode)
-        }
         return
     }
     // A key that is down QUALIFIES the next one only if SOMETHING BINDS IT AS A QUALIFIER.
@@ -289,23 +291,17 @@ key_layout_code :: proc(name: string) -> (input.Code, bool) {
     return 0, false
 }
 
-is_arrow_scancode :: proc(sc: sdl.Scancode) -> bool {
-    return sc == .UP || sc == .DOWN || sc == .LEFT || sc == .RIGHT
-}
-
-flush_stale_arrow_repeats :: proc(sc: sdl.Scancode) {
-    queued: [dynamic]sdl.Event
-    defer delete(queued)
-    tmp: sdl.Event
-    for sdl.PollEvent(&tmp) {
-        if tmp.type == .KEY_DOWN && tmp.key.scancode == sc && tmp.key.repeat {
-            continue
+// PEEK, not drain: the rest of the batch is wanted, whatever it is.
+@(private = "file")
+up_queued :: proc(sc: sdl.Scancode) -> bool {
+    ups: [16]sdl.Event
+    n := max(0, sdl.PeepEvents(&ups[0], len(ups), .PEEKEVENT, .KEY_UP, .KEY_UP))
+    for &e in ups[:n] {
+        if e.key.scancode == sc {
+            return true
         }
-        append(&queued, tmp)
     }
-    for &e in queued {
-        _ = sdl.PushEvent(&e)
-    }
+    return false
 }
 
 // What the position types under the live layout, for display. A key that types nothing — or a
