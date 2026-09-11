@@ -1,6 +1,7 @@
 package gfx
 
 import "core:fmt"
+import "core:math"
 import gl "vendor:OpenGL"
 
 // Puts a Grid and an Atlas on the GPU; the only code that talks to OpenGL beyond gl.odin.
@@ -226,10 +227,13 @@ painter_fit :: proc(p: ^Painter, win_w, win_h: i32) -> (cols, rows: int) {
     return max(1, int(win_w) / w), max(1, int(win_h) / h)
 }
 
-// GL's scissor box counts from the BOTTOM-left of the window. This is the only place the two
-// conventions meet, and a wrong flip is invisible on a grid that fills its window.
+// Convert top-left float bounds to an outward-rounded GL scissor box.
 painter_scissor :: proc(clip: Rect, win_h: i32) -> (x, y, w, h: i32) {
-    return clip.x, win_h - clip.y - clip.h, clip.w, clip.h
+    x0 := i32(math.floor(clip.x))
+    y0 := i32(math.floor(clip.y))
+    x1 := i32(math.ceil(clip.x + clip.w))
+    y1 := i32(math.ceil(clip.y + clip.h))
+    return x0, win_h - y1, max(x1 - x0, 0), max(y1 - y0, 0)
 }
 
 // One grid, at an origin the caller decides, clipped to a rectangle the caller decides. The

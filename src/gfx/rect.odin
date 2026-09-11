@@ -1,27 +1,15 @@
 package gfx
 
-// The package's two rectangles, together, because the difference between them is the whole
-// reason there are two and it is not visible from either use site.
+// The package's ONE rectangle, in pixels, sub-pixel. Everything on screen is measured in these:
+// a scissor box, a picture's destination, a chrome box, and what src/lay solves.
 //
-// Both count from the TOP-LEFT of the window, like every rectangle in this package. GL's
-// scissor box counts from the bottom-left, and `painter_scissor` is the only place the two
-// conventions meet.
-
-// Whole pixels. A scissor box and a picture's destination are both this: nothing is drawn to
-// half a pixel and GL's scissor takes integers anyway.
+// Sub-pixel is what it is FOR. A panel slides by fractions of a pixel (PANELS.md §7) and a
+// gradient's edge lands wherever the solve put it, so the frame's geometry cannot be whole
+// pixels without the motion stepping. GL takes integers for a scissor box and nothing else, and
+// `painter_scissor` is the one place that rounds.
+//
+// It counts from the TOP-LEFT of the window, like every rectangle in this package. GL's scissor
+// box counts from the bottom-left, which is the other half of what `painter_scissor` is for.
 Rect :: struct {
-    x, y, w, h: i32,
-}
-
-// Sub-pixel, and that is what it is FOR. A panel slides by fractions of a pixel (PANELS.md §7)
-// and a gradient's edge lands wherever the solve put it, so the frame's geometry cannot be
-// whole pixels without the motion stepping.
-Box :: struct {
     x, y, w, h: f32,
-}
-
-// Whole pixels widened to sub-pixel, which is the lossless direction and the only automatic one.
-// A Box narrows to a Rect only where a caller says how it rounds.
-box_of :: proc(r: Rect) -> Box {
-    return {f32(r.x), f32(r.y), f32(r.w), f32(r.h)}
 }

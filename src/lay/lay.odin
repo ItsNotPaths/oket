@@ -1,5 +1,7 @@
 package lay
 
+import "../gfx"
+
 // The chrome's layouter (CHROME.md §2.1). Boxes in, rects out. Nothing here knows what a
 // document, a panel or the ring is, and its test builds a tree from a struct literal with no
 // fixture — the check src/strip and src/menu already hold.
@@ -41,10 +43,6 @@ Edges :: struct {
 
 all :: proc(v: f32) -> Edges {return {v, v, v, v}}
 
-Rect :: struct {
-    x, y, w, h: f32,
-}
-
 Box :: struct {
     parent: int, // -1 for the root, and always EARLIER in the array
     dir:    Dir, // how its CHILDREN lay out; a leaf's is unread
@@ -53,12 +51,12 @@ Box :: struct {
     // Inside the box, and where a border rides: the solve only ever wants the inset, and a
     // bevel drawn one pixel in is a bevel the content already stepped over.
     pad:    Edges,
-    rect:   Rect, // the answer, filled by `solve`
+    rect:   gfx.Rect, // the answer, filled by `solve`
 }
 
 // Every box's rectangle, from the window in. ONE FORWARD PASS: a parent's rect is final before
 // any child of it is reached, because a parent is earlier in the array.
-solve :: proc(boxes: []Box, window: Rect) {
+solve :: proc(boxes: []Box, window: gfx.Rect) {
     for &b in boxes {
         if b.parent < 0 {
             b.rect = window
@@ -70,7 +68,7 @@ solve :: proc(boxes: []Box, window: Rect) {
 }
 
 // What a box has left for its children: itself, less its padding.
-content :: proc(b: Box) -> Rect {
+content :: proc(b: Box) -> gfx.Rect {
     return {
         b.rect.x + b.pad.l,
         b.rect.y + b.pad.t,
@@ -79,7 +77,7 @@ content :: proc(b: Box) -> Rect {
     }
 }
 
-inside :: proc(r: Rect, x, y: f32) -> bool {
+inside :: proc(r: gfx.Rect, x, y: f32) -> bool {
     return x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h
 }
 
@@ -154,7 +152,7 @@ children :: proc(boxes: []Box, at: int) {
 
 // A child's rect: `off` and `run` along the parent's axis, the parent's whole content across it.
 @(private = "file")
-place :: proc(dir: Dir, inner: Rect, off, run: f32) -> Rect {
+place :: proc(dir: Dir, inner: gfx.Rect, off, run: f32) -> gfx.Rect {
     if dir == .Row {
         return {inner.x + off, inner.y, run, inner.h}
     }

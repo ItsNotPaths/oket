@@ -83,15 +83,14 @@ a_one_row_window_leaves_no_panel :: proc(t: ^testing.T) {
     testing.expect_value(t, panel_grid(&a).rows, 4)
 }
 
-// The scissor is the one piece of the split a text diff cannot see: GL counts its box from the
-// bottom of the window and every rectangle above counts from the top.
+// Scissor bounds flip vertically and include both fractional edges.
 @(test)
 a_clip_flips_to_gls_corner :: proc(t: ^testing.T) {
-    x, y, w, h := gfx.painter_scissor({4, 10, 100, 40}, 200)
+    x, y, w, h := gfx.painter_scissor({4.25, 10.5, 100.5, 40.25}, 200)
     testing.expect_value(t, x, i32(4))
-    testing.expect_value(t, y, i32(150))
-    testing.expect_value(t, w, i32(100))
-    testing.expect_value(t, h, i32(40))
+    testing.expect_value(t, y, i32(149))
+    testing.expect_value(t, w, i32(101))
+    testing.expect_value(t, h, i32(41))
 }
 
 // --- stage 2: the panel is the unit ---

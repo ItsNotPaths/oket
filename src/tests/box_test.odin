@@ -9,7 +9,7 @@ import "../gfx"
 // the same trade the chrome tests already make against `grid_snapshot` (§12).
 
 @(private = "file")
-AT :: gfx.Box{0, 0, 20, 10}
+AT :: gfx.Rect{0, 0, 20, 10}
 
 @(private = "file")
 flat :: proc(c: [3]f32) -> gfx.Look {
@@ -18,7 +18,7 @@ flat :: proc(c: [3]f32) -> gfx.Look {
 }
 
 @(private = "file")
-mesh :: proc(at: gfx.Box, look: gfx.Look) -> ([dynamic]gfx.Chrome_Vertex, [dynamic]c.int) {
+mesh :: proc(at: gfx.Rect, look: gfx.Look) -> ([dynamic]gfx.Chrome_Vertex, [dynamic]c.int) {
     verts := make([dynamic]gfx.Chrome_Vertex, context.temp_allocator)
     idx := make([dynamic]c.int, context.temp_allocator)
     gfx.box_mesh(&verts, &idx, at, look)
@@ -45,14 +45,16 @@ a_radius_is_the_same_ring_with_more_steps :: proc(t: ^testing.T) {
     testing.expect_value(t, len(idx), 48)
 }
 
-// A bevel is a SECOND shape under the fill, not four edge quads: that is what survives a corner
-// radius, and it is why the bevel and the fill can carry the same gradient.
+// A bevel is the BAND between two outlines, not four edge quads and not a second fan under the
+// fill: that is what survives a corner radius, and it is what leaves the inside of the box
+// alone. Two outlines of four points, then the fill's own fan.
 @(test)
-a_bevel_is_a_second_shape :: proc(t: ^testing.T) {
+a_bevel_is_the_band_between_two_outlines :: proc(t: ^testing.T) {
     look := flat({1, 0, 0})
     look.border = 1
-    verts, _ := mesh(AT, look)
-    testing.expect_value(t, len(verts), 10)
+    verts, idx := mesh(AT, look)
+    testing.expect_value(t, len(verts), 8 + 5)
+    testing.expect_value(t, len(idx), 24 + 12) // two triangles a step, and the fan's four
 }
 
 // A box thinner than its own bevel IS the bevel. A hairline is what that draws, and nothing
@@ -63,6 +65,25 @@ a_box_thinner_than_its_bevel_is_the_bevel :: proc(t: ^testing.T) {
     look.border = 1
     verts, _ := mesh({0, 0, 1, 10}, look)
     testing.expect_value(t, len(verts), 5)
+}
+
+// A fill that says NOTHING leaves the BAND and nothing else. The groove around a panel is drawn
+// after the panel now, so a shape covering the inside of that box would be the document gone
+// (§15 stage 6).
+@(test)
+a_transparent_fill_leaves_the_band_alone :: proc(t: ^testing.T) {
+    look := flat({1, 0, 0})
+    look.border = 1
+    look.fill = {gfx.NOTHING, gfx.NOTHING}
+    verts, idx := mesh(AT, look)
+    testing.expect_value(t, len(verts), 8) // the two outlines, and no fan at all
+    testing.expect_value(t, len(idx), 24)
+    // Nothing lands inside the bevel: every point is on one edge of the box or the other.
+    for v in verts {
+        on := v.x <= AT.x + 1 || v.x >= AT.x + AT.w - 1 || v.y <= AT.y + 1 ||
+              v.y >= AT.y + AT.h - 1
+        testing.expect(t, on, "a vertex inside the ring")
+    }
 }
 
 @(test)

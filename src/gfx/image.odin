@@ -119,7 +119,7 @@ blitter_destroy :: proc(b: ^Blitter) {
 
 // One DrawArrays per picture: each carries its own texture, so they cannot batch. Blended, so
 // a PNG's alpha shows the cells underneath. `clip` is in the same top-left pixel space as the
-// rects; the scissor's origin is bottom-left, hence the flip. Later quads draw over earlier
+// rects, and `painter_scissor` is the one place that flips it. Later quads draw over earlier
 // ones, which is what makes document order the stacking order.
 blitter_draw :: proc(b: ^Blitter, quads: []Image_Quad, clip: Rect, win_w, win_h: i32) {
     if len(quads) == 0 || b.prog == 0 || clip.w <= 0 || clip.h <= 0 {
@@ -130,7 +130,7 @@ blitter_draw :: proc(b: ^Blitter, quads: []Image_Quad, clip: Rect, win_w, win_h:
     gl.Enable(gl.BLEND)
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
     gl.Enable(gl.SCISSOR_TEST)
-    gl.Scissor(clip.x, win_h - (clip.y + clip.h), clip.w, clip.h)
+    gl.Scissor(painter_scissor(clip, win_h))
     gl.ActiveTexture(gl.TEXTURE0)
     gl.BindVertexArray(b.vao)
     gl.BindBuffer(gl.ARRAY_BUFFER, b.vbo)
