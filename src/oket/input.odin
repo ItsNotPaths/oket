@@ -85,15 +85,15 @@ key_event :: proc(a: ^App, ev: ^sdl.KeyboardEvent) {
         switcher_hold(a, code, ev.down)
         return // a held modifier is not a chord; wait for what it qualifies
     }
-    // RELEASES NEVER ENTER THE BIND TABLE (PANELS.md §6). One field holds the key that is down,
-    // its release clears the field, and an armed picker commits on the way past — so there is
-    // no keys-down set, no release axis on bind_find and nothing for describe to grow an arm
-    // for.
+    // Releases never enter the bind table.
     if !ev.down {
         if a.held == code {
             a.held = 0
         }
         pick_release(a, code)
+        if is_arrow_scancode(ev.scancode) {
+            flush_stale_arrow_repeats(ev.scancode)
+        }
         return
     }
     // A key that is down QUALIFIES the next one only if SOMETHING BINDS IT AS A QUALIFIER.
@@ -287,6 +287,25 @@ key_layout_code :: proc(name: string) -> (input.Code, bool) {
         }
     }
     return 0, false
+}
+
+is_arrow_scancode :: proc(sc: sdl.Scancode) -> bool {
+    return sc == .UP || sc == .DOWN || sc == .LEFT || sc == .RIGHT
+}
+
+flush_stale_arrow_repeats :: proc(sc: sdl.Scancode) {
+    queued: [dynamic]sdl.Event
+    defer delete(queued)
+    tmp: sdl.Event
+    for sdl.PollEvent(&tmp) {
+        if tmp.type == .KEY_DOWN && tmp.key.scancode == sc && tmp.key.repeat {
+            continue
+        }
+        append(&queued, tmp)
+    }
+    for &e in queued {
+        _ = sdl.PushEvent(&e)
+    }
 }
 
 // What the position types under the live layout, for display. A key that types nothing — or a
