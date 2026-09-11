@@ -31,10 +31,9 @@ App :: struct {
     // works in, and the widths live on the panels.
     panels:       [dynamic]Panel,
     focus:        int,
-    // The menubar's three grids and where the last draw put each (MENU.md §4). Painted AFTER
-    // the panels: the ground is painted first and a panel covers it, so a bar drawn into the
-    // ground would be invisible. `on` is what the frame DREW, so a box with no room to draw in
-    // paints nothing.
+    // The menubar's three grids and where the last draw put each (MENU.md §4). Painted LAST,
+    // over the panels and over the boxes the frame drew for them: `on` and `at` are what
+    // `frame_paint` reads to place those boxes, so a layer with no room to draw in gets none.
     menu:         [Menu_Part]Menu_Layer,
     // Where the keys are while the menu is up (MENU.md §5), the state the pointer moves too.
     // The Pending_Menu in `pending` is still the one thing that says a menu IS up; this is only
@@ -129,7 +128,7 @@ App :: struct {
     ime_area:     sdl.Rect, // the caret rect last handed to SDL, so a still frame says nothing
     // Where the command line's row was drawn, past the prompt, in ground cells. A document's
     // own rectangle is its panel's (panel.odin), because a cell number counts from one grid.
-    bar:          Rect,
+    bar:          Cells,
     message:      string, // owned; lives until the next keystroke
     clips:        [dynamic]Clip, // owned; the kill ring, newest first
     // The face size the atlas is baked at, and the one the system asked for. `font.reset` goes
@@ -159,7 +158,7 @@ Start_Mode :: enum {
     Safe,
 }
 
-Rect :: struct {
+Cells :: struct {
     x, y, w, h: int,
 }
 

@@ -33,11 +33,11 @@ SLOT :: 4 // one per panel, from here on
 
 Frame :: struct {
     // The ground's cells: the two rows the kernel writes into, and the window the panels sit in.
-    menu:  Rect,
-    body:  Rect,
-    bar:   Rect,
+    menu:  Cells,
+    body:  Cells,
+    bar:   Cells,
     // The same strip in pixels, which is what the camera and every slot count from.
-    strip: lay.Rect,
+    strip: gfx.Rect,
 }
 
 // The frame, solved into `a.frame`, and where each panel RESTS onto the panel itself. One call,
@@ -75,7 +75,7 @@ frame_fit :: proc(a: ^App, cols, rows: int) {
 
 // A pixel rect in whole cells (§11). BOTH EDGES round, so two rects that touch still touch, and
 // the remainder is what the rounding hands out — there is no second pass to distribute it.
-frame_cells :: proc(r: lay.Rect, cell: [2]int) -> Rect {
+frame_cells :: proc(r: gfx.Rect, cell: [2]int) -> Cells {
     x, y := cell_at(r.x, cell.x), cell_at(r.y, cell.y)
     return {x, y, max(cell_at(r.x + r.w, cell.x) - x, 0), max(cell_at(r.y + r.h, cell.y) - y, 0)}
 }
@@ -84,9 +84,9 @@ frame_cells :: proc(r: lay.Rect, cell: [2]int) -> Rect {
 // — every frame rect is a whole number of cells by the time anyone asks. A CARET is not one of
 // these: it lands on a panel that has slid, so its origin carries the strip's fraction with it
 // (surface.odin, caret_px).
-frame_px :: proc(r: Rect, origin, cell: [2]int) -> gfx.Rect {
-    return {i32(origin.x + r.x * cell.x), i32(origin.y + r.y * cell.y),
-            i32(r.w * cell.x), i32(r.h * cell.y)}
+frame_px :: proc(r: Cells, origin, cell: [2]int) -> gfx.Rect {
+    return {f32(origin.x + r.x * cell.x), f32(origin.y + r.y * cell.y),
+            f32(r.w * cell.x), f32(r.h * cell.y)}
 }
 
 // The columns a slot holds, by the same rounding. This is what `panel_cols`'s `ceil` was: a rect

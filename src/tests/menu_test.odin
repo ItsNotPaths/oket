@@ -45,7 +45,9 @@ CHORDS_MENU :: 4
 
 @(private = "file")
 bar :: proc() -> menu.Bar {
-    return {menus = MENUS[:], y = 0, cols = 80, rows = 24}
+    // ONE PIXEL A CELL, so every box below reads in columns and rows. A popup is placed in
+    // pixels (CHROME.md §11) and a test with no painter is the case that lattice collapses in.
+    return {menus = MENUS[:], y = 0, cols = 80, rows = 24, cell = {1, 1}}
 }
 
 // The names, and a separator where the ownership changes: the kernel's namespaces, the shared
@@ -57,7 +59,7 @@ the_bar_is_names_and_a_separator_where_the_owner_changes :: proc(t: ^testing.T) 
     testing.expect(t, gfx.grid_init(&g, b.cols, 1))
     defer gfx.grid_destroy(&g)
 
-    menu.draw_bar(b, &g, gfx.DEFAULT_THEME, gfx.NOTHING)
+    menu.draw_bar(b, &g, gfx.DEFAULT_THEME)
     text := gfx.grid_snapshot(&g)
     defer delete(text)
     testing.expect_value(t, text, " file  edit  view  panel │ chords │ browser  lsp")
@@ -65,13 +67,14 @@ the_bar_is_names_and_a_separator_where_the_owner_changes :: proc(t: ^testing.T) 
 
 // A dropdown is a box of columns, and a column no row fills costs nothing: the chords menu holds
 // bare chords and a popout mark, so it is thirteen cells wide and not the width of a name column
-// nobody wrote in.
+// nobody wrote in. THE BORDER IS NOT CELLS (CHROME.md §15 stage 6): a box is EXACTLY the rows
+// its list fills, and what surrounds it is the frame's own box, padded in pixels.
 @(test)
 a_dropdown_is_a_box_of_columns :: proc(t: ^testing.T) {
     b := bar()
     n := menu.nav(CHORDS_MENU)
     box := menu.drop_box(b, n)
-    testing.expect_value(t, box, menu.Box{27, 1, 13, 4}) // under the first letter of `chords`
+    testing.expect_value(t, box, menu.Box{{27, 1}, 13, 2}) // under the first letter of `chords`
 
     g: gfx.Grid
     testing.expect(t, gfx.grid_init(&g, box.w, box.h))
@@ -83,10 +86,8 @@ a_dropdown_is_a_box_of_columns :: proc(t: ^testing.T) {
     testing.expect_value(
         t,
         text,
-        `┌───────────┐
-│ alt+x   > │
-│ ctrl+f  > │
-└───────────┘`,
+        `  alt+x   >
+  ctrl+f  >`,
     )
 }
 
@@ -97,7 +98,7 @@ a_doc_column_is_prose_and_only_the_tag_is_pushed_right :: proc(t: ^testing.T) {
     b := bar()
     n := menu.nav(0)
     box := menu.drop_box(b, n)
-    testing.expect_value(t, box, menu.Box{1, 1, 38, 4})
+    testing.expect_value(t, box, menu.Box{{1, 1}, 38, 2})
 
     g: gfx.Grid
     testing.expect(t, gfx.grid_init(&g, box.w, box.h))
@@ -109,10 +110,8 @@ a_doc_column_is_prose_and_only_the_tag_is_pushed_right :: proc(t: ^testing.T) {
     testing.expect_value(
         t,
         text,
-        `┌────────────────────────────────────┐
-│ alt+o  file.open  open a file      │
-│        :q         close the window │
-└────────────────────────────────────┘`,
+        `  alt+o  file.open  open a file
+         :q         close the window`,
     )
 }
 
@@ -127,9 +126,9 @@ a_popout_hangs_off_the_row_that_opened_it :: proc(t: ^testing.T) {
     testing.expect(t, menu.popped(n))
 
     drop, box := menu.drop_box(b, n), menu.kid_box(b, n)
-    testing.expect_value(t, box.x, drop.x + drop.w)
-    testing.expect_value(t, box.y, drop.y + 1 + n.row)
-    testing.expect_value(t, box, menu.Box{40, 3, 31, 5})
+    testing.expect_value(t, box.at.x, drop.at.x + f32(drop.w))
+    testing.expect_value(t, box.at.y, drop.at.y + f32(n.row))
+    testing.expect_value(t, box, menu.Box{{40, 2}, 31, 3})
 
     g: gfx.Grid
     testing.expect(t, gfx.grid_init(&g, box.w, box.h))
@@ -141,11 +140,9 @@ a_popout_hangs_off_the_row_that_opened_it :: proc(t: ^testing.T) {
     testing.expect_value(
         t,
         text,
-        `┌─────────────────────────────┐
-│ alt+a  :select-all      lsp │
-│ alt+h  :dothing         lsp │
-│ alt+d  :br.hidden   browser │
-└─────────────────────────────┘`,
+        `  alt+a  :select-all      lsp
+  alt+h  :dothing         lsp
+  alt+d  :br.hidden   browser`,
     )
 }
 
@@ -229,12 +226,13 @@ a_taller_list_scrolls_and_keeps_the_selection_on_screen :: proc(t: ^testing.T) {
     one := [?]menu.Menu{{name = "long", region = .Kernel, rows = rows[:]}}
     b := menu.Bar {
         menus = one[:],
+        cell  = {1, 1},
         cols  = 40,
-        rows  = 5, // the bar, then a box of four: two borders and two rows
+        rows  = 3, // the bar, then a box of two: two rows and no border to pay for
     }
 
     n := menu.nav(0)
-    testing.expect_value(t, menu.drop_box(b, n).h, 4)
+    testing.expect_value(t, menu.drop_box(b, n).h, 2)
     for _ in 0 ..< 3 {
         menu.down(b, &n)
     }
@@ -250,8 +248,7 @@ a_taller_list_scrolls_and_keeps_the_selection_on_screen :: proc(t: ^testing.T) {
     testing.expect_value(t, n.top, 4)
 }
 
-// §6: a click on the bar or in a dropdown is the menu's and never reaches a panel, and every
-// other cell falls through untouched. With nothing up, only the bar's own row answers.
+// The bar, popup rows, and popup frame consume clicks before panels.
 @(test)
 a_click_on_the_menu_never_reaches_a_panel :: proc(t: ^testing.T) {
     b := bar()
@@ -262,13 +259,13 @@ a_click_on_the_menu_never_reaches_a_panel :: proc(t: ^testing.T) {
     testing.expect_value(t, menu.hit(b, nil, 28, 2), menu.Hit{.None, -1}) // no menu is up
 
     n := menu.nav(CHORDS_MENU)
-    testing.expect_value(t, menu.hit(b, &n, 28, 2), menu.Hit{.Row, 0})
-    testing.expect_value(t, menu.hit(b, &n, 28, 3), menu.Hit{.Row, 1})
-    testing.expect_value(t, menu.hit(b, &n, 27, 3), menu.Hit{.Row, 1}) // its own edge is its line
-    testing.expect_value(t, menu.hit(b, &n, 28, 1), menu.Hit{.Frame, -1}) // the box's top border
-    testing.expect_value(t, menu.hit(b, &n, 41, 3), menu.Hit{.None, -1}) // beside it: a panel's
+    testing.expect_value(t, menu.hit(b, &n, 28, 1), menu.Hit{.Row, 0})
+    testing.expect_value(t, menu.hit(b, &n, 28, 2), menu.Hit{.Row, 1})
+    testing.expect_value(t, menu.hit(b, &n, 24, 2), menu.Hit{.Frame, -1})
+    testing.expect_value(t, menu.hit(b, &n, 28, 4), menu.Hit{.Frame, -1})
+    testing.expect_value(t, menu.hit(b, &n, 44, 2), menu.Hit{.None, -1})
 
     menu.right(b, &n)
-    testing.expect_value(t, menu.hit(b, &n, 43, 3), menu.Hit{.Kid, 0})
-    testing.expect_value(t, menu.hit(b, &n, 43, 5), menu.Hit{.Kid, 2})
+    testing.expect_value(t, menu.hit(b, &n, 43, 1), menu.Hit{.Kid, 0})
+    testing.expect_value(t, menu.hit(b, &n, 43, 3), menu.Hit{.Kid, 2})
 }

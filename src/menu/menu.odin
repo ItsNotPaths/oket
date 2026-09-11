@@ -1,5 +1,6 @@
 package menu
 
+import "core:math"
 import "core:unicode/utf8"
 import "../gfx"
 
@@ -43,6 +44,10 @@ Bar :: struct {
     menus:      []Menu,
     y:          int, // the row the names sit on
     cols, rows: int, // the window, in cells: what is left under the bar is what a list may fill
+    // What one cell measures. A POPUP IS PLACED IN PIXELS (CHROME.md §11) and only the grid
+    // inside it is cells, so this is the one number that crosses between the two here. A zero
+    // cell answers in columns, which is what a test with no painter reads in.
+    cell:       [2]f32,
 }
 
 // Where the keys are while a menu is up. The kernel holds one of these in `Pending_Menu`, so
@@ -158,12 +163,12 @@ walk :: proc(b: Bar, n: ^Nav, by: int) {
     if popped(n^) {
         kids := kids_of(b, n^)
         n.kid = wrap(n.kid, len(kids), by)
-        follow(&n.ktop, n.kid, len(kids), kid_box(b, n^).h - 2)
+        follow(&n.ktop, n.kid, len(kids), kid_box(b, n^).h)
         return
     }
     rows := rows_of(b, n^)
     n.row = wrap(n.row, len(rows), by)
-    follow(&n.top, n.row, len(rows), drop_box(b, n^).h - 2)
+    follow(&n.top, n.row, len(rows), drop_box(b, n^).h)
 }
 
 @(private)
@@ -187,17 +192,41 @@ follow :: proc(top: ^int, sel, count, h: int) {
 
 // --- the boxes (§4) ---
 
-// Cells, borders included. The origin is the WINDOW's, for the kernel to paint at; the drawing
-// below works at 0,0 in a grid of this size.
+// A popup has a pixel origin and a cell-sized grid.
 Box :: struct {
-    x, y, w, h: int,
+    at:   [2]f32,
+    w, h: int,
 }
 
-// Two borders and one row is the least a box can hold; under that it is nothing to draw or hit.
-// Public because the kernel paints these boxes and a grid it draws nothing into is one it must
-// not paint either (MENU.md §4).
+// Pixel padding around popup grids. The top edge stays flush with the menu row.
+POPUP_PAD :: f32(3)
+
+// The pixels a box covers, which is its cells at this bar's cell size.
+@(private)
+box_px :: proc(b: Bar, box: Box) -> (w, h: f32) {
+    return f32(box.w) * b.cell.x, f32(box.h) * b.cell.y
+}
+
+// The visible popup frame around a grid.
+popup_rect :: proc(box: Box, cell: [2]f32) -> gfx.Rect {
+    w, h := f32(box.w) * cell.x, f32(box.h) * cell.y
+    return {box.at.x - POPUP_PAD, box.at.y, w + 2 * POPUP_PAD, h + POPUP_PAD}
+}
+
+@(private)
+point_in :: proc(r: gfx.Rect, x, y: f32) -> bool {
+    return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h
+}
+
+// Floor pixel positions so coordinates left of the grid stay negative.
+@(private)
+cell_of :: proc(px, cell: f32) -> int {
+    return cell > 0 ? int(math.floor(px / cell)) : 0
+}
+
+// A drawable popup needs at least one row and the list's minimum width.
 has_room :: proc(box: Box) -> bool {
-    return box.w >= 3 && box.h >= 3
+    return box.w >= 3 && box.h >= 1
 }
 
 // A name on the bar. Two spaces between names, and ` │ ` where the ownership changes: the
@@ -222,8 +251,7 @@ parted :: proc(b: Bar, i: int) -> bool {
     return i > 0 && b.menus[i - 1].region != b.menus[i].region
 }
 
-// The dropdown: left edge under the first letter of its menu's name, as wide as its longest row
-// and as tall as the window leaves. A longer list scrolls.
+// The dropdown starts under its menu name and scrolls when the window is shorter.
 drop_box :: proc(b: Bar, n: Nav) -> Box {
     rows := rows_of(b, n)
     if len(rows) == 0 {
@@ -232,7 +260,12 @@ drop_box :: proc(b: Bar, n: Nav) -> Box {
     x, _ := name_span(b, n.menu)
     w := min(box_w(rows), b.cols)
     y := b.y + 1
-    return {clamp(x, 0, max(b.cols - w, 0)), y, w, min(len(rows) + 2, max(b.rows - y, 0))}
+    // Clamp the pixel anchor to the window.
+    return {
+        {clamp(f32(x) * b.cell.x, 0, max(f32(b.cols - w) * b.cell.x, 0)), f32(y) * b.cell.y},
+        w,
+        min(len(rows), max(b.rows - y, 0)),
+    }
 }
 
 // The popout, hard against the dropdown's right edge and level with the row that opened it. It
@@ -243,10 +276,13 @@ kid_box :: proc(b: Bar, n: Nav) -> Box {
         return {}
     }
     drop := drop_box(b, n)
+    dw, _ := box_px(b, drop)
+    top := b.y + 1 // the dropdown's own row, which is this popout's ceiling
     w := min(box_w(kids), b.cols)
-    h := min(len(kids) + 2, max(b.rows - drop.y, 0))
-    x := clamp(drop.x + drop.w, 0, max(b.cols - w, 0))
-    return {x, clamp(drop.y + 1 + (n.row - n.top), 0, max(b.rows - h, 0)), w, h}
+    h := min(len(kids), max(b.rows - top, 0))
+    x := clamp(drop.at.x + dw, 0, max(f32(b.cols - w) * b.cell.x, 0))
+    y := clamp(drop.at.y + f32(n.row - n.top) * b.cell.y, 0, max(f32(b.rows - h) * b.cell.y, 0))
+    return {{x, y}, w, h}
 }
 
 // A pad each side, and two spaces between columns that hold something.
@@ -309,17 +345,17 @@ Hit :: struct {
     i:    int,
 }
 
-// Which cell of the window is which row. `n` is nil when no menu is up, and then only the bar's
-// own row answers — everything else falls through to the panel under it.
-hit :: proc(b: Bar, n: ^Nav, x, y: int) -> Hit {
+// Hit popups in pixels, then the bar on the ground's cell lattice.
+hit :: proc(b: Bar, n: ^Nav, px, py: f32) -> Hit {
     if n != nil {
-        if h, on := box_hit(kid_box(b, n^), n.ktop, len(kids_of(b, n^)), x, y, .Kid); on {
+        if h, on := box_hit(b, kid_box(b, n^), n.ktop, len(kids_of(b, n^)), px, py, .Kid); on {
             return h
         }
-        if h, on := box_hit(drop_box(b, n^), n.top, len(rows_of(b, n^)), x, y, .Row); on {
+        if h, on := box_hit(b, drop_box(b, n^), n.top, len(rows_of(b, n^)), px, py, .Row); on {
             return h
         }
     }
+    x, y := cell_of(px, b.cell.x), cell_of(py, b.cell.y)
     if y == b.y {
         for _, i in b.menus {
             nx, nw := name_span(b, i)
@@ -333,81 +369,86 @@ hit :: proc(b: Bar, n: ^Nav, x, y: int) -> Hit {
 }
 
 @(private)
-box_hit :: proc(box: Box, top, count, x, y: int, part: Part) -> (Hit, bool) {
-    if !has_room(box) {
+box_hit :: proc(b: Bar, box: Box, top, count: int, px, py: f32, part: Part) -> (Hit, bool) {
+    if !has_room(box) || !point_in(popup_rect(box, b.cell), px, py) {
         return {}, false
     }
-    if x < box.x || x >= box.x + box.w || y < box.y || y >= box.y + box.h {
-        return {}, false
+    w, h := box_px(b, box)
+    if !point_in({box.at.x, box.at.y, w, h}, px, py) {
+        return {.Frame, -1}, true
     }
-    // A row owns its whole line, the border columns at its ends included: an edge that is a row
-    // in one column and not in the next is a pixel of nothing to land on.
-    if i := top + y - box.y - 1; y > box.y && y < box.y + box.h - 1 && i < count {
+    if i := top + cell_of(py - box.at.y, b.cell.y); i < count {
         return {part, i}, true
     }
-    return {.Frame, -1}, true // a top or bottom border, or past the last row: not a row
+    return {.Frame, -1}, true
 }
 
 // --- the cells ---
 
 // The bar's own grid, one row. `n` is nil while no menu is up, the same as it is for `hit`.
-// `ground` is what an unlit cell paints: the caller says whether the row has a frame under it
-// to show through, because `src/menu` never learns where its grids are drawn.
-draw_bar :: proc(b: Bar, g: ^gfx.Grid, th: gfx.Theme, ground: gfx.Rgba, n: ^Nav = nil) {
-    gfx.grid_clear(g, th[.Fg], ground)
+//
+// AN UNLIT CELL PAINTS NOTHING. Every grid this package fills has a frame box drawn under it
+// (CHROME.md §15 stage 6), so what a menubar puts down is ink and a lit row, never a ground —
+// and `src/menu` still never learns where its grids are.
+draw_bar :: proc(b: Bar, g: ^gfx.Grid, th: gfx.Theme, n: ^Nav = nil) {
+    gfx.grid_clear(g, th[.Fg], gfx.NOTHING)
     for m, i in b.menus {
         x, _ := name_span(b, i)
         if parted(b, i) {
-            gfx.grid_write(g, x - 2, 0, "│", th[.Dim], ground)
+            gfx.grid_write(g, x - 2, 0, "│", th[.Dim], gfx.NOTHING)
         }
         if n != nil && n.menu == i {
             gfx.grid_write(g, x, 0, m.name, th[.Bg], gfx.opaque(th[.Accent]))
         } else {
-            gfx.grid_write(g, x, 0, m.name, th[.Fg], ground)
+            gfx.grid_write(g, x, 0, m.name, th[.Fg], gfx.NOTHING)
         }
     }
 }
 
-// The dropdown's grid. The row a popout hangs off stays lit while it is out, so the popout says
-// which row it belongs to.
-draw_drop :: proc(b: Bar, n: Nav, g: ^gfx.Grid, th: gfx.Theme) {
-    draw_list(g, th, drop_box(b, n), rows_of(b, n), n.top, n.row)
+// The dropdown's grid, and WHICH OF ITS ROWS IS LIT — the caller draws that row's ground as a
+// box, so the one row with a colour behind it is the one shape here that is not a glyph
+// (CHROME.md §6.1). -1 when the selection is scrolled out of the box or there is none. The row
+// a popout hangs off stays lit while it is out, so the popout says which row it belongs to.
+draw_drop :: proc(b: Bar, n: Nav, g: ^gfx.Grid, th: gfx.Theme) -> int {
+    return draw_list(g, th, drop_box(b, n), rows_of(b, n), n.top, n.row)
 }
 
-draw_kids :: proc(b: Bar, n: Nav, g: ^gfx.Grid, th: gfx.Theme) {
-    draw_list(g, th, kid_box(b, n), kids_of(b, n), n.ktop, n.kid)
+draw_kids :: proc(b: Bar, n: Nav, g: ^gfx.Grid, th: gfx.Theme) -> int {
+    return draw_list(g, th, kid_box(b, n), kids_of(b, n), n.ktop, n.kid)
 }
 
 @(private)
-draw_list :: proc(g: ^gfx.Grid, th: gfx.Theme, box: Box, rows: []Row, top, sel: int) {
+draw_list :: proc(g: ^gfx.Grid, th: gfx.Theme, box: Box, rows: []Row, top, sel: int) -> int {
     if !has_room(box) {
-        return
+        return -1
     }
-    ground := gfx.opaque(th[.Bg])
-    gfx.grid_clear(g, th[.Fg], ground)
-    gfx.grid_box(g, 0, 0, box.w, box.h, th[.Dim], ground)
+    gfx.grid_clear(g, th[.Fg], gfx.NOTHING)
     cols := widths(rows)
-    for i in 0 ..< box.h - 2 {
+    lit := -1
+    for i in 0 ..< box.h {
         at := top + i
         if at >= len(rows) {
             break
         }
-        draw_row(g, 1 + i, box.w, rows[at], cols, th, at == sel)
+        on := at == sel
+        if on {
+            lit = i
+        }
+        draw_row(g, i, box.w, rows[at], cols, th, on)
     }
+    return lit
 }
 
 @(private)
 draw_row :: proc(g: ^gfx.Grid, y, w: int, it: Row, cols: [4]int, th: gfx.Theme, on: bool) {
-    fg, bg := th[.Fg], gfx.opaque(th[.Bg])
+    fg := th[.Fg]
     if on {
-        // the row the keys are on, and the row a popout hangs off
-        fg, bg = th[.Bg], gfx.opaque(th[.Accent])
+        // The row the keys are on, and the row a popout hangs off. Its ink flips because the
+        // caller draws its ground as an ACCENT BOX; no row of a list paints a ground of its own.
+        fg = th[.Bg]
     }
-    for x in 1 ..< w - 1 {
-        gfx.grid_put(g, x, y, {' ', fg, bg, {}, 0})
-    }
-    gfx.grid_write(g, col_x(cols, 0), y, it.chord, on ? fg : th[.Accent], bg)
-    gfx.grid_write(g, col_x(cols, 1), y, it.name, fg, bg)
-    gfx.grid_write(g, col_x(cols, 2), y, it.doc, on ? fg : th[.Dim], bg)
-    gfx.grid_write(g, w - 2 - cells(it.tag), y, it.tag, on ? fg : th[.Dim], bg)
+    gfx.grid_write(g, col_x(cols, 0), y, it.chord, on ? fg : th[.Accent], gfx.NOTHING)
+    gfx.grid_write(g, col_x(cols, 1), y, it.name, fg, gfx.NOTHING)
+    gfx.grid_write(g, col_x(cols, 2), y, it.doc, on ? fg : th[.Dim], gfx.NOTHING)
+    gfx.grid_write(g, w - 2 - cells(it.tag), y, it.tag, on ? fg : th[.Dim], gfx.NOTHING)
 }

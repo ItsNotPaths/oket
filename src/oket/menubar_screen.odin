@@ -28,7 +28,8 @@ Menu_Part :: enum u8 {
 
 Menu_Layer :: struct {
     grid: gfx.Grid,
-    at:   [2]int, // the ground's cells, which is what the frame turns into pixels
+    at:   [2]f32, // the ground's PIXELS: a popup hangs where it likes, and only its size is cells
+    lit:  int, // the row of this layer with a ground behind it, -1 for none: a box, not cells
     on:   bool,
 }
 
@@ -119,6 +120,7 @@ menubar_frame :: proc(a: ^App, allocator := context.temp_allocator) -> menu.Bar 
     // Everything but the bar's row, and read off the frame rather than counted here: what a
     // list may fill is the menubar's own rows plus the strip's (frame.odin).
     b.cols, b.rows = a.frame.bar.w, a.frame.menu.h + a.frame.body.h
+    b.cell = {f32(a.cell.x), f32(a.cell.y)}
     return b
 }
 
@@ -135,22 +137,22 @@ menubar_draw :: proc(a: ^App) {
     }
     b := menubar_frame(a)
     nav: ^menu.Nav = up ? &a.menu_nav : nil
-    menu_layer(a, .Bar, {0, b.y, b.cols, 1})
+    menu_layer(a, .Bar, {{0, f32(b.y) * b.cell.y}, b.cols, 1})
     th := menu_theme(a)
-    // A reserved row has a frame box under it and nothing reaches it. A hidden bar FLOATS over
-    // a document, and a transparent one would read the text it covers through itself.
-    ground := reserved ? gfx.NOTHING : gfx.opaque(th[.Bg])
-    menu.draw_bar(b, &a.menu[.Bar].grid, th, ground, nav)
+    // Every layer here gets a frame box under it, at the rect `menu_layer` just set — a reserved
+    // row and one floating over a document alike (CHROME.md §15 stage 6). So no grid of this
+    // menubar paints a ground, and none of them is a branch.
+    menu.draw_bar(b, &a.menu[.Bar].grid, th, nav)
     if !up {
         return
     }
     if box := menu.drop_box(b, a.menu_nav); menu.has_room(box) {
         menu_layer(a, .Drop, box)
-        menu.draw_drop(b, a.menu_nav, &a.menu[.Drop].grid, th)
+        a.menu[.Drop].lit = menu.draw_drop(b, a.menu_nav, &a.menu[.Drop].grid, th)
     }
     if box := menu.kid_box(b, a.menu_nav); menu.has_room(box) {
         menu_layer(a, .Kid, box)
-        menu.draw_kids(b, a.menu_nav, &a.menu[.Kid].grid, th)
+        a.menu[.Kid].lit = menu.draw_kids(b, a.menu_nav, &a.menu[.Kid].grid, th)
     }
 }
 
@@ -158,7 +160,7 @@ menubar_draw :: proc(a: ^App) {
 menu_layer :: proc(a: ^App, part: Menu_Part, box: menu.Box) {
     l := &a.menu[part]
     gfx.grid_resize(&l.grid, box.w, box.h)
-    l.at, l.on = {box.x, box.y}, true
+    l.at, l.lit, l.on = box.at, -1, true
 }
 
 // Over the panels, because a menu a panel covers is a menu nobody can read. The origin is the
@@ -171,9 +173,9 @@ menubar_paint :: proc(a: ^App, win_w, win_h: i32) {
         if !l.on {
             continue
         }
-        x, y := i32(ox + l.at.x * cw), i32(oy + l.at.y * ch)
-        gfx.painter_draw(p, &l.grid, win_w, win_h, {f32(x), f32(y)},
-                         {x, y, i32(l.grid.cols * cw), i32(l.grid.rows * ch)})
+        x, y := f32(ox) + l.at.x, f32(oy) + l.at.y
+        gfx.painter_draw(p, &l.grid, win_w, win_h, {x, y},
+                         {x, y, f32(l.grid.cols * cw), f32(l.grid.rows * ch)})
     }
 }
 
@@ -278,18 +280,18 @@ menu_key :: proc(chord: input.Chord, name: string) -> bool {
 
 // --- and on the mouse (§6) ---
 
-// Which cell of the window the menu holds, asked before the strip is (panel_hit). Nothing is
+// Which PIXEL of the window the menu holds, asked before the strip is (panel_hit). Nothing is
 // drawn when the bar is hidden and no menu is up, so nothing is hit; a shut bar holds row 0,
 // which is menubar_frame's `y` in both modes. Both are answered before the bar is BUILT, because
 // this runs on every pointer motion.
-menu_hit :: proc(a: ^App, x, y: int) -> (menu.Hit, bool) {
+menu_hit :: proc(a: ^App, px, py: int) -> (menu.Hit, bool) {
     _, up := a.pending.(input.Pending_Menu)
-    if !up && (menu_show(a) == .Hidden || y != 0) {
+    if !up && (menu_show(a) == .Hidden || py < 0 || py >= a.cell.y) {
         return {}, false
     }
     b := menubar_frame(a)
     nav: ^menu.Nav = up ? &a.menu_nav : nil
-    h := menu.hit(b, nav, x, y)
+    h := menu.hit(b, nav, f32(px), f32(py))
     return h, h.part != .None
 }
 

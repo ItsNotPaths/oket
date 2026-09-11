@@ -169,7 +169,7 @@ switcher_row :: proc(a: ^App, slot: int, doc: store.Id, on: bool) -> Switcher_Ro
 // The widest row it can afford. Zero rows is zero width, which is what stops an empty lane
 // drawing a bar of nothing down the panel.
 @(private = "file")
-switcher_width :: proc(rows: []Switcher_Row, body: Rect) -> int {
+switcher_width :: proc(rows: []Switcher_Row, body: Cells) -> int {
     w := 0
     for r in rows {
         w = max(w, switcher_cells(r.text))

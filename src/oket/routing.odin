@@ -32,7 +32,7 @@ active_doc :: proc(a: ^App) -> ^txt.Doc {
 
 // Where that document was drawn, for a click. The line's row while it is open, the focused
 // panel's body otherwise, so a click never lands in a document the keys are not aimed at.
-active_rect :: proc(a: ^App) -> Rect {
+active_rect :: proc(a: ^App) -> Cells {
     return cl_active(a) ? a.bar : panel_focused(a).body
 }
 

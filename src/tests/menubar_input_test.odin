@@ -266,14 +266,14 @@ a_constant_menubar_costs_one_row_at_the_start :: proc(t: ^testing.T) {
     app.surface_draw(&a)
     testing.expect(t, a.menu[.Bar].on, "a constant bar went away with the menu")
     testing.expect(t, !a.menu[.Drop].on, "a dropdown with no menu up")
-    testing.expect_value(t, a.menu[.Bar].at, [2]int{0, 0})
+    testing.expect_value(t, a.menu[.Bar].at, [2]f32{0, 0})
 }
 
-// CHROME.md §6.1: a row the solve RESERVED has a frame box under it, so its cells say nothing
-// and the box shows. A hidden bar floats over a document, and a transparent one would read the
-// text it covers through itself.
+// CHROME.md §6.1 and §15 stage 6: NO MENUBAR GRID PAINTS A GROUND. The frame's pass runs after
+// the panels and draws a box at each layer's own rect, so a reserved row and one floating over a
+// document are the same box — and the cells over it are ink and a lit row, nothing else.
 @(test)
-a_floating_menubar_is_opaque_and_a_reserved_one_is_not :: proc(t: ^testing.T) {
+a_menubar_grid_never_paints_a_ground :: proc(t: ^testing.T) {
     a, dir, ok := constant_app(t, "oket-menubar-ground")
     if !ok {
         return
@@ -293,8 +293,16 @@ a_floating_menubar_is_opaque_and_a_reserved_one_is_not :: proc(t: ^testing.T) {
     app.handle_chord(&h, chord("SPCE", {.Alt})) // the one way a hidden bar reaches the screen
     app.surface_draw(&h)
     testing.expect(t, h.menu[.Bar].on, "a hidden bar with a menu up")
-    testing.expect(t, gfx.grid_at(&h.menu[.Bar].grid, 0, 0).bg != gfx.NOTHING,
-                   "a floating bar reads the document through itself")
+    testing.expect_value(t, gfx.grid_at(&h.menu[.Bar].grid, 0, 0).bg, gfx.NOTHING)
+    // And the dropdown hanging off it. The LIT row is a box too: the layer says which row the
+    // frame draws a ground under, and the cells of that row carry ink and nothing else.
+    testing.expect(t, h.menu[.Drop].on, "no dropdown with a menu up")
+    testing.expect_value(t, gfx.grid_at(&h.menu[.Drop].grid, 0, 0).bg, gfx.NOTHING)
+    lit := h.menu[.Drop].lit
+    testing.expect(t, lit >= 0, "no row of an open dropdown is lit")
+    for x in 0 ..< h.menu[.Drop].grid.cols {
+        testing.expect_value(t, gfx.grid_at(&h.menu[.Drop].grid, x, lit).bg, gfx.NOTHING)
+    }
 }
 
 // --- the mouse (§6) ---
@@ -323,14 +331,15 @@ name_at :: proc(a: ^app.App, want: string) -> (x: int, ok: bool) {
 
 @(private = "file")
 row_at :: proc(a: ^app.App, i: int) -> (x, y: int) {
+    // A test cell is ONE PIXEL, so a popup's pixel origin reads in columns and rows here.
     box := menu.drop_box(app.menubar_frame(a), a.menu_nav)
-    return box.x + 1, box.y + 1 + i - a.menu_nav.top
+    return int(box.at.x) + 1, int(box.at.y) + i - a.menu_nav.top
 }
 
 @(private = "file")
 kid_at :: proc(a: ^app.App, i: int) -> (x, y: int) {
     box := menu.kid_box(app.menubar_frame(a), a.menu_nav)
-    return box.x + 1, box.y + 1 + i - a.menu_nav.ktop
+    return int(box.at.x) + 1, int(box.at.y) + i - a.menu_nav.ktop
 }
 
 // The bar's own row is the MENU'S cell and not the panel's under it, so a click on it opens a

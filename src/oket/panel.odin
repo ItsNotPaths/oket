@@ -26,7 +26,7 @@ Panel :: struct {
     grid:  gfx.Grid,
     // Where the document was drawn, in the panel's OWN cells. A click is placed against it, so
     // the hit test reads the layout the eye saw rather than recomputing one.
-    body:  Rect,
+    body:  Cells,
     hover: Hover,
 }
 
@@ -317,11 +317,11 @@ PANEL_MENU :: -2
 // first. -1 is the ground: the bar's row, a gap, or the space past the last panel.
 panel_hit :: proc(a: ^App, px, py: int) -> (panel, x, y: int) {
     col, win := floor_div(px, a.cell.x), floor_div(py, a.cell.y)
-    // The menu is painted OVER the panels, so it is asked before the strip (MENU.md §6): a cell
-    // it holds is not the panel's under it, and the cells that come back are the window's,
-    // because that is the lattice the menu is laid out on.
-    if _, on := menu_hit(a, col, win); on {
-        return PANEL_MENU, col, win
+    // The menu is painted OVER the panels, so it is asked before the strip (MENU.md §6): a pixel
+    // it holds is not the panel's under it. THE TWO THAT COME BACK ARE PIXELS for the menu and
+    // cells for a panel, because a popup is not on the cell lattice and a document is (§11).
+    if _, on := menu_hit(a, px, py); on {
+        return PANEL_MENU, px, py
     }
     // A reserved menubar row pushes every panel down one, so the row a pixel lands on is the
     // window's minus what the bar kept — which is where the frame put the strip (MENU.md §4).
@@ -376,7 +376,7 @@ panel_aim :: proc(a: ^App, i: int) {
 // The rectangle a document was last drawn in. A live slot the strip is not showing still has a
 // viewport the kernel moves (§11) and still needs a page height, and the focused panel's is the
 // only honest answer for a document you cannot see.
-doc_rect :: proc(a: ^App, id: store.Id) -> Rect {
+doc_rect :: proc(a: ^App, id: store.Id) -> Cells {
     for &p in a.panels {
         if s := panel_slot(a, &p); s != nil && s.doc == id {
             return p.body

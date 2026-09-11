@@ -150,35 +150,38 @@ doc_caret_cell :: proc(a: ^App, id: store.Id, v: view.View,
     return view.caret_cell(t, d, v, x, y, w, h, doc.cursors[doc.primary].head, dv)
 }
 
-// The frame, on the GPU: the ground, then every panel over it. A panel's origin is the ground's
-// corner plus what the strip says, which is pixels and not cells — that is the whole of what a
-// gap, a half width and a camera cost here (§7).
+// The frame, on the GPU: every panel, then the frame in what they left. A panel's origin is the
+// ground's corner plus what the strip says, which is pixels and not cells — that is the whole of
+// what a gap, a half width and a camera cost here (§7).
+//
+// §6's order, and the DOCUMENTS GO FIRST (§15 stage 6): `gl_clear` has already laid the flat
+// ground under the window, so a box is a gradient over the pixels nothing claimed — the gaps,
+// the two rows, a ring around each panel and a dropdown across the lot.
 surface_paint :: proc(a: ^App, win_w, win_h: i32) {
     p := &a.painter
     ox, oy := gfx.painter_origin(p, win_w, win_h, a.ground.cols, a.ground.rows)
     cw, ch := gfx.painter_cell(p)
-    // §6's order: the frame's boxes, then the cell grids into the rects it reserved. The pass
-    // brackets its own blend, because a box's colour is premultiplied.
     ss := panel_spans(a)
-    gfx.mesher_begin(&a.mesher, win_w, win_h)
-    frame_paint(a, ox, oy, ss)
-    gfx.mesher_end(&a.mesher)
-    // The whole grid: every cell off the bar's row says NOTHING, and what draws there is the
-    // frame under it (§13.3).
-    gfx.painter_draw(p, &a.ground, win_w, win_h, {f32(ox), f32(oy)},
-                     frame_px({0, 0, a.ground.cols, a.ground.rows}, {ox, oy}, {cw, ch}))
     top := oy + int(a.frame.strip.y) // where the frame's solve put the strip (frame.odin)
     for &pn, i in a.panels {
         it := strip.span(a.strip, ss, i)
         x := f32(ox) + it.x
         // The clip is the window's share of the panel, not the panel: one scrolled off the left
         // edge draws at a negative origin, and GL takes no negative box.
-        lo, hi := max(i32(x), 0), min(i32(x + it.w), win_w)
+        lo, hi := max(x, 0), min(x + it.w, f32(win_w))
         if hi <= lo {
             continue
         }
         gfx.painter_draw(p, &pn.grid, win_w, win_h, {x, f32(top)},
-                         {lo, i32(top), hi - lo, i32(pn.grid.rows * ch)})
+                         {lo, f32(top), hi - lo, f32(pn.grid.rows * ch)})
     }
-    menubar_paint(a, win_w, win_h) // last, over the panels (MENU.md §4)
+    // The pass brackets its own blend, because a box's colour is premultiplied.
+    gfx.mesher_begin(&a.mesher, win_w, win_h)
+    frame_paint(a, ox, oy, ss)
+    gfx.mesher_end(&a.mesher)
+    // The whole grid, over the boxes: every cell off the bar's row says NOTHING, and what draws
+    // there is the frame under it (§13.3).
+    gfx.painter_draw(p, &a.ground, win_w, win_h, {f32(ox), f32(oy)},
+                     frame_px({0, 0, a.ground.cols, a.ground.rows}, {ox, oy}, {cw, ch}))
+    menubar_paint(a, win_w, win_h) // last, over the boxes the frame drew for its grids
 }

@@ -50,6 +50,39 @@ a_shared_edge_rounds_once :: proc(t: ^testing.T) {
     testing.expect_value(t, app.frame_cols(right, CELL.x), 14)
 }
 
+// CHROME.md §15 stage 6. The frame's pass runs AFTER the panels, so the strip's ground is the
+// GAPS: one rect before the first panel, one between each pair, and one past the last. A rect
+// spanning the strip would cover the documents.
+@(test)
+the_strips_ground_is_the_gaps :: proc(t: ^testing.T) {
+    a, ok := bare_app(40, 10)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+    app.panel_make(&a, 1)
+    for &p in a.panels {
+        p.size = app.WIDTH_FULL / 2
+    }
+    a.config.gap = 4
+    app.surface_fit(&a, 40, 10, CELL)
+
+    ss := app.panel_spans(&a)
+    gaps := app.ground_gaps(&a, 0, 0, ss)
+    testing.expect_value(t, len(gaps), 3) // two ends and the one gap between them
+
+    left, right := strip.span(a.strip, ss, 0), strip.span(a.strip, ss, 1)
+    testing.expect_value(t, gaps[0].w, left.x - a.frame.strip.x) // flush against the strip's end
+    testing.expect_value(t, gaps[1].x, left.x + left.w)
+    testing.expect_value(t, gaps[1].w, right.x - (left.x + left.w))
+    testing.expect_value(t, gaps[2].x, right.x + right.w)
+    // One gradient down all of them: each keeps the strip's own y and h, so no seam shows.
+    for g in gaps {
+        testing.expect_value(t, g.y, a.frame.strip.y)
+        testing.expect_value(t, g.h, a.frame.strip.h)
+    }
+}
+
 // CHROME.md §13.3 and §15 stage 5. The ground grid is drawn OVER the frame's pass, so a cell
 // of it that paints a colour is a frame pixel covered one call later. At rest it covers NOTHING
 // AT ALL, because the bar's row is a box. An open command line is the one thing that fills a
