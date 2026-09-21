@@ -59,6 +59,7 @@ Doc_Reader :: enum {
     Highlight, // folds each change into the cached parse tree (highlight.odin)
     Folds,     // shifts collapsed ranges so an edit elsewhere does not drop them (src/edit)
     Fields,    // carries the descriptor's spans along with the text (src/store/fields.odin)
+    Spans,     // carries a publisher's colour runs along with it (src/store/spans.odin)
 }
 
 // Both byte offsets and points, because tree-sitter's Input_Edit wants both. Offsets are in the
@@ -199,6 +200,19 @@ point_shift :: proc(p: Pos, ch: Doc_Change, low: bool) -> Pos {
         return s // inside what the splice replaced, so it collapses onto the front of it
     }
     return p
+}
+
+// One BYTE OFFSET through one splice, the rule above with no lines in it: colour runs are
+// stored against bytes, so this is what carries them along (store/spans.odin). `low` is the
+// same asymmetry — text inserted exactly at a run's left edge belongs to the run.
+off_shift :: proc(off: int, ch: Doc_Change, low: bool) -> int {
+    if off >= ch.old_end && (!low || off > ch.start) {
+        return off + ch.new_end - ch.old_end
+    }
+    if off > ch.start {
+        return ch.start // inside what the splice replaced, so it collapses onto the front of it
+    }
+    return off
 }
 
 // --- the cell grid --- The painter draws CELLS, one per CLUSTER (IME.md §4); the document

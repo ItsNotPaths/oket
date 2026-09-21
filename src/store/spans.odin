@@ -3,6 +3,7 @@ package store
 import "core:slice"
 import "../desc"
 import "../shape"
+import "../txt"
 
 // The span store (§5's `spans`, §9, VIEWS §8). The kernel STORES style runs and never computes
 // them: a parser, a linter, a search and the terminal all publish here, and whoever draws the
@@ -66,6 +67,10 @@ spans_apply :: proc(slot: ^Slot, pub: Spans) -> bool {
     if pub.hi < pub.lo {
         return false
     }
+    // What is already stored, brought up to the text FIRST: `pub` was written against the
+    // document as it stands now, and merging it onto runs that are still at yesterday's offsets
+    // would leave the two halves disagreeing about where the same byte is.
+    spans_follow(slot)
     fresh := spans_clean(pub.list, pub.lo, pub.hi)
     b := bucket_for(slot, pub.who)
     out := make([dynamic]Span, 0, len(b.list) + len(fresh), context.temp_allocator)
@@ -114,6 +119,66 @@ store_spans :: proc(s: ^Store, id: Id, lo, hi: int, order: []Producer,
         }
     }
     return slice.clone(merged, alloc)
+}
+
+// COLOUR RIDES THE TEXT, the same way a descriptor's fields do (fields.odin).
+//
+// A run is stored against BYTES, so text that moves under it has to take it along. Without this
+// a run is only true for the generation it was published at, and every keystroke puts the whole
+// document below the caret one byte out until its publisher has walked the file again and said
+// so — which is a frame at best and many frames on a file whose parse is sliced. What you see
+// is the colour sliding off the text and snapping back on the next publish.
+//
+// Text typed at a run's END grows it, which is what extending a word already is; text typed in
+// FRONT of one carries it along without joining it. One rule at both ends, because runs touch:
+// see the note below on what the other rule would leave overlapping.
+//
+// A run that the splice swallowed whole collapses to nothing and is dropped. A log that no
+// longer reaches back far enough cannot say where anything went, and wrong colour is worse than
+// none: the runs go, and the publisher lays them down again when it is told the generation
+// moved (§7).
+@(private)
+spans_follow :: proc(slot: ^Slot) {
+    if slot.doc == nil {
+        return
+    }
+    changes, lost := txt.doc_changes_since(slot.doc, .Spans)
+    if len(changes) == 0 && !lost {
+        return
+    }
+    // ACKED EVEN WITH NOTHING TO CARRY, which is the whole reason this runs for every slot: a
+    // reader that only catches up once it has runs to move starts every document behind the
+    // log, and the first publish onto one lands on a `lost` that throws it straight away.
+    defer txt.doc_changes_ack(slot.doc, .Spans)
+    if len(slot.spans) == 0 {
+        return
+    }
+    if lost {
+        for &b in slot.spans {
+            clear(&b.list)
+        }
+        return
+    }
+    for &b in slot.spans {
+        kept := 0
+        for sp in b.list {
+            moved := sp
+            for ch in changes {
+                // THE SAME RULE AT BOTH ENDS, which a field does not need and a run cannot do
+                // without: runs are flat and touching, so a low edge that absorbed an insertion
+                // its neighbour's high edge also absorbed would leave the two OVERLAPPING, and
+                // every reader here is promised they do not. Text typed at a boundary joins the
+                // run ENDING there, which is what extending a word at its end already is.
+                moved.lo = txt.off_shift(moved.lo, ch, low = false)
+                moved.hi = txt.off_shift(moved.hi, ch, low = false)
+            }
+            if moved.hi > moved.lo {
+                b.list[kept] = moved
+                kept += 1
+            }
+        }
+        resize(&b.list, kept)
+    }
 }
 
 // A producer's runs, everywhere. What unload calls: a plugin's colours go with it, and nobody

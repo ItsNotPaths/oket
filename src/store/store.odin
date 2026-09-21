@@ -283,6 +283,14 @@ store_drain :: proc(s: ^Store) -> (applied, stale: int) {
     }
     clear(&s.pending)
 
+    // Every publisher's runs, brought up to the text the commits above landed. Here and not in
+    // store_spans, because only a DRAWN document is read: one nobody is looking at would let
+    // the change log run past its cap and lose its colour for no reason. With nothing to fold
+    // it is a compare.
+    for &slot in s.slots {
+        spans_follow(&slot)
+    }
+
     // After the splices, because the set was written against the text they land: an owner
     // that rewrites its rows and says where the carets go is describing the document it just
     // made. It counts as APPLIED, which is what makes the caller re-read the caret and keep it

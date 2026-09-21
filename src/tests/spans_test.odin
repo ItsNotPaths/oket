@@ -449,6 +449,116 @@ a_stale_span_publish_is_dropped_with_its_transaction :: proc(t: ^testing.T) {
     testing.expect_value(t, len(merged(&a, id, 0, 20)), 1)
 }
 
+// COLOUR RIDES THE TEXT. A run is stored against bytes, so a publisher that has not walked the
+// file again since the last keystroke must not have its runs slide off what they were painted
+// on. Text inserted BEFORE a run carries it along, text inserted INSIDE one grows it, and a
+// splice that swallows one whole drops it rather than leaving it over the wrong bytes.
+@(test)
+a_run_moves_with_the_text_under_it :: proc(t: ^testing.T) {
+    a, id, ok := spans_app(t)
+    if !ok {
+        return
+    }
+    defer close_spans_app(&a)
+
+    who := app.producer_intern(&a, "syntax")
+    // `let a = 1` — the keyword, and the name three bytes after it.
+    list := [?]store.Span{fg(0, 3, RED), fg(4, 5, BLUE)}
+    gen, _ := store.store_gen(&a.docs, id)
+    store.store_submit(&a.docs, id, gen, nil, nil,
+                       store.Spans{who = who, lo = 0, hi = 9, list = list[:]})
+    store.store_drain(&a.docs)
+
+    // Two bytes in front of everything: both runs move by two and neither changes width.
+    gen, _ = store.store_gen(&a.docs, id)
+    store.store_submit(&a.docs, id, gen, {{0, 0, "//", 0, 0}})
+    store.store_drain(&a.docs)
+    out := merged(&a, id, 0, 40)
+    if !testing.expect_value(t, len(out), 2) {
+        return
+    }
+    testing.expect_value(t, out[0], fg(2, 5, RED))
+    testing.expect_value(t, out[1], fg(6, 7, BLUE))
+
+    // Typed INSIDE the second run, which is what extending a name is: it grows rather than
+    // splitting, and the one in front of it does not move at all.
+    gen, _ = store.store_gen(&a.docs, id)
+    store.store_submit(&a.docs, id, gen, {{7, 7, "bc", 0, 0}})
+    store.store_drain(&a.docs)
+    out = merged(&a, id, 0, 40)
+    if !testing.expect_value(t, len(out), 2) {
+        return
+    }
+    testing.expect_value(t, out[0], fg(2, 5, RED))
+    testing.expect_value(t, out[1], fg(6, 9, BLUE))
+
+    // Swallowed whole. A run over bytes that are gone is worse than no run, so it goes and the
+    // other one is left where it was.
+    gen, _ = store.store_gen(&a.docs, id)
+    store.store_submit(&a.docs, id, gen, {{5, 10, "", 0, 0}})
+    store.store_drain(&a.docs)
+    out = merged(&a, id, 0, 40)
+    if !testing.expect_value(t, len(out), 1) {
+        return
+    }
+    testing.expect_value(t, out[0], fg(2, 5, RED))
+}
+
+// Runs are flat and TOUCHING, and every reader is promised they never overlap. A boundary that
+// both neighbours absorbed would break that, which is why one rule carries both ends of a run.
+@(test)
+two_runs_that_touch_do_not_overlap_when_you_type_between_them :: proc(t: ^testing.T) {
+    a, id, ok := spans_app(t)
+    if !ok {
+        return
+    }
+    defer close_spans_app(&a)
+
+    who := app.producer_intern(&a, "syntax")
+    list := [?]store.Span{fg(0, 3, RED), fg(3, 9, BLUE)}
+    gen, _ := store.store_gen(&a.docs, id)
+    store.store_submit(&a.docs, id, gen, nil, nil,
+                       store.Spans{who = who, lo = 0, hi = 9, list = list[:]})
+    store.store_drain(&a.docs)
+
+    // Exactly on the seam: it goes to the run that ENDS there, and the one after it starts past
+    // what was typed rather than under it.
+    gen, _ = store.store_gen(&a.docs, id)
+    store.store_submit(&a.docs, id, gen, {{3, 3, "XY", 0, 0}})
+    store.store_drain(&a.docs)
+
+    out := merged(&a, id, 0, 40)
+    if !testing.expect_value(t, len(out), 2) {
+        return
+    }
+    testing.expect_value(t, out[0], fg(0, 5, RED))
+    testing.expect_value(t, out[1], fg(5, 11, BLUE))
+}
+
+// A publisher that has just walked the file writes runs against the text as it stands, so the
+// edit in the same transaction must not be folded into them a second time.
+@(test)
+a_publish_in_the_same_transaction_as_an_edit_is_already_true :: proc(t: ^testing.T) {
+    a, id, ok := spans_app(t)
+    if !ok {
+        return
+    }
+    defer close_spans_app(&a)
+
+    who := app.producer_intern(&a, "syntax")
+    list := [?]store.Span{fg(2, 5, RED)}
+    gen, _ := store.store_gen(&a.docs, id)
+    store.store_submit(&a.docs, id, gen, {{0, 0, "//", 0, 0}}, nil,
+                       store.Spans{who = who, lo = 0, hi = 11, list = list[:]})
+    store.store_drain(&a.docs)
+
+    out := merged(&a, id, 0, 40)
+    if !testing.expect_value(t, len(out), 1) {
+        return
+    }
+    testing.expect_value(t, out[0], fg(2, 5, RED))
+}
+
 // --- helpers ---
 
 // The App owns the interned style names and whatever the file said about the order.
