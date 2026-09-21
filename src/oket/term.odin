@@ -200,13 +200,39 @@ term_rewrite :: proc(a: ^App, tm: ^Term, doc: ^txt.Doc) {
         }
         term_line(a, tm, n, &b, lo, n == cursor ? ccol + 1 : 0)
     }
-    txt.doc_apply(doc, {{lo, txt.doc_len(doc), strings.to_string(b), 0, 0}})
+    // .Pin, because a rewrite is a REGEN and the row is the identity: a line that scrolls off
+    // the grid keeps its document line number, so a selection over it is still over it. The
+    // default .Follow would drop every caret and leave one at the end, which is a selection
+    // taken away by output that term_point below is written not to take away.
+    txt.doc_apply(doc, {{lo, txt.doc_len(doc), strings.to_string(b), 0, 0}}, cur = {policy = .Pin})
     tm.fixed = len(tm.t.scrollback)
+    cut := term_spans_trim(tm)
     // To the END and not to the new length: a screen that shrank must not leave the runs that
-    // were under what it dropped.
+    // were under what it dropped. A trim moved every surviving run's place in the list, so
+    // that publish is the whole of it, from the top.
     store.store_spans_publish(&a.docs, tm.doc,
-                              {producer_intern(a, TERM_PRODUCER), lo, max(int),
-                               tm.spans[frozen:]})
+                              {producer_intern(a, TERM_PRODUCER), cut ? 0 : lo, max(int),
+                               cut ? tm.spans[:] : tm.spans[frozen:]})
+}
+
+// The store bounds a producer at SPAN_MAX and REFUSES a publish that would cross it, which for
+// a session is the wrong answer twice over: dense colour is ordinary output, not a runaway
+// publisher, and a refusal leaves the screen you are looking at plain while stale scrollback
+// keeps its paint. So the OLDEST runs go instead, the way the oldest scrollback lines do.
+//
+// Trimmed in a block rather than one at a time, so a colourful session pays the whole-list
+// republish once in a while instead of on every pump.
+TERM_SPAN_TRIM :: store.SPAN_MAX / 8
+
+@(private = "file")
+term_spans_trim :: proc(tm: ^Term) -> bool {
+    if len(tm.spans) <= store.SPAN_MAX {
+        return false
+    }
+    drop := len(tm.spans) - (store.SPAN_MAX - TERM_SPAN_TRIM)
+    copy(tm.spans[:], tm.spans[drop:])
+    resize(&tm.spans, len(tm.spans) - drop)
+    return true
 }
 
 // One physical row as text plus its style runs. Trailing blanks go only where they carry the
