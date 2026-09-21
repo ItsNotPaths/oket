@@ -161,7 +161,8 @@ put_needs_something_piped_into_it :: proc(t: ^testing.T) {
 }
 
 // A shell step with nothing to pipe into goes to N0, which is the default sink and the reason
-// `echo` alone is still useful. A non-zero exit surfaces it and stops the chain.
+// `echo` alone is still useful. A step that is the LAST thing the chain has to do surfaces it
+// on the way out: a command sent from the line is one you are watching run.
 @(test)
 a_shell_step_reports_to_the_system_session :: proc(t: ^testing.T) {
     a, ok := bare_app(60, 6)
@@ -174,19 +175,41 @@ a_shell_step_reports_to_the_system_session :: proc(t: ^testing.T) {
     run_line(&a, "echo out && echo more")
 
     // N0 is a real session, so the transcript is the shell's: the line it was handed, echoed by
-    // its own line editor, and the output under it.
+    // its own line editor, and the output under it. The report the chain waits on is a NAME and
+    // not the escape sequence it sends, so what trails the command is readable.
     sys := app.sys_slot(&a).doc
     text := doc_text(&a, sys)
     testing.expect(t, strings.contains(text, "echo out && echo more"), text)
     testing.expect(t, strings.contains(text, "out\nmore"), text)
-    testing.expect(t, app.ring_slot(&a) != app.SLOT_ZERO, "a run that worked surfaces nothing")
+    // What TRAILS the command is a name and not the escape sequence it sends: the line editor
+    // echoes the whole injection, so the report is four characters rather than forty.
+    testing.expect(t, strings.contains(text, "echo out && echo more ;__oket"), text)
+    testing.expect_value(t, app.ring_slot(&a), app.SLOT_ZERO)
 
-    // && short-circuits, and the failure is what brings N0 forward. The second step is a
-    // BUILTIN, so this is our chain stopping and not bash's own &&. The subshell is the test's:
-    // a bare `exit` at the top level ends the session's shell, which is a different failure.
+    // && short-circuits, and the failure keeps N0 forward. The second step is a BUILTIN, so this
+    // is our chain stopping and not bash's own &&. The subshell is the test's: a bare `exit` at
+    // the top level ends the session's shell, which is a different failure.
     run_line(&a, "(exit 3) && :close")
     testing.expect_value(t, app.ring_slot(&a), app.SLOT_ZERO)
     testing.expect(t, app.lane_first(&a.ring, 0) != 0, ":close never ran")
+}
+
+// Surfacing MOVES THE FOCUS, so only the last step may do it: a builtin after the shell step
+// acts on whatever is focused, and being thrown to a session would aim it at a shell.
+@(test)
+a_step_the_chain_is_not_done_with_stays_where_it_was :: proc(t: ^testing.T) {
+    a, ok := bare_app(60, 6)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    id := scratch_doc(&a, "note", "x")
+    app.ring_add(&a, id)
+    run_line(&a, "echo hi && :set panel.width 40")
+
+    testing.expect(t, app.ring_slot(&a) != app.SLOT_ZERO,
+                   "a step with chain after it must not take the focus")
 }
 
 // A failing step whose output the chain was reading does NOT throw you to N0: the answer was

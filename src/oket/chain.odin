@@ -81,6 +81,12 @@ chain_rescued :: proc(a: ^App) -> bool {
     return false
 }
 
+// Is the step the chain is on the last thing it has to do. What tells a step you are watching
+// run from one the chain is going to act on the answer of (job.odin).
+chain_last_step :: proc(a: ^App) -> bool {
+    return a.chain.idx + 1 >= len(a.chain.steps) && len(a.queue) == 0
+}
+
 chain_busy :: proc(a: ^App) -> bool {
     return a.chain.waiting || len(a.chain.steps) > 0 || len(a.queue) > 0
 }

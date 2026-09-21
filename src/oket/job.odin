@@ -18,18 +18,20 @@ import "../pty"
 // nobody can see. What a step costs the kernel is two strings: the line injected, and the exit
 // code the shell reports back through a private OSC.
 
-// What a step is injected as. The printf reports the group's exit code, and `cat` puts a
+// What a step is injected as. `__oket` reports the group's exit code, and `cat` puts a
 // captured step's output on screen AFTER the report — the kernel reads the file, so nothing is
 // waiting on the screen.
 //
-// The line is echoed by the shell's own line editor, which is why it is kept as short as it
-// can be: the subshell appears only when a redirect needs one, because `a && b < f` would bind
-// the redirect to `b` alone. Everything that can be said once is said at spawn instead.
+// THE LINE IS ECHOED BY THE SHELL'S OWN LINE EDITOR, so every byte of it is scrollback you have
+// to read past. That is why the report is a NAME and not the escape sequence it sends: the
+// sequence is said once, at spawn, and what trails a command here is four visible characters.
+// The subshell appears only when a redirect needs one, because `a && b < f` would bind the
+// redirect to `b` alone.
 //
 // POSIX sh, which is what an injected line has to be. The child is the user's $SHELL and this
 // is the one place the kernel writes a command for it to read.
 @(private = "file")
-STEP :: "%s ;printf '\\033]%d;%d;%%d\\007' \"$?\"%s\n"
+STEP :: "%s ;__oket %d $?%s\n"
 
 // Said once per session, so no step has to carry it. A pager blocking on a keypress is a chain
 // stalled behind a question, which is the invisible state N0 exists to make visible.
@@ -39,14 +41,26 @@ STEP :: "%s ;printf '\\033]%d;%d;%%d\\007' \"$?\"%s\n"
 // what lets a bind row name a tool instead of a location. The data directory, because that is
 // where those two tools live (path.odin).
 @(private = "file")
-SETUP :: "export GIT_PAGER=cat PAGER=cat\n"
+SETUP :: "export GIT_PAGER=cat PAGER=cat"
+
+// The exit report, given a name once so no step has to spell it. The injection id goes back out
+// with the code, which is what tells a report for the step we are waiting on from one left over
+// from a command typed by hand.
+// The braces are DOUBLED because this goes through fmt, which reads a single `{` as a verb.
+@(private = "file")
+REPORT :: "__oket(){{ printf '\\033]%d;%%s;%%s\\007' \"$1\" \"$2\"; }}\n"
 
 @(private = "file")
 setup_line :: proc(a: ^App) -> string {
-    if a.home.data == "" {
-        return SETUP
+    b := strings.builder_make(context.temp_allocator)
+
+    strings.write_string(&b, SETUP)
+    if a.home.data != "" {
+        fmt.sbprintf(&b, " PATH=\"$PATH\":%s", sh_arg(a.home.data))
     }
-    return fmt.tprintf("export GIT_PAGER=cat PAGER=cat PATH=\"$PATH\":%s\n", sh_arg(a.home.data))
+    strings.write_byte(&b, '\n')
+    fmt.sbprintf(&b, REPORT, pty.OSC_EXIT_TAG)
+    return strings.to_string(b)
 }
 
 Job :: struct {
@@ -94,11 +108,21 @@ sh_run :: proc(a: ^App, cmd, feed: string, fed: bool) -> bool {
     line := fmt.tprintf(
         STEP,
         body,
-        pty.OSC_EXIT_TAG,
         a.job.id,
         a.job.out != "" ? fmt.tprintf("; cat %s", sh_quote(a.job.out, context.temp_allocator)) : "",
     )
     pty.terminal_write(&tm.t, transmute([]u8)line)
+    // §11 had a session surface on a non-zero exit and on nothing else. A step that is the LAST
+    // thing the chain has to do surfaces on the way OUT as well: a command sent from the line is
+    // a command you are watching run, and learning where it ran only when it fails is the
+    // invisible state §1 exists to kill.
+    //
+    // ONLY the last, and only with the queue empty, because surfacing MOVES THE FOCUS: a step
+    // after this one would be aimed at a shell instead of at the document the line was typed
+    // over. Reading the output is the same objection — the answer lands where you already are.
+    if chain_last_step(a) && !a.job.captured {
+        ring_show_system(a)
+    }
     return true
 }
 
