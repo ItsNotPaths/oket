@@ -35,6 +35,11 @@
  * `fs.toggle` is still here and opens a subtree UNDER a row without leaving the directory. It
  * is unbound by default — one binds.conf line from any key.
  *
+ * TWO THINGS A LISTING HAS TO DO ON ITS OWN. It REMEMBERS the row point was on in a directory,
+ * so walking into a tree and back out of it comes back to the same place both ways round rather
+ * than to a fresh listing each time. And it is WATCHED: the root goes to §9's inotify job, so a
+ * file made in a terminal shows up without a keystroke and an idle browser costs nothing.
+ *
  *     :pluginify plugins/files      build it and load it
  *     alt+f                           the listing, rooted where oket was started
  */
@@ -86,6 +91,16 @@ typedef struct {
     int   fixed;
 } row;
 
+/* Where point was in a directory you have left. Coming back to a directory comes back to the
+ * ROW, which is what makes walking in and out of a tree feel like one place rather than a
+ * series of fresh listings. */
+typedef struct {
+    char *dir; /* owned */
+    char *row; /* owned; the path of the row point was on */
+} visit;
+
+#define VISITED_MAX 64
+
 typedef struct {
     char  *root; /* owned */
     char **open; /* owned paths, the directories whose subtree is open in place */
@@ -93,6 +108,11 @@ typedef struct {
     row   *rows; /* owned, one per entry the walk found */
     size_t nrows;
     int    hidden; /* are dotfiles listed */
+    visit  seen[VISITED_MAX];
+    size_t nseen;
+    /* The inotify job over `root` (§9). A directory changes under a listing with no keystroke
+     * and no generation move to notice it by, so the kernel is what notices. */
+    oket_io watch;
 } browser;
 
 /* --- the platter --- */
@@ -196,6 +216,53 @@ static void toggle_open(browser *b, const char *path) {
     if (b->open[b->nopen] != NULL) {
         b->nopen++;
     }
+}
+
+/* --- where you were (a row per directory) --- */
+
+/* Oldest out when it is full: a session that has walked a hundred directories wants the last
+ * few back, and the rest is not worth a growing list. */
+static void visit_put(browser *b, const char *dir, const char *path) {
+    visit *v;
+    size_t i;
+
+    for (i = 0; i < b->nseen; i++) {
+        if (strcmp(b->seen[i].dir, dir) == 0) {
+            char *fresh = oket_dup(path, strlen(path));
+
+            if (fresh != NULL) {
+                free(b->seen[i].row);
+                b->seen[i].row = fresh;
+            }
+            return;
+        }
+    }
+    if (b->nseen == VISITED_MAX) {
+        free(b->seen[0].dir);
+        free(b->seen[0].row);
+        memmove(b->seen, b->seen + 1, (VISITED_MAX - 1) * sizeof *b->seen);
+        b->nseen--;
+    }
+    v = &b->seen[b->nseen];
+    v->dir = oket_dup(dir, strlen(dir));
+    v->row = oket_dup(path, strlen(path));
+    if (v->dir == NULL || v->row == NULL) {
+        free(v->dir);
+        free(v->row);
+        return;
+    }
+    b->nseen++;
+}
+
+static const char *visit_get(const browser *b, const char *dir) {
+    size_t i;
+
+    for (i = 0; i < b->nseen; i++) {
+        if (strcmp(b->seen[i].dir, dir) == 0) {
+            return b->seen[i].row;
+        }
+    }
+    return NULL;
 }
 
 /* --- the rows --- */
@@ -506,6 +573,22 @@ static void rebuild(const oket_api *api, oket_self self, oket_list *l, const oke
     oket_list_publish(api, self, l);
 }
 
+/* The browser row behind the line point is on, or NULL over nothing. */
+static row *row_at_point(oket_list *l, const oket_at *at, size_t *line);
+
+/* The directory as it IS, not as it was read. A file made in a terminal or dropped by a build
+ * has to show up in a listing nobody has touched, and there is no keystroke and no generation
+ * move to notice it by — so the kernel notices, through the inotify job §9 already has. One
+ * watch, replaced whenever the root does, and an idle browser costs nothing. */
+static void watch_root(const oket_api *api, oket_self self, oket_list *l) {
+    browser *b = l->ctx;
+
+    if (b->watch != 0) {
+        api->io_close(api, self, b->watch);
+    }
+    b->watch = api->io_watch(api, self, l->doc, b->root, strlen(b->root));
+}
+
 /* The listing, rooted somewhere else, with the caret on `land`'s name once the rows exist.
  * Shared by every verb that MOVES rather than opens: visiting a directory, going back up, and
  * `:fs.root`. The filter is this directory's, so it goes too. */
@@ -514,12 +597,20 @@ static void reroot(const oket_api *api, oket_self self, oket_list *l, const oket
     browser *b = l->ctx;
     char report[128];
     char kept[PATH_CAP];
-    size_t idx;
+    const row *was;
+    size_t idx, at_line;
     ptrdiff_t line;
     int dropped;
 
+    was = row_at_point(l, at, &at_line);
+
     harvest(l, at->snap);
     dropped = pending(b);
+    /* Where point was HERE, before this stops being here. `..` is a way out and never a place
+     * to land, so it is not worth remembering. */
+    if (was != NULL && !was->fixed) {
+        visit_put(b, b->root, was->path);
+    }
     snprintf(kept, sizeof kept, "%s", land == NULL ? "" : land);
     free(b->root);
     b->root = oket_dup(root, strlen(root));
@@ -528,9 +619,23 @@ static void reroot(const oket_api *api, oket_self self, oket_list *l, const oket
     l->filter[0] = 0;
     l->filtering = 0;
     rows_read(b, 0); /* another directory, so nothing typed in this one carries over */
+    watch_root(api, self, l);
     oket_list_publish(api, self, l);
-    /* The first real entry, not `..`: you arrive somewhere to look at what is in it. */
-    idx = kept[0] == '\0' ? (b->nrows > 1 ? 1 : 0) : row_of(b, kept);
+    /* Where point was LAST TIME, when the caller named no row: walking into a directory and
+     * back out of it comes back to the same place, both ways round. */
+    if (kept[0] == '\0') {
+        const char *back = visit_get(b, b->root);
+
+        if (back != NULL) {
+            snprintf(kept, sizeof kept, "%s", back);
+        }
+    }
+    /* Zero is `..`, which row_of also answers for a row that is gone. Either way the first real
+     * entry is where you arrive: you come somewhere to look at what is in it. */
+    idx = kept[0] == '\0' ? 0 : row_of(b, kept);
+    if (idx == 0 && b->nrows > 1) {
+        idx = 1;
+    }
     line = oket_list_row_line(l, (int32_t)idx);
     oket_list_point(api, self, l, line >= 0 ? (size_t)line : 0);
     if (dropped > 0) {
@@ -572,6 +677,7 @@ static void *open_browser(const oket_api *api, oket_self self, oket_doc doc,
     l->file = b->root;
     b->hidden = 1; /* dotfiles are listed until :fs.hidden hides them */
     rows_read(b, 0);
+    watch_root(api, self, l);
     oket_list_publish(api, self, l);
     oket_list_point(api, self, l, l->nrows > 1 ? 2 : 1);
     return l;
@@ -582,17 +688,22 @@ static void close_browser(const oket_api *api, oket_self self, oket_doc doc, voi
     browser *b;
     size_t i;
 
-    (void)api;
-    (void)self;
     (void)doc;
     if (l == NULL) {
         return;
     }
     b = l->ctx;
+    if (b->watch != 0) {
+        api->io_close(api, self, b->watch);
+    }
     for (i = 0; i < b->nopen; i++) {
         free(b->open[i]);
     }
     free(b->open);
+    for (i = 0; i < b->nseen; i++) {
+        free(b->seen[i].dir);
+        free(b->seen[i].row);
+    }
     rows_free(b);
     free(b->root);
     free(b);
@@ -603,6 +714,27 @@ static void close_browser(const oket_api *api, oket_self self, oket_doc doc, voi
 
 static int32_t refuse(const oket_api *api, oket_self self, const char *why) {
     oket_say(api, self, why);
+    return 1;
+}
+
+/* Typing is the list core's; a watch hit is this file's. The directory changed under the
+ * listing, so it is read again with TYPED NAMES KEPT: a rename half written must survive
+ * somebody else's `touch`, which is the same rule a regeneration already follows. */
+static int32_t files_event(const oket_api *api, oket_self self, const oket_at *at,
+                           oket_event ev, const char *text, size_t len) {
+    oket_list *l;
+    size_t line;
+
+    if (ev != OKET_EVENT_IO) {
+        return oket_list_event(api, self, at, ev, text, len);
+    }
+    l = oket_list_of(at);
+    if (l == NULL) {
+        return 0;
+    }
+    line = oket_list_line(at->snap);
+    rebuild(api, self, l, at, 1);
+    oket_list_point(api, self, l, line);
     return 1;
 }
 
@@ -902,7 +1034,7 @@ OKET_MAIN {
     static const oket_kind_spec SPEC = {
         LIT("files"),
         LIT("surface"),
-        {open_browser, close_browser, oket_list_event},
+        {open_browser, close_browser, files_event},
     };
 
     FILES = api->register_kind(api, self, &SPEC);
