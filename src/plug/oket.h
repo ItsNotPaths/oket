@@ -490,7 +490,9 @@ typedef struct oket_api {
     void (*io_write)(const struct oket_api *api, oket_self self, oket_io io,
                      const char *bytes, size_t len);
     /* A path. Its DIRECTORY is what is watched and the name is the filter, because a save by
-     * rename leaves a watch on the file holding an inode nobody will write again. */
+     * rename leaves a watch on the file holding an inode nobody will write again. A path that
+     * IS a directory is watched whole: every name in it is a hit, which is what a listing
+     * wants and what no single name can stand in for. */
     oket_io (*io_watch)(const struct oket_api *api, oket_self self, oket_doc doc,
                         const char *path, size_t path_len);
     /* Ends it: the child's process group is signalled and the watch dropped. Silent — a job you

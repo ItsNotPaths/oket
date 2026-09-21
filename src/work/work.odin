@@ -75,7 +75,8 @@ Job :: struct {
     into:    posix.FD,
 
     // Watch. The DIRECTORY is what inotify holds, because an editor that saves by rename
-    // leaves a watch on the file pointing at an inode nobody will write again.
+    // leaves a watch on the file pointing at an inode nobody will write again. An EMPTY `base`
+    // is the directory watched whole: every name in it is a hit.
     wd:      linux.Wd,
     dir:     string, // owned
     base:    string, // owned
@@ -252,6 +253,9 @@ pool_spawn :: proc(p: ^Pool, argv: []string, cwd := "") -> (Id, bool) {
 
 // A path, watched through its DIRECTORY and filtered by name: `mv tmp file` is how most
 // programs write a file, and it leaves a watch on the file itself holding the old inode.
+//
+// A DIRECTORY is watched WHOLE — every name in it is a hit — which is what a listing wants and
+// what no single name can stand in for.
 pool_watch :: proc(p: ^Pool, path: string) -> (Id, bool) {
     if !p.started || path == "" {
         return {}, false
@@ -262,6 +266,9 @@ pool_watch :: proc(p: ^Pool, path: string) -> (Id, bool) {
         full = path
     }
     dir, base := filepath.dir(full), filepath.base(full)
+    if os.is_dir(full) {
+        dir, base = full, ""
+    }
     cdir := strings.clone_to_cstring(dir, context.temp_allocator)
     // The directory, not the file: CREATE and MOVED_TO are how the file comes BACK.
     wd, err := linux.inotify_add_watch(p.ino, cdir,
@@ -551,7 +558,8 @@ worker_reap :: proc(j: ^Job) -> bool {
 }
 
 // One read of the inotify fd, and every event in it matched against the watches. Two jobs
-// watching one directory share a `wd`, so this matches ALL of them and filters by name.
+// watching one directory share a `wd`, so this matches ALL of them and filters by name — or by
+// nothing, for the job that asked for the whole directory.
 @(private = "file")
 worker_inotify :: proc(p: ^Pool) {
     buf: [8 * 1024]u8
@@ -574,7 +582,8 @@ worker_inotify :: proc(p: ^Pool) {
             }
             for i in 0 ..< len(p.jobs) {
                 j := &p.jobs[i]
-                if j.live && !j.closing && j.kind == .Watch && j.wd == ev.wd && j.base == name {
+                if j.live && !j.closing && j.kind == .Watch && j.wd == ev.wd &&
+                   (j.base == "" || j.base == name) {
                     j.hit = true
                     told = true
                 }
