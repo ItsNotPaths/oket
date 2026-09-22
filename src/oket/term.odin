@@ -137,7 +137,10 @@ term_session_pump :: proc(a: ^App, tm: ^Term) {
     term_trim(a, tm, doc)
     term_rewrite(a, tm, doc)
     term_follow(s, doc, was, max(r.h, 1))
-    term_point(tm, s, doc)
+    // A press has not selected anything yet, but it is where the drag will anchor.
+    if a.mouse.phase == .Idle {
+        term_point(tm, s, doc)
+    }
     if tm.events != tm.t.mouse_on {
         term_publish(a, tm)
     }
