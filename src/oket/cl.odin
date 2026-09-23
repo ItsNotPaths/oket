@@ -1,5 +1,6 @@
 package main
 
+import "core:os"
 import "core:strings"
 import "../desc"
 import "../gfx"
@@ -129,8 +130,9 @@ cl_set :: proc(a: ^App, text: string) {
     point_sync(a)
 }
 
-// The bar row while the line is open: the prompt, then the document, drawn by the one renderer.
-cl_draw :: proc(a: ^App, g: ^gfx.Grid, th: gfx.Theme) {
+// The bar row while the line is open: the prompt, the document drawn by the one renderer, then
+// the workspace right of it.
+cl_draw :: proc(a: ^App, g: ^gfx.Grid, th: gfx.Theme, workspace: string) {
     b := a.bar
     line := bar_theme(th)
     cl_fill(g, line, b.y)
@@ -148,6 +150,17 @@ cl_draw :: proc(a: ^App, g: ^gfx.Grid, th: gfx.Theme) {
     t, dv := views_text(a, a.cl.doc, &snap.text)
     view.draw(g, line, t, d, a.cl.view, b.x, b.y, b.w, 1,
               dv = dv, over = views_over(a, a.cl.doc), select = a.config.select, atlas = &a.painter.atlas)
+    gfx.grid_write(g, b.x + b.w, b.y, workspace, line[.Dim], gfx.opaque(line[.Bg]))
+}
+
+// Where N0 stands, `~` for $HOME, padded off the typing.
+cl_workspace :: proc(a: ^App) -> string {
+    dir := term_dir(a)
+    home := os.get_env("HOME", context.temp_allocator)
+    if home != "" && (dir == home || strings.has_prefix(dir, home) && dir[len(home)] == '/') {
+        dir = strings.concatenate({"~", dir[len(home):]}, context.temp_allocator)
+    }
+    return strings.concatenate({"  ", dir, " "}, context.temp_allocator)
 }
 
 // The line's own flat field. Nothing else fills the row: at rest it is a frame box (bar.odin).

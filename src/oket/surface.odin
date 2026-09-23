@@ -1,5 +1,6 @@
 package main
 
+import "core:unicode/utf8"
 import "../desc"
 import "../gfx"
 import "../store"
@@ -33,8 +34,10 @@ surface_fit :: proc(a: ^App, win_w, win_h: int, cell := [2]int{1, 1}) {
 
 surface_draw :: proc(a: ^App) {
     g, th := &a.bar_grid, a.theme
-    // The line's row past the prompt; the bar grid is one row, at the window's bottom (§11).
-    a.bar = {len(CL_PROMPT), 0, max(g.cols - len(CL_PROMPT), 0), 1}
+    // The line's row past the prompt and short of the workspace; the bar grid is one row, at the
+    // window's bottom (§11).
+    ws := cl_active(a) ? cl_workspace(a) : ""
+    a.bar = {len(CL_PROMPT), 0, max(g.cols - len(CL_PROMPT) - utf8.rune_count_in_string(ws), 0), 1}
 
     // NOTHING, not a colour: what a gap shows through is the FRAME's ground, and this grid is
     // painted over it (§13.3). The bar's row is the only thing written into it.
@@ -45,7 +48,7 @@ surface_draw :: proc(a: ^App) {
     // cells say NOTHING and the frame's box shows, and the line fills the row flat. A raw text
     // field on a gradient strip is what an entry looks like.
     defer if cl_active(a) {
-        cl_draw(a, g, th)
+        cl_draw(a, g, th, ws)
     } else {
         gfx.grid_write(g, 0, 0, bar_text(a), bar_theme(th)[.Dim], gfx.NOTHING)
     }

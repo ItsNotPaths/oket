@@ -690,6 +690,11 @@ terminal_cwd :: proc(t: ^Terminal, allocator := context.temp_allocator) -> strin
     return os.is_dir(dir) ? dir : ""
 }
 
+// The shell holds the foreground, so typed bytes reach its prompt and not a running program.
+terminal_at_prompt :: proc(t: ^Terminal) -> bool {
+    return t.pty >= 0 && terminal_alive(t) && posix.tcgetpgrp(t.pty) == t.pid
+}
+
 // From the host's char feed. Shift is already baked into the codepoint, so the modifier is
 // none.
 terminal_input_rune :: proc(t: ^Terminal, r: rune) {

@@ -46,6 +46,9 @@ BUILTINS := [?]Builtin {
     {"close", "", "ring", USAGE_CLOSE,
      "close the focused slot and the panel with it, or slot N, or the whole lane; a number is never reused while others live",
      builtin_close},
+    {"tu", "term-update", "ring", ":tu",
+     "cd every other terminal to where N0 stands; one running a program is skipped",
+     builtin_tu},
     {"get", "", "ring", USAGE_GET,
      "put a piece of oket's state on the next step's stdin; alone, print it into N0",
      builtin_get},
@@ -193,6 +196,14 @@ builtin_home :: proc(a: ^App, args: string, _: CL_Step) -> bool {
         return home_enter(a)
     }
     ring_add(a, home_open(a))
+    return true
+}
+
+@(private = "file")
+builtin_tu :: proc(a: ^App, _: string, _: CL_Step) -> bool {
+    moved, busy := term_update(a)
+    why := busy > 0 ? fmt.tprintf(", %d busy and skipped", busy) : ""
+    message_set(a, fmt.tprintf(":tu: %d moved to %s%s", moved, term_dir(a), why))
     return true
 }
 

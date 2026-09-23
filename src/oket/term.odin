@@ -42,8 +42,7 @@ Term :: struct {
 
 // Where a session starts: N0's shell, wherever a `cd` in the command line has left it, and the
 // directory the start was given when there is no N0 to ask. N0 itself takes the fallback, which
-// is what stops this asking for a session while one is being made.
-@(private = "file")
+// is what stops this asking for a session while one is being made. This is the workspace.
 term_dir :: proc(a: ^App) -> string {
     if !a.ring.system.live {
         return a.dir
@@ -54,6 +53,26 @@ term_dir :: proc(a: ^App) -> string {
     }
     dir := pty.terminal_cwd(&tm.t)
     return dir != "" ? dir : a.dir
+}
+
+// Every other session to the workspace. A shell with a program in the foreground is skipped and
+// counted; ctrl+u clears a half-typed line first so the `cd` is the whole line.
+term_update :: proc(a: ^App) -> (moved, busy: int) {
+    dir := term_dir(a)
+    line := transmute([]u8)strings.concatenate({"\x15cd ", sh_quote(dir, context.temp_allocator), "\r"},
+                                              context.temp_allocator)
+    for id, tm in a.terms {
+        if a.ring.system.live && id == a.ring.system.doc || pty.terminal_cwd(&tm.t) == dir {
+            continue
+        }
+        if !pty.terminal_at_prompt(&tm.t) {
+            busy += 1
+            continue
+        }
+        pty.terminal_write(&tm.t, line)
+        moved += 1
+    }
+    return
 }
 
 // Spawned at a nominal size in `term_dir`; the first pump resizes it to the body. Heap-allocated
