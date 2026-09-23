@@ -523,7 +523,7 @@ writable :: proc(a: ^App) -> ^txt.Doc {
         return nil
     }
     defer desc.release(d)
-    return d.editable ? store.store_doc(&a.docs, s.doc) : nil
+    return d.editable && !s.locked ? store.store_doc(&a.docs, s.doc) : nil
 }
 
 // A rune, not a chord (§8): binds see chords and never see an `a` on its way into a document.
@@ -552,7 +552,7 @@ text_input :: proc(a: ^App, r: rune) {
     defer desc.release(d)
     // `editable` is a document that takes typing; `raw` is one that takes everything, bound or
     // not. Either way the rune goes to its owner, and neither is a document the kernel edits.
-    if !d.editable && d.input != .Raw {
+    if s.locked || !d.editable && d.input != .Raw {
         return
     }
     if tm := term_of(a, s.doc); tm != nil {
@@ -585,7 +585,7 @@ raw_target :: proc(a: ^App) -> (^Slot, bool) {
         return nil, false
     }
     defer desc.release(d)
-    return s, d.input == .Raw
+    return s, d.input == .Raw && !s.locked
 }
 
 // Does a click over this document belong to the document rather than to the kernel (§5, §8).
@@ -597,7 +597,7 @@ mouse_events_target :: proc(a: ^App) -> ^Term {
         return nil
     }
     defer desc.release(d)
-    return d.mouse == .Events ? term_of(a, s.doc) : nil
+    return d.mouse == .Events && !s.locked ? term_of(a, s.doc) : nil
 }
 
 // The line arm of a bind (§8): holes filled from point, then run, staged or armed as the file

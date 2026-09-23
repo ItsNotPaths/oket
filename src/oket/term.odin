@@ -62,7 +62,8 @@ term_update :: proc(a: ^App) -> (moved, busy: int) {
     line := transmute([]u8)strings.concatenate({"\x15cd ", sh_quote(dir, context.temp_allocator), "\r"},
                                               context.temp_allocator)
     for id, tm in a.terms {
-        if a.ring.system.live && id == a.ring.system.doc || pty.terminal_cwd(&tm.t) == dir {
+        s := term_slot(a, id)
+        if s == &a.ring.system || s != nil && s.locked || pty.terminal_cwd(&tm.t) == dir {
             continue
         }
         if !pty.terminal_at_prompt(&tm.t) {
@@ -611,7 +612,7 @@ term_unwrap :: proc(tm: ^Term, text: string, from: int) -> string {
 // instead of running line by line.
 term_paste :: proc(a: ^App) -> bool {
     tm := term_active(a)
-    if tm == nil {
+    if tm == nil || active(a).locked {
         return false
     }
     pty.terminal_paste(&tm.t, clip_get(a))

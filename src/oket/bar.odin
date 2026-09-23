@@ -47,8 +47,9 @@ bar_text :: proc(a: ^App) -> string {
         if doc := store.store_doc(&a.docs, s.doc); doc != nil && len(doc.cursors) > 1 {
             trail = fmt.tprintf("  %d carets, esc puts them down", len(doc.cursors))
         }
-        return fmt.tprintf("%s%s %s  %s%s", tag, kind_name(a, doc_kind(a, s.doc)),
-                           slot_tag(ring_slot(a)), doc_title(a, s.doc), trail)
+        lock := s.locked ? "  locked" : ""
+        return fmt.tprintf("%s%s %s  %s%s%s", tag, kind_name(a, doc_kind(a, s.doc)),
+                           slot_tag(ring_slot(a)), doc_title(a, s.doc), lock, trail)
     }
     if tag != "" {
         return fmt.tprintf("%sempty; alt+N opens something here", tag)

@@ -41,6 +41,7 @@ SWITCHER_SHARE :: 2
 Switcher_Row :: struct {
     text: string,
     on:   bool, // the slot this row goes to is the one the panel is standing in
+    dim:  bool, // the lane's name, or a locked slot
 }
 
 // --- the hold ---
@@ -125,8 +126,8 @@ switcher_draw :: proc(a: ^App) {
         case r.on:
             // the slot you are in, filled the way a caret is
             fg, bg = th[.Bg], gfx.opaque(th[.Accent])
-        case i == 0 && a.config.switcher == .Titles:
-            fg = th[.Dim] // the lane's name: what the numbers are numbers OF, not one of them
+        case r.dim:
+            fg = th[.Dim]
         }
         gfx.grid_write(&p.grid, p.body.x, p.body.y + i - first, switcher_fit(r.text, w), fg, bg)
     }
@@ -143,27 +144,28 @@ switcher_rows :: proc(a: ^App) -> []Switcher_Row {
     }
     // Not in `numbers`, where a name would widen the whole column past the digits it is for.
     if a.config.switcher == .Titles {
-        append(&out, Switcher_Row{kind_name(a, l.kind), false})
+        // what the numbers are numbers OF, not one of them
+        append(&out, Switcher_Row{kind_name(a, l.kind), false, true})
     }
     here := ring_slot(a)
     for s, i in l.slots {
         if s.live {
-            append(&out, switcher_row(a, i + 1, s.doc, i + 1 == here))
+            append(&out, switcher_row(a, i + 1, s, i + 1 == here))
         }
     }
     if a.ring.system.live {
-        append(&out, switcher_row(a, SLOT_ZERO, a.ring.system.doc, here == SLOT_ZERO))
+        append(&out, switcher_row(a, SLOT_ZERO, a.ring.system, here == SLOT_ZERO))
     }
     return out[:]
 }
 
 @(private = "file")
-switcher_row :: proc(a: ^App, slot: int, doc: store.Id, on: bool) -> Switcher_Row {
+switcher_row :: proc(a: ^App, slot: int, s: Slot, on: bool) -> Switcher_Row {
     tag := slot_tag(slot)
     if a.config.switcher == .Numbers {
-        return {tag, on}
+        return {tag, on, s.locked}
     }
-    return {fmt.tprintf("%s  %s", tag, doc_title(a, doc)), on}
+    return {fmt.tprintf("%s  %s", tag, doc_title(a, s.doc)), on, s.locked}
 }
 
 // The widest row it can afford. Zero rows is zero width, which is what stops an empty lane

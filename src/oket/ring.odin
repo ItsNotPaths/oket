@@ -36,6 +36,8 @@ Slot :: struct {
     doc:  store.Id,
     view: view.View,
     live: bool, // a closed slot is a GAP: every other slot keeps its number
+    // Read-only: no typing, paste or raw keys reach it, and `:tu` leaves it where it stands.
+    locked: bool,
 }
 
 // Slot ids are stable: id = index + 1, and NOTHING renumbers on close. Numbered slots exist
@@ -232,13 +234,13 @@ ring_add :: proc(a: ^App, id: store.Id) -> int {
     slot := 0
     for &s, i in l.slots {
         if !s.live {
-            s = Slot{id, {}, true}
+            s = Slot{doc = id, live = true}
             slot = i + 1
             break
         }
     }
     if slot == 0 {
-        append(&l.slots, Slot{id, {}, true})
+        append(&l.slots, Slot{doc = id, live = true})
         slot = len(l.slots)
     }
     ring_move(a, {lane, slot})
@@ -268,7 +270,7 @@ ring_put :: proc(a: ^App, id: store.Id, slot: int) -> bool {
     if old.live {
         doc_close(a, old.doc)
     }
-    old^ = Slot{id, {}, true}
+    old^ = Slot{doc = id, live = true}
     ring_move(a, {lane, slot})
     return true
 }

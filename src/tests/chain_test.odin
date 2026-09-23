@@ -496,3 +496,25 @@ the_default_equalize_gives_every_panel_an_equal_share :: proc(t: ^testing.T) {
     testing.expect_value(t, app.config_alias_line(&a.config, "panel.equalize"),
                          app.ALIASES_DEFAULT[0].line)
 }
+
+// A locked slot refuses what `:put` carries, and unlocking gives typing back.
+@(test)
+a_locked_slot_takes_no_put :: proc(t: ^testing.T) {
+    a, ok := bare_app(60, 6)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    id := scratch_doc(&a, "note", "keep me")
+    app.ring_add(&a, id)
+
+    run_line(&a, ":lock")
+    run_line(&a, ":sel | tr a-z A-Z | :put")
+    testing.expect_value(t, doc_text(&a, id), "keep me")
+    testing.expect_value(t, a.message, ":put: this document does not take typing")
+
+    run_line(&a, ":lock")
+    run_line(&a, ":sel | tr a-z A-Z | :put")
+    testing.expect_value(t, doc_text(&a, id), "KEEP ME")
+}

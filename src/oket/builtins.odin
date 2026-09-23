@@ -49,6 +49,9 @@ BUILTINS := [?]Builtin {
     {"tu", "term-update", "ring", ":tu",
      "cd every other terminal to where N0 stands; one running a program is skipped",
      builtin_tu},
+    {"lock", "", "ring", ":lock",
+     "make the focused slot read-only, or writable again; :tu skips a locked terminal",
+     builtin_lock},
     {"get", "", "ring", USAGE_GET,
      "put a piece of oket's state on the next step's stdin; alone, print it into N0",
      builtin_get},
@@ -204,6 +207,18 @@ builtin_tu :: proc(a: ^App, _: string, _: CL_Step) -> bool {
     moved, busy := term_update(a)
     why := busy > 0 ? fmt.tprintf(", %d busy and skipped", busy) : ""
     message_set(a, fmt.tprintf(":tu: %d moved to %s%s", moved, term_dir(a), why))
+    return true
+}
+
+@(private = "file")
+builtin_lock :: proc(a: ^App, _: string, _: CL_Step) -> bool {
+    s := ring_focused(a)
+    if s == nil {
+        message_set(a, ":lock: nothing is focused")
+        return false
+    }
+    s.locked = !s.locked
+    message_set(a, s.locked ? "locked" : "unlocked")
     return true
 }
 
@@ -454,7 +469,7 @@ builtin_put :: proc(a: ^App, _: string, step: CL_Step) -> bool {
     }
     d := store.store_descriptor(&a.docs, s.doc)
     defer desc.release(d)
-    if d == nil || !d.editable {
+    if d == nil || !d.editable || s.locked {
         message_set(a, ":put: this document does not take typing")
         return false
     }

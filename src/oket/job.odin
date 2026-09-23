@@ -218,7 +218,7 @@ sys_slot :: proc(a: ^App) -> ^Slot {
     if !made {
         return nil
     }
-    a.ring.system = Slot{id, {}, true}
+    a.ring.system = Slot{doc = id, live = true}
     if tm := term_of(a, id); tm != nil {
         pty.terminal_write(&tm.t, transmute([]u8)setup_line(a))
     }
