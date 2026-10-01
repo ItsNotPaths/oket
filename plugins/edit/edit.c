@@ -29,12 +29,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "links.h"
 #include "oket_helpers.h"
 
 #define TAB_WIDTH 4
 #define INDENT_MAX 256 /* a pasted-in wall of indent is not worth a heap allocation */
 
 static lues_kind EDIT;
+static lues_token LINK; /* the key :openlink reads (links.c) */
 
 /* Per-document state. The text, the cursors and the undo history are the kernel's, and
  * re-reading them is a pointer walk rather than a copy we would have to keep in step (§6).
@@ -46,7 +48,10 @@ typedef struct {
     char   *disk; /* owned; the bytes the file had when we last read or wrote it */
     size_t  disk_len;
     lues_io watch; /* that path, watched (§9) */
+    uint64_t scanned; /* the generation links were last scanned at, plus one; 0 is never */
 } editor;
+
+static void rescan(const lues_api *api, lues_self self);
 
 static int same(const char *a, size_t alen, const char *b, size_t blen) {
     return alen == blen && (alen == 0 || memcmp(a, b, alen) == 0);
@@ -152,6 +157,7 @@ static void take_disk(const lues_api *api, lues_self self, const lues_snapshot *
         b--;
     }
     oket_replace(api, self, s->doc, lo, a, now + lo, b - lo);
+    rescan(api, self);
     disk_keep(e, now, now_len); /* the baseline moves, so our own splice is not a foreign one */
     free(buf);
 }
@@ -189,6 +195,47 @@ static void changed(const lues_api *api, lues_self self, const lues_at *at, edit
     take_disk(api, self, s, e, now, now_len);
 }
 
+/* --- links --- */
+
+/* Every document the generation moved on, this plugin's own included once rescan re-arms it.
+ * Only ours are scanned, and only at a generation not scanned yet. */
+static int32_t links_watch(const lues_api *api, lues_self self, const lues_at *at, lues_event ev,
+                           const char *text, size_t len) {
+    editor *e = at->inst;
+    const lues_snapshot *s = at->snap;
+    oket_spans out;
+    char *buf, *dir = NULL, *slash;
+    size_t n;
+
+    (void)text;
+    (void)len;
+    if (ev != LUES_EVENT_MOVED || s == NULL || e == NULL || e->scanned == s->gen + 1) {
+        return 0;
+    }
+    buf = buffer_bytes(s, &n);
+    if (buf == NULL) {
+        return 0;
+    }
+    if (e->path != NULL && (slash = strrchr(e->path, '/')) != NULL) {
+        dir = oket_dup(e->path, (size_t)(slash - e->path));
+    }
+    memset(&out, 0, sizeof out);
+    links_scan(buf, n, dir, LINK, &out);
+    if (oket_spans_publish(api, self, s->doc, s->gen, 0, s->size, &out)) {
+        e->scanned = s->gen + 1;
+    }
+    oket_spans_free(&out);
+    free(dir);
+    free(buf);
+    return 0;
+}
+
+/* A watcher is never told about this plugin's own writes. Registering again forgets what it
+ * was told, so the next frame shows every document once more and ours get rescanned. */
+static void rescan(const lues_api *api, lues_self self) {
+    api->register_watch(api, self, links_watch);
+}
+
 /* --- writing --- */
 
 /* One edit per cursor, one transaction, one undo step: every caret's range becomes `text`. Each
@@ -210,6 +257,7 @@ static int insert_each_cursor(const lues_api *api, lues_self self, const lues_at
     }
     sent = oket_batch_submit(api, self, s->doc, s->gen, &b);
     oket_batch_free(&b);
+    rescan(api, self);
     return sent;
 }
 
@@ -240,6 +288,7 @@ static int newline_each_cursor(const lues_api *api, lues_self self, const lues_a
     }
     sent = oket_batch_submit(api, self, s->doc, s->gen, &b);
     oket_batch_free(&b);
+    rescan(api, self);
     return sent;
 }
 
@@ -307,6 +356,7 @@ static int32_t indent_cmd(const lues_api *api, lues_self self, const lues_at *at
     }
     oket_batch_submit(api, self, s->doc, s->gen, &b);
     oket_batch_free(&b);
+    rescan(api, self);
     return 0;
 }
 
@@ -453,6 +503,8 @@ LUES_MAIN {
     if (EDIT == 0) {
         return 1; /* the ledger reverts nothing, because nothing went on */
     }
+    LINK = api->register_token(api, self, LIT("link"));
+    rescan(api, self);
     api->register_command(api, self, LIT("w"), LIT("write the buffer to its file"), write_cmd);
     api->register_command(api, self, LIT("ed.reload"),
                           LIT("drop unsaved edits and take the disk version"), reload_cmd);
@@ -474,6 +526,9 @@ LUES_MAIN {
     api->request_bind(api, self, LIT("edit"), LIT("tab"), LIT("ed.indent"));
     api->request_bind(api, self, LIT("edit"), LIT("ctrl+@AC02"), LIT("exec :w")); /* ctrl+s */
     api->request_bind(api, self, LIT("edit"), LIT("@FK05"), LIT("ed.reload")); /* f5 */
+    /* Off a link, :openlink selects the word, so double-click loses nothing to it. */
+    api->request_bind(api, self, LIT("edit"), LIT("alt+enter"), LIT("exec :openlink"));
+    api->request_bind(api, self, LIT("edit"), LIT("double-click"), LIT("exec :openlink"));
     /* One verb at a time (§9): the two the editor computes for itself, and their Shift
      * siblings. Everything else — the words, the line ends, the vertical arrows, the placement
      * verbs — is still the kernel's row, over this kind and every other. */

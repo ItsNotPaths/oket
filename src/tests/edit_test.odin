@@ -445,3 +445,119 @@ a_save_of_our_own_is_not_a_reload :: proc(t: ^testing.T) {
     testing.expect_value(t, doc_text(&a, focused(&a)), before)
     testing.expect(t, !strings.contains(a.message, "changed on disk"), a.message)
 }
+
+// --- links (openlink.odin, plugins/edit/links.c) ---
+
+// The frames it takes for the editor's watcher to scan and its publish to land.
+@(private = "file")
+frames :: proc(a: ^app.App) {
+    for _ in 0 ..< 3 {
+        app.docs_settle(a)
+        app.plug_pump(a)
+    }
+}
+
+@(private = "file")
+links_of :: proc(a: ^app.App, id: store.Id) -> []desc.Field {
+    out := make([dynamic]desc.Field, context.temp_allocator)
+    for f in all_fields(a, id) {
+        if f.name == app.LINK_KEY {
+            append(&out, f)
+        }
+    }
+    return out[:]
+}
+
+// The editor says WHERE a link is: a URI, a path that exists with its line, and a markdown
+// link's target over its text. Prose punctuation around one is not part of it.
+@(test)
+an_editor_buffer_publishes_its_links :: proc(t: ^testing.T) {
+    a, _, ok := edit_app(t, "oket-edit-links",
+                         "see https://oket.dev/x, note.txt:2 and [the doc](README.md)\nnope/nothing.c\n")
+    if !ok {
+        return
+    }
+    defer close_plug_app(&a)
+    frames(&a)
+
+    links := links_of(&a, focused(&a))
+    if !testing.expect_value(t, len(links), 3) {
+        return
+    }
+    testing.expect_value(t, links[0].value, "https://oket.dev/x")
+    testing.expect_value(t, links[1].value, "note.txt:2")
+    testing.expect_value(t, links[2].value, "README.md") // the target, drawn over "the doc"
+    testing.expect_value(t, links[2].hi - links[2].lo, len("the doc"))
+
+    // Typing one in is seen too: a watcher is never told about the editor's own write, and the
+    // re-arm after it is what makes this work.
+    txt.doc_set_head(store.store_doc(a.docs, focused(&a)), {1, 0}, false)
+    app.point_sync(&a)
+    for r in "https://a.b " {
+        app.plug_type(&a, focused(&a), r)
+    }
+    frames(&a)
+    testing.expect_value(t, len(links_of(&a, focused(&a))), 4)
+}
+
+// A path link opens with the caret on its line and column, 1-based as a compiler prints them.
+@(test)
+openlink_takes_a_path_to_its_line :: proc(t: ^testing.T) {
+    a, path, ok := edit_app(t, "oket-edit-openlink-path", "at other.txt:3:2 here\n")
+    if !ok {
+        return
+    }
+    defer close_plug_app(&a)
+    other, _ := filepath.join({filepath.dir(path), "other.txt"}, context.temp_allocator)
+    _ = os.write_entire_file(other, transmute([]u8)string("one\ntwo\nthree\n"))
+    frames(&a)
+
+    txt.doc_set_head(store.store_doc(a.docs, focused(&a)), {0, 5}, false)
+    app.point_sync(&a)
+    app.cl_exec(&a, ":openlink")
+
+    d := store.store_descriptor(a.docs, focused(&a))
+    defer desc.release(d)
+    testing.expect_value(t, d.file, other)
+    doc := store.store_doc(a.docs, focused(&a))
+    testing.expect_value(t, doc.cursors[doc.primary].head, txt.Pos{2, 1})
+}
+
+// A URI goes to `[openlink] browser`, as a shell step after the chain.
+@(test)
+openlink_hands_a_uri_to_the_browser :: proc(t: ^testing.T) {
+    a, _, ok := edit_app(t, "oket-edit-openlink-uri", "go https://oket.dev now\n")
+    if !ok {
+        return
+    }
+    defer close_plug_app(&a)
+    frames(&a)
+
+    txt.doc_set_head(store.store_doc(a.docs, focused(&a)), {0, 8}, false)
+    app.point_sync(&a)
+    testing.expect(t, app.builtin_openlink(&a, "", {}))
+    if !testing.expect_value(t, len(a.queue), 1) {
+        return
+    }
+    testing.expect_value(t, a.queue[0], fmt.tprintf("%s https://oket.dev", app.BROWSER_DEFAULT))
+    delete(pop(&a.queue)) // not run: a test opens no browser
+}
+
+// Off a link, it is a double-click's word select, so one row serves text and links alike.
+@(test)
+openlink_off_a_link_selects_the_word :: proc(t: ^testing.T) {
+    a, _, ok := edit_app(t, "oket-edit-openlink-word", "plain words only\n")
+    if !ok {
+        return
+    }
+    defer close_plug_app(&a)
+    frames(&a)
+
+    doc := store.store_doc(a.docs, focused(&a))
+    txt.doc_set_head(doc, {0, 8}, false)
+    app.point_sync(&a)
+    app.cl_exec(&a, ":openlink")
+    lo, hi := txt.cursor_range(doc.cursors[doc.primary])
+    testing.expect_value(t, lo, txt.Pos{0, 6})
+    testing.expect_value(t, hi, txt.Pos{0, 11})
+}

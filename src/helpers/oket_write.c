@@ -247,21 +247,41 @@ void oket_batch_free(oket_batch *b) {
 
 /* --- publishing spans (§9) --- */
 
-void oket_spans_add(oket_spans *b, size_t lo, size_t hi, lues_token tok, uint8_t attrs,
-                    uint8_t set) {
+/* A zeroed run over [lo, hi), or NULL for an empty range or no memory. */
+static lues_span *span_push(oket_spans *b, size_t lo, size_t hi) {
     lues_span *sp;
 
     if (hi <= lo || !grow(&b->oom, (void **)&b->spans, &b->cap, b->n + 1, sizeof *b->spans)) {
-        return;
+        return NULL;
     }
     sp = &b->spans[b->n++];
     memset(sp, 0, sizeof *sp);
     sp->size = sizeof *sp;
     sp->lo = lo;
     sp->hi = hi;
-    sp->tok = tok;
-    sp->attrs = attrs;
-    sp->set = set;
+    return sp;
+}
+
+void oket_spans_add(oket_spans *b, size_t lo, size_t hi, lues_token tok, uint8_t attrs,
+                    uint8_t set) {
+    lues_span *sp = span_push(b, lo, hi);
+
+    if (sp != NULL) {
+        sp->tok = tok;
+        sp->attrs = attrs;
+        sp->set = set;
+    }
+}
+
+void oket_spans_data(oket_spans *b, size_t lo, size_t hi, lues_token key, const char *text,
+                     size_t len) {
+    lues_span *sp = span_push(b, lo, hi);
+
+    if (sp != NULL) {
+        sp->key = key;
+        sp->text = text;
+        sp->text_len = len;
+    }
 }
 
 int oket_spans_publish(const lues_api *api, lues_self self, lues_doc doc, uint64_t gen,

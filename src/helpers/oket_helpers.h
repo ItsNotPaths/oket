@@ -360,6 +360,11 @@ typedef struct {
 void oket_spans_add(oket_spans *b, size_t lo, size_t hi, lues_token tok, uint8_t attrs,
                     uint8_t set);
 
+/* Appends one DATA run: `key` is a token naming it, and `text` its value, borrowed until the
+ * publish. NULL text is the run's own bytes. */
+void oket_spans_data(oket_spans *b, size_t lo, size_t hi, lues_token key, const char *text,
+                     size_t len);
+
 /* Publishes what has been added, against `gen`, and answers whether it went. An EMPTY set is a
  * real publish: it is how a publisher clears a range. The buffer is left as it is, so a caller
  * slicing a parse over frames adds and publishes again. */
