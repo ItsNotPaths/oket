@@ -38,6 +38,8 @@ Config :: struct {
     // [theme] name = gruvbox — which themes/<name>.toml colours everything (theme.odin). Owned
     // when set; "" IS the default name, so the field never holds a literal a destroy would free.
     theme:   string,
+    // [openlink] browser — the command a URI is handed to (openlink.odin). "" is the default.
+    browser: string,
     // The two ordered lists, both keyed by KIND and not by document, because both answers are
     // about the vocabulary a kind is written in:
     //
@@ -201,6 +203,14 @@ SETTINGS := [?]Setting {
              c.theme = strings.clone(v)
          }
      }},
+    {"openlink", "browser", BROWSER_DEFAULT, "the shell command a URI is handed to, as its last argument",
+     proc(c: ^Config, value: string) {
+         delete(c.browser)
+         c.browser = {}
+         if v := strings.trim_space(value); v != BROWSER_DEFAULT {
+             c.browser = strings.clone(v)
+         }
+     }},
 }
 
 config_load :: proc(a: ^App) {
@@ -240,6 +250,8 @@ config_names :: proc(c: ^Config, kind, key: string) -> []string {
 config_destroy :: proc(c: ^Config) {
     delete(c.theme)
     c.theme = {}
+    delete(c.browser)
+    c.browser = {}
     for o in c.order {
         delete(o.kind)
         delete(o.key)

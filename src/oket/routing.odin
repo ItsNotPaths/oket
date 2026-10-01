@@ -1070,17 +1070,12 @@ scroll_by :: proc(a: ^App, lines: int) {
 // sits inside. Containment is what lets hover offer the NAME for a line that acts on the PATH.
 @(private = "file")
 line_covers :: proc(fields: []desc.Field, template: string, line, lo, hi: int) -> bool {
-    rest := template
-    for {
-        _, name, tail, found := hole_next(rest)
-        if !found {
-            return false
-        }
+    for name in acts_on(template) {
         if a, b, named := desc.field_span(fields, line, name); named && a <= lo && b >= hi {
             return true
         }
-        rest = tail
     }
+    return false
 }
 
 // --- hover (§8) ---
@@ -1132,17 +1127,31 @@ link_names :: proc(a: ^App, d: ^desc.Descriptor,
 
 @(private = "file")
 link_holes :: proc(out: ^[dynamic]string, template: string) {
+    for name in acts_on(template) {
+        if !slice.contains(out[:], name) {
+            append(out, name)
+        }
+    }
+}
+
+// The names a line acts on: its holes, and `link` when it runs :openlink, which reads that
+// span itself.
+@(private = "file")
+acts_on :: proc(template: string) -> []string {
+    out := make([dynamic]string, context.temp_allocator)
     rest := template
     for {
         _, name, tail, found := hole_next(rest)
         if !found {
-            return
+            break
         }
-        if !slice.contains(out[:], name) {
-            append(out, name)
-        }
+        append(&out, name)
         rest = tail
     }
+    if strings.contains(template, ":openlink") {
+        append(&out, LINK_KEY)
+    }
+    return out[:]
 }
 
 // The one link that is LIVE: the field under the pointer, or the row the caret is on, which is

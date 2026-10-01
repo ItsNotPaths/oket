@@ -39,6 +39,9 @@ BUILTINS := [?]Builtin {
     {"open", "", "file", USAGE_OPEN,
      "open a file or a directory; one already in the ring is moved to, not opened twice",
      builtin_open},
+    {"openlink", "", "file", USAGE_OPENLINK,
+     "follow the link under point: a URI to the browser, a path:line to the ring; off a link, select the word",
+     builtin_openlink},
     {"ring", "", "ring", ":ring [<kind>]",
      "go to that kind's lane; with no kind, list the lanes",
      builtin_ring},
@@ -237,7 +240,6 @@ builtin_quit :: proc(a: ^App, _: string, _: CL_Step) -> bool {
 // The panel is reached BEFORE the document is placed, so the open is an ordinary one from
 // there: what `@N` does is aim the keys, and the ring then answers the way it does for any
 // other panel. Which is also why the open takes focus with it — you always see where it went.
-@(private = "file")
 builtin_open :: proc(a: ^App, args: string, _: CL_Step) -> bool {
     raw, path := first_arg(args)
     rest := strings.trim_space(args[len(raw):])
