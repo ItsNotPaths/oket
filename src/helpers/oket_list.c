@@ -202,9 +202,9 @@ void oket_list_publish(const lues_api *api, lues_self self, oket_list *l) {
         d.file = l->file;
         d.file_len = strlen(l->file);
     }
-    oket_build_desc(&out, &d);
     /* Minus the row terminator the last row wrote: a document does not end in a blank line. */
-    oket_regen(api, self, l->doc, out.text, out.len > 0 ? out.len - 1 : 0, &d);
+    oket_build_submit(api, self, l->doc, &out, out.len > 0 ? out.len - 1 : 0, &d,
+                      LUES_SUBMIT_FORGET);
     oket_build_free(&out);
 }
 

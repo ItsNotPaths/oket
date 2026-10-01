@@ -166,7 +166,7 @@ draw_folded :: proc(
     g: gfx.Grid
     testing.expect(t, gfx.grid_init(&g, cols, rows))
     defer gfx.grid_destroy(&g)
-    view.draw(&g, gfx.DEFAULT_THEME, dt, dp, v, 0, 0, cols, rows, nil, true, dv)
+    view.draw(&g, gfx.DEFAULT_THEME, dt, dp, nil, v, 0, 0, cols, rows, nil, true, dv)
     return gfx.grid_snapshot(&g)
 }
 
@@ -208,11 +208,11 @@ the_mouse_hits_the_original_byte :: proc(t: ^testing.T) {
     defer txt.doc_destroy(&d)
     dt, dv := folded(&d)
 
-    p, _, ok := view.locate(&dt, desc_of(t), {}, 0, 0, 12, 3, 3, 2, &dv)
+    p, _, ok := view.locate(&dt, desc_of(t), nil, {}, 0, 0, 12, 3, 3, 2, &dv)
     testing.expect(t, ok)
     testing.expect_value(t, p, txt.Pos{5, 1}) // row 2 cell 1 is 'fff', line 5 of the original
 
-    p, _, ok = view.locate(&dt, desc_of(t), {}, 0, 0, 12, 3, 8, 1, &dv)
+    p, _, ok = view.locate(&dt, desc_of(t), nil, {}, 0, 0, 12, 3, 8, 1, &dv)
     testing.expect(t, ok)
     testing.expect_value(t, p, txt.Pos{4, 3}) // the marker: the fold's high edge, not a byte of it
 }
@@ -238,7 +238,7 @@ a_selection_across_a_fold_paints_in_two_pieces :: proc(t: ^testing.T) {
     g: gfx.Grid
     testing.expect(t, gfx.grid_init(&g, 12, 3))
     defer gfx.grid_destroy(&g)
-    view.draw(&g, gfx.DEFAULT_THEME, &dt, dp, v, 0, 0, 12, 3, nil, true, &dv)
+    view.draw(&g, gfx.DEFAULT_THEME, &dt, dp, nil, v, 0, 0, 12, 3, nil, true, &dv)
 
     testing.expect_value(t, marked(&g, 0), "")   // above the selection
     testing.expect_value(t, marked(&g, 1), "bb") // from its start to the fold, and no further
@@ -302,7 +302,7 @@ an_inline_substitution_maps_within_the_line :: proc(t: ^testing.T) {
     g: gfx.Grid
     testing.expect(t, gfx.grid_init(&g, 12, 1))
     defer gfx.grid_destroy(&g)
-    view.draw(&g, gfx.DEFAULT_THEME, &dt, dp, v, 0, 0, 12, 1, nil, true, &dv)
+    view.draw(&g, gfx.DEFAULT_THEME, &dt, dp, nil, v, 0, 0, 12, 1, nil, true, &dv)
     testing.expect_value(t, marked(&g, 0), "be")
 }
 

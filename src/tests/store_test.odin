@@ -8,6 +8,7 @@ import "core:testing"
 import "../desc"
 import "../store"
 import "../txt"
+import app "../oket"
 
 // Stage 2's registry half: ids that go stale rather than dangle, and the single write point
 // that a transaction either lands on whole or is dropped from.
@@ -317,56 +318,57 @@ store_check_follows_a_generation_into_a_reused_slot :: proc(t: ^testing.T) {
 // line name bytes that have moved.
 @(test)
 a_field_follows_the_text_it_was_measured_over :: proc(t: ^testing.T) {
-    s: store.Store
-    defer store.store_destroy(&s)
-    id := store.store_open(&s, "top.txt\nsecond")
-    gen, _ := store.store_gen(&s, id)
     fields := [?]desc.Field {
         {0, "name", 0, 7, ""},
         {0, "path", 0, 7, "/tmp/top.txt"},
         {1, "name", 0, 6, ""},
     }
-    d := desc.new_from({fields = fields[:]})
-    store.store_submit(&s, id, gen, nil, d)
-    desc.release(d)
-    store.store_drain(&s)
+    a, id, ok := fields_app("top.txt\nsecond", fields[:])
+    if !ok {
+        return
+    }
+    defer close_app(&a)
 
     // Typed at the head of the first row: the span grows to hold what was typed — text at
     // either edge of a link belongs to the link — and the value it points at does not move.
-    txt.doc_reset_cursor(store.store_doc(&s, id), {0, 0})
-    txt.doc_insert_text(store.store_doc(&s, id), "new_")
-    read := store.store_descriptor(&s, id)
-    defer desc.release(read)
-    lo, hi, ok := desc.field_span(read, 0, "name")
-    testing.expect(t, ok, "the field went away")
-    testing.expect_value(t, lo, 0)
-    testing.expect_value(t, hi, 11)
-    path, _ := desc.field_of(read, 0, "path")
+    txt.doc_reset_cursor(store.store_doc(a.docs, id), {0, 0})
+    txt.doc_insert_text(store.store_doc(a.docs, id), "new_")
+    name, named := field_at(&a, id, 0, "name")
+    testing.expect(t, named, "the field went away")
+    testing.expect_value(t, name.lo, 0)
+    testing.expect_value(t, name.hi, 11)
+    path, _ := field_at(&a, id, 0, "path")
     testing.expect_value(t, path.value, "/tmp/top.txt")
     // The row below it did not move sideways, and it is still on its own line.
-    below, _ := desc.field_of(read, 1, "name")
+    below, _ := field_at(&a, id, 1, "name")
     testing.expect_value(t, below.hi, 6)
+}
+
+// A document holding `text`, with `fields` published over it as data spans.
+@(private = "file")
+fields_app :: proc(text: string, fields: []desc.Field) -> (a: app.App, id: store.Id, ok: bool) {
+    a = bare_app() or_return
+    id = scratch_doc(&a, "fields.txt", text)
+    gen, _ := store.store_gen(a.docs, id)
+    store.store_submit(a.docs, id, gen, nil, nil, fields_spans(&a, id, fields))
+    store.store_drain(a.docs)
+    return a, id, true
 }
 
 // A link whose text is gone is GONE. Leaving it would be a span pointing at bytes it no longer
 // covers, and a `<path>` that resolves to the wrong row is worse than one that reports.
 @(test)
 a_field_whose_text_is_deleted_is_dropped :: proc(t: ^testing.T) {
-    s: store.Store
-    defer store.store_destroy(&s)
-    id := store.store_open(&s, "top.txt")
-    gen, _ := store.store_gen(&s, id)
     fields := [?]desc.Field{{0, "path", 0, 7, "/tmp/top.txt"}}
-    d := desc.new_from({fields = fields[:]})
-    store.store_submit(&s, id, gen, nil, d)
-    desc.release(d)
-    store.store_drain(&s)
+    a, id, ok := fields_app("top.txt", fields[:])
+    if !ok {
+        return
+    }
+    defer close_app(&a)
 
-    txt.doc_apply(store.store_doc(&s, id), {txt.Edit{lo = 0, hi = 7, text = ""}})
-    read := store.store_descriptor(&s, id)
-    defer desc.release(read)
-    _, _, ok := desc.field_span(read, 0, "path")
-    testing.expect(t, !ok, "a link survived the text it was drawn over")
+    txt.doc_apply(store.store_doc(a.docs, id), {txt.Edit{lo = 0, hi = 7, text = ""}})
+    _, held := field_at(&a, id, 0, "path")
+    testing.expect(t, !held, "a link survived the text it was drawn over")
 }
 
 // A submit that says REGEN is DERIVED text: the carets stay on their rows and the undo log
@@ -405,22 +407,21 @@ a_regeneration_keeps_the_carets_and_forgets_the_undo :: proc(t: ^testing.T) {
 // double-fold this catches.
 @(test)
 a_descriptor_published_with_its_splice_is_not_shifted_by_it :: proc(t: ^testing.T) {
-    s: store.Store
-    defer store.store_destroy(&s)
-    id := store.store_open(&s, "old")
-    gen, _ := store.store_gen(&s, id)
+    a, id, ok := fields_app("old", nil)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
     fields := [?]desc.Field{{0, "name", 0, 13, ""}}
-    d := desc.new_from({fields = fields[:]})
-    store.store_submit(&s, id, gen, {txt.Edit{lo = 0, hi = 3, text = "brand-new.txt"}}, d)
-    desc.release(d)
-    store.store_drain(&s)
+    gen, _ := store.store_gen(a.docs, id)
+    store.store_submit(a.docs, id, gen, {txt.Edit{lo = 0, hi = 3, text = "brand-new.txt"}}, nil,
+                       fields_spans(&a, id, fields[:]))
+    store.store_drain(a.docs)
 
-    read := store.store_descriptor(&s, id)
-    defer desc.release(read)
-    lo, hi, ok := desc.field_span(read, 0, "name")
-    testing.expect(t, ok, "the field went away")
-    testing.expect_value(t, lo, 0)
-    testing.expect_value(t, hi, 13)
+    name, named := field_at(&a, id, 0, "name")
+    testing.expect(t, named, "the field went away")
+    testing.expect_value(t, name.lo, 0)
+    testing.expect_value(t, name.hi, 13)
 }
 
 // The change log is bounded, and a reader it no longer reaches back to cannot say where the
@@ -428,23 +429,18 @@ a_descriptor_published_with_its_splice_is_not_shifted_by_it :: proc(t: ^testing.
 // the owner republishes when it hears the generation moved.
 @(test)
 a_field_the_log_no_longer_reaches_is_dropped :: proc(t: ^testing.T) {
-    s: store.Store
-    defer store.store_destroy(&s)
-    id := store.store_open(&s, "top.txt")
-    gen, _ := store.store_gen(&s, id)
     fields := [?]desc.Field{{0, "path", 0, 7, "/tmp/top.txt"}}
-    d := desc.new_from({fields = fields[:]})
-    store.store_submit(&s, id, gen, nil, d)
-    desc.release(d)
-    store.store_drain(&s)
+    a, id, ok := fields_app("top.txt", fields[:])
+    if !ok {
+        return
+    }
+    defer close_app(&a)
 
     for _ in 0 ..< docs.DOC_CHANGE_MAX + 1 {
-        txt.doc_apply(store.store_doc(&s, id), {txt.Edit{lo = 0, hi = 0, text = "x"}})
+        txt.doc_apply(store.store_doc(a.docs, id), {txt.Edit{lo = 0, hi = 0, text = "x"}})
     }
-    read := store.store_descriptor(&s, id)
-    defer desc.release(read)
-    _, _, ok := desc.field_span(read, 0, "path")
-    testing.expect(t, !ok, "a link outlived the log that could have placed it")
+    _, held := field_at(&a, id, 0, "path")
+    testing.expect(t, !held, "a link outlived the log that could have placed it")
 }
 
 // A cursor set rides the transaction it was measured against. The positions describe text a
@@ -556,26 +552,22 @@ a_submitted_edit_names_the_caret_it_leaves :: proc(t: ^testing.T) {
 every_field_in_a_listing_survives_a_batch :: proc(t: ^testing.T) {
     ROWS :: 300 // past DOC_CHANGE_MAX
 
-    s: store.Store
-    defer store.store_destroy(&s)
     rows := strings.builder_make(context.temp_allocator)
     for _ in 0 ..< ROWS {
         strings.write_string(&rows, "name\n")
     }
-    id := store.store_open(&s, strings.to_string(rows))
-    gen, _ := store.store_gen(&s, id)
-
     fields := make([]desc.Field, ROWS, context.temp_allocator)
     for i in 0 ..< ROWS {
         fields[i] = desc.Field{i, "name", 0, 4, "/tmp/name"}
     }
-    d := desc.new_from({fields = fields})
-    store.store_submit(&s, id, gen, nil, d)
-    desc.release(d)
-    store.store_drain(&s)
+    a, id, ok := fields_app(strings.to_string(rows), fields)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
 
     // One typed character on every row at once, which is what a caret per row does.
-    doc := store.store_doc(&s, id)
+    doc := store.store_doc(a.docs, id)
     edits := make([]txt.Edit, ROWS, context.temp_allocator)
     for i in 0 ..< ROWS {
         off := txt.doc_off(doc, txt.Pos{i, 4})
@@ -583,14 +575,12 @@ every_field_in_a_listing_survives_a_batch :: proc(t: ^testing.T) {
     }
     txt.doc_apply(doc, edits)
 
-    read := store.store_descriptor(&s, id)
-    defer desc.release(read)
     for i in 0 ..< ROWS {
-        lo, hi, ok := desc.field_span(read, i, "name")
-        if !testing.expectf(t, ok, "row %d lost its link", i) {
+        name, named := field_at(&a, id, i, "name")
+        if !testing.expectf(t, named, "row %d lost its link", i) {
             return
         }
-        testing.expect_value(t, lo, 0)
-        testing.expect_value(t, hi, 5) // text at the edge of a link belongs to the link
+        testing.expect_value(t, name.lo, 0)
+        testing.expect_value(t, name.hi, 5) // text at the edge of a link belongs to the link
     }
 }

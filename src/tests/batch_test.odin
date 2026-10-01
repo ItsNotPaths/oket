@@ -90,16 +90,16 @@ a_batch_bigger_than_the_log_still_lands_whole :: proc(t: ^testing.T) {
     txt.doc_init(&d)
     defer txt.doc_destroy(&d)
     txt.doc_set_text(&d, strings.repeat(".", 4 * ROWS, context.temp_allocator))
-    txt.doc_changes_ack(&d, .Fields) // the load is a change nobody was here for
+    txt.doc_changes_ack(&d, .Highlight) // the load is a change nobody was here for
 
     txt.doc_apply(&d, spread(ROWS, 0, 4, "x"))
 
-    changes, lost := txt.doc_changes_since(&d, .Fields)
+    changes, lost := txt.doc_changes_since(&d, .Highlight)
     testing.expect(t, !lost, "a 300-caret edit dropped its own change log")
     testing.expect_value(t, len(changes), ROWS)
 
     // And the cap still bites between commits, which is the half that keeps the log bounded.
     txt.doc_apply(&d, {txt.Edit{lo = 0, hi = 0, text = "y"}})
-    _, lost = txt.doc_changes_since(&d, .Fields)
+    _, lost = txt.doc_changes_since(&d, .Highlight)
     testing.expect(t, lost, "the log grew past its cap and stayed there")
 }

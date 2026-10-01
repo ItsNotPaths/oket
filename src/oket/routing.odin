@@ -657,6 +657,8 @@ bind_expand :: proc(a: ^App, template: string) -> (string, bool) {
     defer pt.snapshot_release(snap)
     defer desc.release(d)
 
+    at := s.view.point.head.line
+    fields := doc_fields(a, s.doc, &snap.text, at, at + 1)
     b := strings.builder_make(context.temp_allocator)
     rest := template
     for {
@@ -665,12 +667,12 @@ bind_expand :: proc(a: ^App, template: string) -> (string, bool) {
         if !found {
             break
         }
-        value, got := view.field_text(&snap.text, d, s.view.point.head.line, name)
+        f, got := desc.field_of(fields, at, name)
         if !got {
             message_set(a, fmt.tprintf("nothing here has a %s", name))
             return "", false
         }
-        strings.write_string(&b, sh_arg(value))
+        strings.write_string(&b, sh_arg(f.value))
         rest = tail
     }
     return strings.to_string(b), true
@@ -925,7 +927,6 @@ docs_settle :: proc(a: ^App) -> (latched: bool) {
 
 // The read pair every event wants: the frozen text and the descriptor its generation named. The
 // caller releases both.
-@(private = "file")
 reading :: proc(a: ^App, s: ^Slot) -> (^pt.Snapshot, ^desc.Descriptor, bool) {
     if s == nil {
         return nil, nil, false
@@ -981,7 +982,8 @@ point_at :: proc(a: ^App, cx, cy: int) -> (txt.Pos, bool) {
     defer desc.release(d)
     r := active_rect(a)
     t, dv := views_text(a, s.doc, &snap.text)
-    p, _, hit := view.locate(t, d, s.view, r.x, r.y, r.w, r.h, cx, cy, dv)
+    fields := shown_fields(a, s.doc, t, dv, s.view.top, r.h)
+    p, _, hit := view.locate(t, d, fields, s.view, r.x, r.y, r.w, r.h, cx, cy, dv)
     return p, hit
 }
 
@@ -1067,14 +1069,14 @@ scroll_by :: proc(a: ^App, lines: int) {
 // Does this line act on the span the pointer is over — the field itself, or a wider one it
 // sits inside. Containment is what lets hover offer the NAME for a line that acts on the PATH.
 @(private = "file")
-line_covers :: proc(d: ^desc.Descriptor, template: string, line, lo, hi: int) -> bool {
+line_covers :: proc(fields: []desc.Field, template: string, line, lo, hi: int) -> bool {
     rest := template
     for {
         _, name, tail, found := hole_next(rest)
         if !found {
             return false
         }
-        if a, b, named := desc.field_span(d, line, name); named && a <= lo && b >= hi {
+        if a, b, named := desc.field_span(fields, line, name); named && a <= lo && b >= hi {
             return true
         }
         rest = tail
@@ -1113,25 +1115,19 @@ hover_line :: proc(a: ^App, d: ^desc.Descriptor) -> (input.Bind_Line, bool) {
 // a link is drawn exactly where a key or a click would do something, and neither table is read
 // twice for it.
 //
-// Per frame rather than published into the span store, because both halves move under it — the
-// descriptor with every submit, the lines with every binds.conf re-read.
-// (hole overlay-is-the-lookup) link drawing rebuilds runs from descriptor fields each frame instead of reading data keys off the overlay.
-doc_links :: proc(a: ^App, d: ^desc.Descriptor, first, last: int,
+// Per frame, because the lines move under it with every binds.conf re-read.
+// (hole overlay-is-the-lookup) link drawing rebuilds runs from the fields each frame instead of reading data keys off the overlay.
+doc_links :: proc(a: ^App, d: ^desc.Descriptor, fields: []desc.Field,
                   allocator := context.temp_allocator) -> []view.Style {
-    if d == nil {
-        return nil // nothing resolved a descriptor, so there are no fields to be links
-    }
-    names := link_names(a, d, allocator)
-    if len(names) == 0 {
+    if d == nil || len(fields) == 0 {
         return nil
     }
+    names := link_names(a, d, allocator)
     fg, bg := u32(token_intern(a, TOKEN_LINK)), u32(gfx.Token.Bg)
     out := make([dynamic]view.Style, allocator)
-    for at in first ..< last {
-        for name in names {
-            if lo, hi, named := desc.field_span(d, at, name); named && lo < hi {
-                append(&out, view.Style{at, lo, hi, fg, bg, {.Underline}})
-            }
+    for f in fields {
+        if f.lo < f.hi && slice.contains(names, f.name) {
+            append(&out, view.Style{f.line, f.lo, f.hi, fg, bg, {.Underline}})
         }
     }
     return out[:]
@@ -1173,7 +1169,8 @@ link_holes :: proc(out: ^[dynamic]string, template: string) {
 // The one link that is LIVE: the field under the pointer, or the row the caret is on, which is
 // what `enter` acts on. Its own token, so a page of offers says which one the next keystroke
 // takes. Only where the caret is drawn — an unfocused panel has no next keystroke.
-doc_link_over :: proc(a: ^App, p: ^Panel, d: ^desc.Descriptor, v: view.View, marked: bool,
+doc_link_over :: proc(a: ^App, p: ^Panel, d: ^desc.Descriptor, fields: []desc.Field,
+                      v: view.View, marked: bool,
                       allocator := context.temp_allocator) -> []view.Style {
     line, lo, hi := p.hover.line, p.hover.lo, p.hover.hi
     if !p.hover.on {
@@ -1181,7 +1178,7 @@ doc_link_over :: proc(a: ^App, p: ^Panel, d: ^desc.Descriptor, v: view.View, mar
             return nil
         }
         at := v.point.head.line
-        first, ok := link_at(a, d, at)
+        first, ok := link_at(a, d, fields, at)
         if !ok {
             return nil
         }
@@ -1196,12 +1193,12 @@ doc_link_over :: proc(a: ^App, p: ^Panel, d: ^desc.Descriptor, v: view.View, mar
 // The link on a row, if it carries one. A row carrying more than one is a row `:home enter`
 // would take the FIRST of, so this answers the same way it does.
 @(private = "file")
-link_at :: proc(a: ^App, d: ^desc.Descriptor, line: int) -> (desc.Field, bool) {
+link_at :: proc(a: ^App, d: ^desc.Descriptor, fields: []desc.Field, line: int) -> (desc.Field, bool) {
     if d == nil {
         return {}, false
     }
     for name in link_names(a, d) {
-        if f, named := desc.field_of(d, line, name); named && f.lo < f.hi {
+        if f, named := desc.field_of(fields, line, name); named && f.lo < f.hi {
             return f, true
         }
     }
@@ -1232,7 +1229,8 @@ hover_update :: proc(a: ^App, panel, cx, cy: int) {
     defer desc.release(d)
     b := pn.body
     t, dv := views_text(a, s.doc, &snap.text)
-    p, field, hit := view.locate(t, d, s.view, b.x, b.y, b.w, b.h, cx, cy, dv)
+    fields := shown_fields(a, s.doc, t, dv, s.view.top, b.h)
+    p, field, hit := view.locate(t, d, fields, s.view, b.x, b.y, b.w, b.h, cx, cy, dv)
     if !hit || field == "" {
         return
     }
@@ -1240,8 +1238,8 @@ hover_update :: proc(a: ^App, panel, cx, cy: int) {
     if !is_line {
         return
     }
-    lo, hi, named := desc.field_span(d, p.line, field)
-    if named && line_covers(d, line.text, p.line, lo, hi) {
+    lo, hi, named := desc.field_span(fields, p.line, field)
+    if named && line_covers(fields, line.text, p.line, lo, hi) {
         pn.hover = {p.line, lo, hi, true}
     }
 }

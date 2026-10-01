@@ -84,11 +84,22 @@ line_text :: proc(s: ^pt.Snapshot, line: int, alloc := context.temp_allocator) -
 // mode, the size and the date are the platter's and change under the test.
 @(private = "file")
 name_of :: proc(a: ^app.App, line: int) -> string {
-    snap, d := reading(a)
-    defer pt.snapshot_release(snap)
-    defer desc.release(d)
-    out, _ := view.field_text(&snap.text, d, line, "name", alloc = context.temp_allocator)
-    return strings.clone(out, context.temp_allocator)
+    out, _ := value_of(a, line, "name")
+    return out
+}
+
+// What `<name>` hands on from one row of the focused listing, and where its span sits.
+@(private = "file")
+value_of :: proc(a: ^app.App, line: int, name: string) -> (string, bool) {
+    f, ok := field_at(a, app.ring_focused(a).doc, line, name)
+    return f.value, ok
+}
+
+@(private = "file")
+span_of :: proc(a: ^app.App, line: int, name: string) -> (lo, hi: int, ok: bool) {
+    f: desc.Field
+    f, ok = field_at(a, app.ring_focused(a).doc, line, name)
+    return f.lo, f.hi, ok
 }
 
 // Point onto a row the way every key that moves does: at the end of its name, ready to type.
@@ -136,23 +147,23 @@ a_row_is_ls_la_with_a_link_on_the_name :: proc(t: ^testing.T) {
 
     // Every name starts at the same column, so a rename never moves what is left of it, and a
     // child of the root sits one indent past that.
-    lo, hi, _ := desc.field_span(d, 3, "name")
+    lo, hi, _ := span_of(&a, 3, "name")
     testing.expect_value(t, lo, PREFIX)
     testing.expect_value(t, hi, PREFIX + len("top.txt"))
-    mode_lo, mode_hi, _ := desc.field_span(d, 3, "mode")
+    mode_lo, mode_hi, _ := span_of(&a, 3, "mode")
     testing.expect_value(t, mode_lo, 0)
     testing.expect_value(t, mode_hi, 10)
-    size, _ := view.field_text(&snap.text, d, 3, "size")
+    size, _ := value_of(&a, 3, "size")
     testing.expect_value(t, size, "3")
 
     // And `..` is a link like the rest: it acts on the directory above, so `enter` over it
     // needs no case of its own anywhere.
-    up, has_up := view.field_text(&snap.text, d, 1, "path")
+    up, has_up := value_of(&a, 1, "path")
     testing.expect(t, has_up)
     testing.expect_value(t, up, filepath.dir(root))
 
     // The link: drawn as `top.txt`, acting on the whole of where it lives.
-    path, has_path := view.field_text(&snap.text, d, 3, "path")
+    path, has_path := value_of(&a, 3, "path")
     testing.expect(t, has_path)
     testing.expect_value(t, path, fmt.tprintf("%s/top.txt", root))
 }
@@ -345,7 +356,7 @@ hover_underlines_the_link_it_would_follow :: proc(t: ^testing.T) {
     snap, d := reading(&a)
     defer pt.snapshot_release(snap)
     defer desc.release(d)
-    lo, hi, _ := desc.field_span(d, 2, "path")
+    lo, hi, _ := span_of(&a, 2, "path")
     testing.expect_value(t, app.panel_focused(&a).hover.lo, lo)
     testing.expect_value(t, app.panel_focused(&a).hover.hi, hi)
 
@@ -388,12 +399,12 @@ a_value_that_is_not_what_it_draws :: proc(t: ^testing.T) {
     snap, d := reading(&a)
     defer pt.snapshot_release(snap)
     defer desc.release(d)
-    name, hi, _ := desc.field_span(d, 3, "name")
-    path_lo, path_hi, _ := desc.field_span(d, 3, "path")
+    name, hi, _ := span_of(&a, 3, "name")
+    path_lo, path_hi, _ := span_of(&a, 3, "path")
     testing.expect_value(t, path_lo, name) // the same bytes...
     testing.expect_value(t, path_hi, hi)
-    shown, _ := view.field_text(&snap.text, d, 3, "name")
-    acted, _ := view.field_text(&snap.text, d, 3, "path")
+    shown, _ := value_of(&a, 3, "name")
+    acted, _ := value_of(&a, 3, "path")
     testing.expect_value(t, shown, "top.txt") // ...drawn as one string
     testing.expect_value(t, acted, fmt.tprintf("%s/top.txt", root)) // ...acting as another
 }
@@ -447,7 +458,7 @@ typing_renames_and_the_link_still_names_the_file :: proc(t: ^testing.T) {
     testing.expect_value(t, name_of(&a, 3), "ztop.txt_v2")
     testing.expect(t, strings.has_prefix(line_text(snap, 3), "-rw-"), line_text(snap, 3))
     // The link rode the splice: its span grew with the name, its value is still the file.
-    path, _ := view.field_text(&snap.text, d, 3, "path")
+    path, _ := value_of(&a, 3, "path")
     testing.expect_value(t, path, fmt.tprintf("%s/top.txt", root))
 }
 
@@ -477,7 +488,7 @@ commit_renames_every_row_that_was_typed_over :: proc(t: ^testing.T) {
     snap, d := reading(&a)
     defer pt.snapshot_release(snap)
     defer desc.release(d)
-    path, _ := view.field_text(&snap.text, d, 3, "path")
+    path, _ := value_of(&a, 3, "path")
     testing.expect_value(t, path, fmt.tprintf("%s/top.txt_v2", root))
 }
 

@@ -226,18 +226,17 @@ static void g_row(void *ctx, oket_build *out, oket_list_row *r, int32_t idx) {
     oket_build_cell(out, "row", text, n);
     oket_build_span(out, "lang", name_lo, name_hi);
     oket_build_link(out, "repo", name_lo, name_hi, g->repo, strlen(g->repo));
-    /* An empty span for what the registry does not carry: its value is the no bytes it covers,
-     * which is an empty argument. A link with an empty value would fall back to the span's own
-     * bytes and hand the shell the grammar's name as a revision. */
+    /* An empty value for what the registry does not carry, which is an empty argument. A NULL
+     * value would fall back to the span's own bytes and hand the shell the grammar's name. */
     if (g->rev[0]) {
         oket_build_link(out, "rev", name_lo, name_hi, g->rev, strlen(g->rev));
     } else {
-        oket_build_span(out, "rev", name_hi, name_hi);
+        oket_build_link(out, "rev", name_lo, name_hi, "", 0);
     }
     if (g->subpath[0]) {
         oket_build_link(out, "sub", name_lo, name_hi, g->subpath, strlen(g->subpath));
     } else {
-        oket_build_span(out, "sub", name_hi, name_hi);
+        oket_build_link(out, "sub", name_lo, name_hi, "", 0);
     }
 }
 

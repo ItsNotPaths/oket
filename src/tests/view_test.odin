@@ -8,6 +8,7 @@ import "../gfx"
 import "../store"
 import "../txt"
 import "../view"
+import app "../oket"
 
 // The gate for build order stage 3: the kernel draws a document from a descriptor, and a
 // `<name>` hole reads a field the descriptor named. The screen is text, so this diffs in CI.
@@ -52,6 +53,20 @@ opened :: proc(
     return store.store_snapshot(s, id), store.store_descriptor(s, id)
 }
 
+// The fields as the kernel hands them to the renderer: an empty value read from the bytes.
+@(private = "file")
+resolved :: proc(text: string, fields: []desc.Field) -> []desc.Field {
+    lines := strings.split(text, "\n", context.temp_allocator)
+    out := make([]desc.Field, len(fields), context.temp_allocator)
+    for f, i in fields {
+        out[i] = f
+        if f.value == "" {
+            out[i].value = lines[f.line][f.lo:f.hi]
+        }
+    }
+    return out
+}
+
 // Into a grid the caller owns, for a test that asks about more than the snapshot text.
 @(private = "file")
 into :: proc(
@@ -62,6 +77,7 @@ into :: proc(
     cols, rows: int,
     v := view.View{},
     atlas: ^gfx.Atlas = nil,
+    fields: []desc.Field = nil,
 ) {
     s: store.Store
     defer store.store_destroy(&s)
@@ -70,7 +86,8 @@ into :: proc(
     defer desc.release(dp)
 
     testing.expect(t, gfx.grid_init(g, cols, rows))
-    view.draw(g, gfx.DEFAULT_THEME, &snap.text, dp, v, 0, 0, cols, rows, atlas = atlas)
+    view.draw(g, gfx.DEFAULT_THEME, &snap.text, dp, resolved(text, fields), v, 0, 0, cols, rows,
+              atlas = atlas)
 }
 
 @(private = "file")
@@ -80,10 +97,11 @@ drawn :: proc(
     d: desc.Descriptor,
     cols, rows: int,
     v := view.View{},
+    fields: []desc.Field = nil,
 ) -> string {
     g: gfx.Grid
     defer gfx.grid_destroy(&g)
-    into(t, &g, text, d, cols, rows, v)
+    into(t, &g, text, d, cols, rows, v, fields = fields)
     return gfx.grid_snapshot(&g)
 }
 
@@ -93,7 +111,7 @@ drawn :: proc(
 listing_renders_from_a_descriptor :: proc(t: ^testing.T) {
     columns := LISTING_COLUMNS
     fields := LISTING_FIELDS
-    snap := drawn(t, LISTING, {columns = columns[:], fields = fields[:]}, 30, 4)
+    snap := drawn(t, LISTING, {columns = columns[:]}, 30, 4, fields = fields[:])
     defer delete(snap)
 
     testing.expect_value(
@@ -108,24 +126,35 @@ README.md    file   1024
 
 // `<path>` resolved as data, not as a callback into whoever drew the document (§5).
 @(test)
-field_resolves_from_the_descriptor :: proc(t: ^testing.T) {
-    s: store.Store
-    defer store.store_destroy(&s)
+field_resolves_off_the_store :: proc(t: ^testing.T) {
     fields := LISTING_FIELDS
-    snap, dp := opened(&s, LISTING, {fields = fields[:]})
-    defer pt.snapshot_release(snap)
-    defer desc.release(dp)
+    a, id, ok := spans_doc(LISTING, fields[:])
+    if !ok {
+        return
+    }
+    defer close_app(&a)
 
-    name, ok := view.field_text(&snap.text, dp, 1, "name")
-    testing.expect(t, ok)
-    testing.expect_value(t, name, "main.odin")
+    name, named := field_at(&a, id, 1, "name")
+    testing.expect(t, named)
+    testing.expect_value(t, name.value, "main.odin")
 
-    size, size_ok := view.field_text(&snap.text, dp, 2, "size")
-    testing.expect(t, size_ok)
-    testing.expect_value(t, size, "1024")
+    size, sized := field_at(&a, id, 2, "size")
+    testing.expect(t, sized)
+    testing.expect_value(t, size.value, "1024")
 
-    _, missing := view.field_text(&snap.text, dp, 1, "owner")
-    testing.expect(t, !missing, "a field the descriptor never named must not resolve")
+    _, missing := field_at(&a, id, 1, "owner")
+    testing.expect(t, !missing, "a field nobody published must not resolve")
+}
+
+// A document holding `text`, with `fields` published over it as data spans.
+@(private = "file")
+spans_doc :: proc(text: string, fields: []desc.Field) -> (a: app.App, id: store.Id, ok: bool) {
+    a = bare_app() or_return
+    id = scratch_doc(&a, "fields.txt", text)
+    gen, _ := store.store_gen(a.docs, id)
+    store.store_submit(a.docs, id, gen, nil, nil, fields_spans(&a, id, fields))
+    store.store_drain(a.docs)
+    return a, id, true
 }
 
 @(test)
@@ -199,15 +228,15 @@ locate_maps_cells_through_tabs :: proc(t: ^testing.T) {
     defer desc.release(dp)
 
     // cells: a=0, the tab runs 1..3, b=4, c=5
-    p, _, ok := view.locate(&snap.text, dp, {}, 0, 0, 10, 2, 2, 0)
+    p, _, ok := view.locate(&snap.text, dp, nil, {}, 0, 0, 10, 2, 2, 0)
     testing.expect(t, ok)
     testing.expect_value(t, p, txt.Pos{0, 1}) // mid-tab is the tab's own byte
 
-    p, _, ok = view.locate(&snap.text, dp, {}, 0, 0, 10, 2, 9, 0)
+    p, _, ok = view.locate(&snap.text, dp, nil, {}, 0, 0, 10, 2, 9, 0)
     testing.expect(t, ok)
     testing.expect_value(t, p, txt.Pos{0, 4}) // past the end is the end
 
-    _, _, hit := view.locate(&snap.text, dp, {}, 0, 0, 10, 2, 10, 0)
+    _, _, hit := view.locate(&snap.text, dp, nil, {}, 0, 0, 10, 2, 10, 0)
     testing.expect(t, !hit, "a cell right of the rectangle is not in the document")
 }
 
@@ -220,14 +249,15 @@ a_selected_row_is_marked_over_its_own_text :: proc(t: ^testing.T) {
     defer store.store_destroy(&s)
     columns := LISTING_COLUMNS
     fields := LISTING_FIELDS
-    snap, dp := opened(&s, LISTING, {columns = columns[:], fields = fields[:], selection = .Line})
+    snap, dp := opened(&s, LISTING, {columns = columns[:], selection = .Line})
+    listed := resolved(LISTING, fields[:])
     defer pt.snapshot_release(snap)
     defer desc.release(dp)
 
     g: gfx.Grid
     testing.expect(t, gfx.grid_init(&g, 30, 3))
     defer gfx.grid_destroy(&g)
-    view.draw(&g, gfx.DEFAULT_THEME, &snap.text, dp, {point = {anchor = {1, 0}, head = {1, 0}}}, 0, 0, 30, 3)
+    view.draw(&g, gfx.DEFAULT_THEME, &snap.text, dp, listed, {point = {anchor = {1, 0}, head = {1, 0}}}, 0, 0, 30, 3)
 
     lit, dark := 0, 0
     for x in 0 ..< 30 {
@@ -249,7 +279,8 @@ every_caret_lights_its_listing_row :: proc(t: ^testing.T) {
     defer store.store_destroy(&s)
     columns := LISTING_COLUMNS
     fields := LISTING_FIELDS
-    snap, dp := opened(&s, LISTING, {columns = columns[:], fields = fields[:], selection = .Line})
+    snap, dp := opened(&s, LISTING, {columns = columns[:], selection = .Line})
+    listed := resolved(LISTING, fields[:])
     defer pt.snapshot_release(snap)
     defer desc.release(dp)
 
@@ -257,7 +288,7 @@ every_caret_lights_its_listing_row :: proc(t: ^testing.T) {
     testing.expect(t, gfx.grid_init(&g, 30, 3))
     defer gfx.grid_destroy(&g)
     carets := [2]txt.Cursor{{anchor = {0, 0}, head = {0, 0}}, {anchor = {2, 0}, head = {2, 0}}}
-    view.draw(&g, gfx.DEFAULT_THEME, &snap.text, dp, {}, 0, 0, 30, 3, carets = carets[:])
+    view.draw(&g, gfx.DEFAULT_THEME, &snap.text, dp, listed, {}, 0, 0, 30, 3, carets = carets[:])
 
     for y in 0 ..< 3 {
         lit := 0
@@ -288,12 +319,12 @@ a_selection_carries_its_swap_as_far_as_the_percent_says :: proc(t: ^testing.T) {
     over := view.View{point = {anchor = {0, 0}, head = {0, 3}}}
 
     // Full: the painter's own swap, which is the attr and not a colour.
-    view.draw(&g, th, &snap.text, dp, over, 0, 0, 10, 2, select = 100)
+    view.draw(&g, th, &snap.text, dp, nil, over, 0, 0, 10, 2, select = 100)
     testing.expect(t, .Reverse in gfx.grid_at(&g, 0, 0).attrs)
     testing.expect_value(t, gfx.grid_at(&g, 0, 0).fg, th[.Fg])
 
     // Half of the way there, written as colours: no attr, and the two sides have swapped half.
-    view.draw(&g, th, &snap.text, dp, over, 0, 0, 10, 2, select = 50)
+    view.draw(&g, th, &snap.text, dp, nil, over, 0, 0, 10, 2, select = 50)
     cell := gfx.grid_at(&g, 0, 0)
     testing.expect(t, .Reverse not_in cell.attrs, "a percent left the painter's swap on too")
     testing.expect_value(t, cell.fg, th[.Fg] + (th[.Bg] - th[.Fg]) * 0.5)
@@ -304,7 +335,7 @@ a_selection_carries_its_swap_as_far_as_the_percent_says :: proc(t: ^testing.T) {
 
     // And the caret is a full swap whatever the percent says.
     caret := view.View{point = {anchor = {1, 0}, head = {1, 0}}}
-    view.draw(&g, th, &snap.text, dp, caret, 0, 0, 10, 2, select = 50)
+    view.draw(&g, th, &snap.text, dp, nil, caret, 0, 0, 10, 2, select = 50)
     testing.expect(t, .Reverse in gfx.grid_at(&g, 0, 1).attrs, "the percent reached the caret")
 }
 
@@ -313,17 +344,17 @@ a_selection_carries_its_swap_as_far_as_the_percent_says :: proc(t: ^testing.T) {
 // could not say, and it is what makes a line a link.
 @(test)
 a_field_with_a_value_answers_with_it :: proc(t: ^testing.T) {
-    s: store.Store
-    defer store.store_destroy(&s)
     fields := [?]desc.Field{{0, "name", 0, 3, ""}, {0, "path", 0, 3, "/tmp/src"}}
-    snap, dp := opened(&s, "src", {fields = fields[:]})
-    defer pt.snapshot_release(snap)
-    defer desc.release(dp)
+    a, id, ok := spans_doc("src", fields[:])
+    if !ok {
+        return
+    }
+    defer close_app(&a)
 
-    shown, _ := view.field_text(&snap.text, dp, 0, "name")
-    testing.expect_value(t, shown, "src")
-    acted, _ := view.field_text(&snap.text, dp, 0, "path")
-    testing.expect_value(t, acted, "/tmp/src")
+    shown, _ := field_at(&a, id, 0, "name")
+    testing.expect_value(t, shown.value, "src")
+    acted, _ := field_at(&a, id, 0, "path")
+    testing.expect_value(t, acted.value, "/tmp/src")
 }
 
 // --- the carets a draw can reach (view.onscreen) ---
@@ -393,7 +424,8 @@ an_unsorted_caret_set_lights_the_rows_it_names :: proc(t: ^testing.T) {
     defer store.store_destroy(&s)
     columns := LISTING_COLUMNS
     fields := LISTING_FIELDS
-    snap, dp := opened(&s, LISTING, {columns = columns[:], fields = fields[:], selection = .Line})
+    snap, dp := opened(&s, LISTING, {columns = columns[:], selection = .Line})
+    listed := resolved(LISTING, fields[:])
     defer pt.snapshot_release(snap)
     defer desc.release(dp)
 
@@ -406,7 +438,7 @@ an_unsorted_caret_set_lights_the_rows_it_names :: proc(t: ^testing.T) {
         {anchor = {0, 0}, head = {0, 0}},
         {anchor = {2, 0}, head = {2, 0}},
     }
-    view.draw(&g, gfx.DEFAULT_THEME, &snap.text, dp, {}, 0, 0, 30, 3, carets = carets[:])
+    view.draw(&g, gfx.DEFAULT_THEME, &snap.text, dp, listed, {}, 0, 0, 30, 3, carets = carets[:])
 
     for y in 0 ..< 3 {
         lit := 0

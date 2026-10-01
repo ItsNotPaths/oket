@@ -91,20 +91,22 @@ panel_draw :: proc(a: ^App, p: ^Panel, marked: bool) {
     t, dv := views_text(a, s.doc, &snap.text)
     // The link the pointer is in goes on LAST, so the one a click would take reads differently
     // from the rest of them (routing.odin).
-    styles := doc_styles(a, s.doc, d, t, dv, s.view.top, b.h, doc_link_over(a, p, d, s.view, marked))
+    fields := shown_fields(a, s.doc, t, dv, s.view.top, b.h)
+    styles := doc_styles(a, s.doc, d, t, dv, s.view.top, b.h, fields,
+                         doc_link_over(a, p, d, fields, s.view, marked))
     // Borrowed from the document: the drawn text is a snapshot and the cursors are live, but
     // both are read after the drain (docs_settle), so they name the same generation.
     carets: []txt.Cursor
     if doc := store.store_doc(a.docs, s.doc); doc != nil {
         carets = doc.cursors[:]
     }
-    view.draw(&p.grid, th, t, d, s.view, b.x, b.y, b.w, b.h,
+    view.draw(&p.grid, th, t, d, fields, s.view, b.x, b.y, b.w, b.h,
               styles, marked, dv, a.config.select, carets, token_pal(a),
               &a.painter.atlas)
     if p.hover.on {
         // A columns document draws its FIELDS and not its bytes, so no style run reaches it —
         // the mark is the only way to underline a field there.
-        view.underline(&p.grid, t, d, s.view, b.x, b.y, b.w, b.h,
+        view.underline(&p.grid, t, d, fields, s.view, b.x, b.y, b.w, b.h,
                        p.hover.line, p.hover.lo, p.hover.hi, dv)
     }
 }

@@ -264,7 +264,7 @@ static void t_row(void *ctx, oket_build *out, oket_list_row *lr, int32_t idx) {
                  ROOT, r->name, r->name, ROOT);
         oket_build_link(out, "rm", name_lo, name_hi, rm, strlen(rm));
     } else {
-        oket_build_span(out, "rm", name_hi, name_hi);
+        oket_build_link(out, "rm", name_lo, name_hi, "", 0); /* an empty argument */
     }
 }
 

@@ -73,8 +73,7 @@ static void render(const lues_api *api, lues_self self, lues_doc doc, example *e
     /* `raw`, so a chord no row claims reaches event() below rather than going quiet (§8). */
     d.input = OKET_INPUT_RAW;
     d.tab_width = 4;
-    oket_build_desc(&b, &d);
-    oket_set(api, self, doc, b.text, b.oom ? 0 : b.len, &d);
+    oket_build_submit(api, self, doc, &b, b.len, &d, 0);
     oket_build_free(&b);
 }
 

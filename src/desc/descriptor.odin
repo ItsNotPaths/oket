@@ -55,8 +55,6 @@ Descriptor :: struct {
     editable:  bool,
     tab_width: int,
     columns:   []Column,
-    // (hole fields-are-spans) the descriptor still carries fields, so only its owner can publish them.
-    fields:    []Field,
     // How deep each line sits, indexed by line (§5). One field carries a file tree, an outline
     // and folding; a line past the end is depth 0, so a flat document publishes none of it.
     depth:     []int,
@@ -86,13 +84,7 @@ new_from :: proc(d: Descriptor) -> ^Descriptor {
     for &c in out.columns {
         c.name = strings.clone(c.name)
     }
-    out.fields = slice.clone(d.fields)
-    for &f in out.fields {
-        f.name = strings.clone(f.name)
-        f.value = strings.clone(f.value)
-    }
     out.depth = slice.clone(d.depth)
-    slice.stable_sort_by(out.fields, proc(a, b: Field) -> bool {return a.line < b.line})
     return out
 }
 
@@ -107,13 +99,8 @@ release :: proc(d: ^Descriptor) {
     for c in d.columns {
         delete(c.name)
     }
-    for f in d.fields {
-        delete(f.name)
-        delete(f.value)
-    }
     delete(d.file)
     delete(d.columns)
-    delete(d.fields)
     delete(d.depth)
     free(d)
 }
@@ -124,27 +111,26 @@ line_depth :: proc(d: ^Descriptor, line: int) -> int {
     return line >= 0 && line < len(d.depth) ? max(d.depth[line], 0) : 0
 }
 
-// Every field on one line, in the order they were given.
-line_fields :: proc(d: ^Descriptor, line: int) -> []Field {
-    lo := lower_bound(d.fields, line)
+// Every field on one line, in the order they were read.
+line_fields :: proc(fields: []Field, line: int) -> []Field {
+    lo := lower_bound(fields, line)
     hi := lo
-    for hi < len(d.fields) && d.fields[hi].line == line {
+    for hi < len(fields) && fields[hi].line == line {
         hi += 1
     }
-    return d.fields[lo:hi]
+    return fields[lo:hi]
 }
 
-// The span `<name>` names on this line (§5). Byte offsets from the line's start; the caller
-// slices the text, because a descriptor holds no text.
-field_span :: proc(d: ^Descriptor, line: int, name: string) -> (lo, hi: int, ok: bool) {
-    f := field_of(d, line, name) or_return
+// The span `<name>` names on this line (§5), as byte offsets from the line's start.
+field_span :: proc(fields: []Field, line: int, name: string) -> (lo, hi: int, ok: bool) {
+    f := field_of(fields, line, name) or_return
     return f.lo, f.hi, true
 }
 
 // The whole of it, for the caller that wants what the field IS as well as where it was drawn.
-// (hole overlay-is-the-lookup :tags (view input) :needs fields-are-spans) first match per line, so a line holds one link; lookup should read the overlay, under the caret first.
-field_of :: proc(d: ^Descriptor, line: int, name: string) -> (Field, bool) {
-    for f in line_fields(d, line) {
+// (hole overlay-is-the-lookup :tags (view input)) first match per line, so a line holds one link; lookup should read the overlay, under the caret first.
+field_of :: proc(fields: []Field, line: int, name: string) -> (Field, bool) {
+    for f in line_fields(fields, line) {
         if f.name == name {
             return f, true
         }

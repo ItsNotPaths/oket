@@ -86,9 +86,8 @@ rows_doc :: proc(a: ^app.App) -> store.Id {
         {1, "path", 0, 4, "/tmp/beta"},
         {1, "tail", 5, 6, ""},
     }
-    d := desc.new_from({ctx = .Surface, kind = app.KIND_HOME, selection = .Line, tab_width = 4,
-                        fields = fields[:]})
-    store.store_submit(a.docs, id, gen, nil, d)
+    d := desc.new_from({ctx = .Surface, kind = app.KIND_HOME, selection = .Line, tab_width = 4})
+    store.store_submit(a.docs, id, gen, nil, d, fields_spans(a, id, fields[:]))
     desc.release(d)
     store.store_drain(a.docs)
     return id
@@ -128,11 +127,9 @@ one_row_gives_a_listing_the_mouse :: proc(t: ^testing.T) {
 
     // What is underlined is the NAME, which is the visible tail of the path the line acts on.
     // The two are one span inside the other, and that containment is the whole rule.
-    d := store.store_descriptor(a.docs, app.active(&a).doc)
-    defer desc.release(d)
-    lo, hi, _ := desc.field_span(d, 1, "name")
-    testing.expect_value(t, app.panel_focused(&a).hover.lo, lo)
-    testing.expect_value(t, app.panel_focused(&a).hover.hi, hi)
+    name, _ := field_at(&a, app.active(&a).doc, 1, "name")
+    testing.expect_value(t, app.panel_focused(&a).hover.lo, name.lo)
+    testing.expect_value(t, app.panel_focused(&a).hover.hi, name.hi)
 
     // Over the size column nothing is offered: the row's line acts on the path, and the size
     // is not part of it.

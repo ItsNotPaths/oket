@@ -121,15 +121,12 @@ Column :: struct {
     align: Align,
 }
 
-// A named byte span inside one line, offsets from that line's start. Sorted by line, so a
-// lookup is a binary search and a short scan.
+// A data span read back for one line: its name, where it sits (offsets from the line's start)
+// and what `<name>` hands on. Lists of these are sorted by line.
 //
-// THE SPAN IS WHAT IS DRAWN AND `value` IS WHAT IS ACTED ON. Empty, which is the common case,
-// means the two are the same and the span's own bytes answer `<name>`. Set, and the line may
-// show a bare `browser.c` while `<path>` hands on the whole of where it lives — which is what
-// makes a row a LINK and is the one thing a span alone could never say (§5, §14). It is also
-// the only way a link in RUNNING TEXT — a path in a compiler error, a file in a diff — can
-// carry its target: only a `columns` document has a cell to hide one in.
+// THE SPAN IS WHAT IS DRAWN AND `value` IS WHAT IS ACTED ON. A row may show a bare `browser.c`
+// while `<path>` hands on the whole of where it lives, which is what makes it a LINK. A span
+// published with no value answers with its own bytes, already read into `value` here.
 Field :: struct {
     line:   int,
     name:   string,

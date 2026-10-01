@@ -7,7 +7,7 @@
  * of a name, typing and erase clamped into it, and the ctrl+f filter are oket_list's. What is
  * this file's is the platter — the walk, the open set, and the commit that renames.
  *
- * WHAT MAKES IT WORK is that a field carries a VALUE (desc.Field). The `path` field spans the
+ * WHAT MAKES IT WORK is that a data span carries a VALUE. The `path` span covers the
  * NAME and its value is the whole path, so a row DRAWS `files.c` and ACTS on
  * `plugins/files/files.c`. Without a value the path has to hide in a column nothing
  * renders, and a `columns` document cannot draw a caret — no caret, no typing.

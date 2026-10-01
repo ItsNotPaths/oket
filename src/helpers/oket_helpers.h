@@ -222,16 +222,17 @@ int oket_pos_less(oket_pos a, oket_pos b);
  *
  * A listing is text plus the spans that name its parts, and the two have to be built together
  * or the offsets drift. This writes both at once: append cells to a row, and every cell's span
- * is recorded as a field under the column's name. `<path>` in a bind row then resolves with no
- * callback into your code at all (§5).
+ * is recorded as a DATA SPAN under the column's name. `<path>` in a bind row then resolves with
+ * no callback into your code at all (§5).
  *
  * One allocation per builder, grown as it goes. Free it with oket_build_free. */
 
 typedef struct {
     char        *text;
     size_t       len, cap;
-    oket_field  *fields;
-    size_t       nfields, fields_cap;
+    lues_span   *spans; /* `key` is filled in at the submit, from `names` */
+    const char **names;
+    size_t       nspans, spans_cap, names_cap;
     oket_column *columns;
     size_t       ncolumns, columns_cap;
     int32_t     *depth;
@@ -249,8 +250,8 @@ void oket_build_column(oket_build *b, const char *name, int32_t width, oket_alig
  * separated by a tab, which nothing downstream parses: the fields say where they are. */
 void oket_build_cell(oket_build *b, const char *name, const char *text, size_t len);
 
-/* Records a second field over a span of the cell just appended. The offsets are from the start
- * of that cell. */
+/* Records a second span over the cell just appended. The offsets are from the start of that
+ * cell, and its own bytes are its value. */
 void oket_build_span(oket_build *b, const char *name, size_t lo, size_t hi);
 
 /* The same span, pointing SOMEWHERE ELSE: what is drawn is [lo, hi) of the cell and what
@@ -259,7 +260,8 @@ void oket_build_span(oket_build *b, const char *name, size_t lo, size_t hi);
  * say it in a document with no columns to hide a cell in.
  *
  * `value` is BORROWED until the submit, exactly like the names above: the kernel copies it
- * there, so it must outlive the oket_set or oket_batch_submit that carries this descriptor. */
+ * there, so it must outlive the oket_build_submit that carries it. A non-NULL empty `value` is
+ * an empty argument; NULL is the span's own bytes, as oket_build_span. */
 void oket_build_link(oket_build *b, const char *name, size_t lo, size_t hi,
                      const char *value, size_t value_len);
 
@@ -270,9 +272,12 @@ void oket_build_depth(oket_build *b, int32_t depth);
 /* Ends the current row and starts the next. */
 void oket_build_row(oket_build *b);
 
-/* Fills in `d`'s columns and fields from the builder. The pointers are the builder's, so it
- * must outlive the submit call. */
-void oket_build_desc(oket_build *b, oket_descriptor *d);
+/* Replaces the whole document with what was built, and publishes `d` with it: its columns and
+ * depth are filled in from the builder, and the spans ride the same submit, so text and spans
+ * land at one generation. `len` may stop short of the builder's text, to drop a last row's
+ * terminator. `flags` is 0 or LUES_SUBMIT_FORGET (see oket_regen). */
+void oket_build_submit(const lues_api *api, lues_self self, lues_doc doc, oket_build *b,
+                       size_t len, oket_descriptor *d, uint32_t flags);
 
 void oket_build_free(oket_build *b);
 

@@ -55,31 +55,28 @@ void oket_build_column(oket_build *b, const char *name, int32_t width, oket_alig
 }
 
 void oket_build_span(oket_build *b, const char *name, size_t lo, size_t hi) {
-    oket_field *f;
+    lues_span *sp;
 
-    if (!grow(&b->oom, (void **)&b->fields, &b->fields_cap, b->nfields + 1, sizeof *b->fields)) {
+    if (!grow(&b->oom, (void **)&b->spans, &b->spans_cap, b->nspans + 1, sizeof *b->spans) ||
+        !grow(&b->oom, (void **)&b->names, &b->names_cap, b->nspans + 1, sizeof *b->names)) {
         return;
     }
-    f = &b->fields[b->nfields++];
-    f->name = name;
-    f->name_len = strlen(name);
-    f->line = b->line;
-    /* Cell-relative in, line-relative out, which is what a Field's offsets are. The document
-     * offset never appears on either side. */
-    f->lo = (int32_t)(b->cell_start + lo);
-    f->hi = (int32_t)(b->cell_start + hi);
-    f->value = NULL; /* the span's own bytes are the value */
-    f->value_len = 0;
-    memset(f->_pad, 0, sizeof f->_pad);
+    b->names[b->nspans] = name;
+    sp = &b->spans[b->nspans++];
+    memset(sp, 0, sizeof *sp);
+    sp->size = sizeof *sp;
+    /* Cell-relative in, document-relative out. text NULL: the span's own bytes are its value. */
+    sp->lo = b->row_start + b->cell_start + lo;
+    sp->hi = b->row_start + b->cell_start + hi;
+    sp->open = 1; /* text typed at either end of a name is part of it */
 }
 
-/* (hole fields-are-spans) builds a descriptor field, not a data span. */
 void oket_build_link(oket_build *b, const char *name, size_t lo, size_t hi,
                      const char *value, size_t value_len) {
     oket_build_span(b, name, lo, hi);
-    if (b->nfields > 0 && value != NULL) {
-        b->fields[b->nfields - 1].value = value;
-        b->fields[b->nfields - 1].value_len = value_len;
+    if (b->nspans > 0 && value != NULL) {
+        b->spans[b->nspans - 1].text = value;
+        b->spans[b->nspans - 1].text_len = value_len;
     }
 }
 
@@ -112,18 +109,33 @@ void oket_build_row(oket_build *b) {
     b->cell_start = 0;
 }
 
-void oket_build_desc(oket_build *b, oket_descriptor *d) {
+static void set(const lues_api *api, lues_self self, lues_doc doc, const char *text, size_t len,
+                const oket_descriptor *d, const lues_span_pub *pub, uint32_t flags);
+
+void oket_build_submit(const lues_api *api, lues_self self, lues_doc doc, oket_build *b,
+                       size_t len, oket_descriptor *d, uint32_t flags) {
+    lues_span_pub pub;
+    size_t i;
+
     d->columns = b->columns;
     d->ncolumns = b->ncolumns;
-    d->fields = b->fields;
-    d->nfields = b->nfields;
     d->depth = b->depth;
     d->ndepth = b->ndepth;
+    for (i = 0; i < b->nspans; i++) {
+        b->spans[i].key = api->register_token(api, self, b->names[i], strlen(b->names[i]));
+    }
+    memset(&pub, 0, sizeof pub);
+    pub.size = sizeof pub;
+    pub.hi = b->oom ? 0 : len;
+    pub.spans = b->spans;
+    pub.nspans = b->oom ? 0 : b->nspans;
+    set(api, self, doc, b->text, b->oom ? 0 : len, d, &pub, flags);
 }
 
 void oket_build_free(oket_build *b) {
     free(b->text);
-    free(b->fields);
+    free(b->spans);
+    free(b->names);
     free(b->columns);
     free(b->depth);
     memset(b, 0, sizeof *b);
@@ -149,21 +161,18 @@ void oket_replace(const lues_api *api, lues_self self, lues_doc doc,
     api->release(api, self, s);
 }
 
-static void set(const lues_api *api, lues_self self, lues_doc doc,
-                const char *text, size_t len, const oket_descriptor *d, uint32_t flags);
-
 void oket_set(const lues_api *api, lues_self self, lues_doc doc,
               const char *text, size_t len, const oket_descriptor *d) {
-    set(api, self, doc, text, len, d, 0);
+    set(api, self, doc, text, len, d, NULL, 0);
 }
 
 void oket_regen(const lues_api *api, lues_self self, lues_doc doc,
                 const char *text, size_t len, const oket_descriptor *d) {
-    set(api, self, doc, text, len, d, LUES_SUBMIT_FORGET);
+    set(api, self, doc, text, len, d, NULL, LUES_SUBMIT_FORGET);
 }
 
-static void set(const lues_api *api, lues_self self, lues_doc doc,
-                const char *text, size_t len, const oket_descriptor *d, uint32_t flags) {
+static void set(const lues_api *api, lues_self self, lues_doc doc, const char *text, size_t len,
+                const oket_descriptor *d, const lues_span_pub *pub, uint32_t flags) {
     const lues_snapshot *s = api->snapshot(api, self, doc);
     lues_edit e;
 
@@ -179,7 +188,7 @@ static void set(const lues_api *api, lues_self self, lues_doc doc,
     if (d != NULL) {
         oket(api)->describe(api, self, doc, d);
     }
-    api->submit(api, self, doc, s->gen, &e, 1, NULL, flags);
+    api->submit(api, self, doc, s->gen, &e, 1, pub, flags);
     api->release(api, self, s);
 }
 

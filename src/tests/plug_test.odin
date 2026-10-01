@@ -62,9 +62,9 @@ a_plugin_registers_opens_renders_and_unloads :: proc(t: ^testing.T) {
     testing.expect_value(t, d.ctx, input.Bind_Ctx.Surface)
     testing.expect_value(t, len(d.columns), 2)
     // The fields the helper library's builder recorded, which is what `<name>` resolves off.
-    name, name_ok := view.field_text(&snap.text, d, 0, "name")
+    name, name_ok := field_at(&a, id, 0, "name")
     testing.expect(t, name_ok)
-    testing.expect_value(t, name, "kind")
+    testing.expect_value(t, name.value, "kind")
 
     // Drawn by the kernel's one renderer, with no arm of its own: a plugin produces a document
     // and a descriptor, and that is the whole of what it produces (§12).

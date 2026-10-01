@@ -113,9 +113,7 @@ work_survives_a_crash_and_a_restart :: proc(t: ^testing.T) {
 // Which line of the page carries the first row of recovered work.
 @(private = "file")
 home_row :: proc(a: ^app.App, page: store.Id) -> int {
-    d := store.store_descriptor(a.docs, page)
-    defer desc.release(d)
-    for f in d.fields {
+    for f in all_fields(a, page) {
         if f.name == "path" {
             return f.line
         }

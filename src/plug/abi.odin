@@ -16,7 +16,7 @@ import "../shape"
 //   abi.Span.attrs      shape.Attrs bits
 //   .Forget (submit)    REGEN: derived text, so the carets stay on their rows and nothing undoes
 
-API :: 10
+API :: 11
 
 // Ids below this are the base vocabulary (shape.Style); the rest were interned.
 TOKEN_BASE :: abi.Token(len(shape.Style))
@@ -49,27 +49,12 @@ Column :: struct {
     _:        [3]u8,
 }
 
-// The span is what is DRAWN and `value` is what is ACTED ON; nil means the span's own bytes.
-// (hole fields-are-spans) a field crosses the seam in the descriptor, not as a span.
-Field :: struct {
-    name:      [^]u8,
-    name_len:  c.size_t,
-    value:     [^]u8,
-    value_len: c.size_t,
-    line:      c.int32_t,
-    lo:        c.int32_t,
-    hi:        c.int32_t,
-    _:         [4]u8,
-}
-
 // `ctx` is absent on purpose: a kind's context is fixed where the kind is registered.
 Descriptor :: struct {
     file:      [^]u8,
     file_len:  c.size_t,
     columns:   [^]Column,
     ncolumns:  c.size_t,
-    fields:    [^]Field,
-    nfields:   c.size_t,
     // One per LINE, dense and in line order. A short array leaves the rest at depth 0.
     depth:     [^]c.int32_t,
     ndepth:    c.size_t,
@@ -155,8 +140,7 @@ Api :: struct {
 #assert(size_of(Cursor) == 48)
 #assert(size_of(Range) == 32)
 #assert(size_of(Column) == 24)
-#assert(size_of(Field) == 48)
-#assert(size_of(Descriptor) == 80)
+#assert(size_of(Descriptor) == 64)
 #assert(size_of(Side) == 48)
 #assert(size_of(View_Out) == 32)
 #assert(size_of(Pane) == 32)

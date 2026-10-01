@@ -106,6 +106,8 @@ draw :: proc(
     th: gfx.Theme,
     t: ^pt.Text,
     d: ^desc.Descriptor,
+    // The data spans on the lines shown, read back as fields: what a columns document draws.
+    fields: []desc.Field,
     v: View,
     x, y, w, h: int,
     // Every run to paint, over DRAWN lines: the store's, the links and the stages', already
@@ -139,7 +141,7 @@ draw :: proc(
     one := [1]txt.Cursor{v.point}
     set := len(carets) > 0 ? carets : one[:]
     if columnar(d) {
-        draw_columns(g, th, t, d, v, x, y, gut, w, h, point, dv, select, set, atlas)
+        draw_columns(g, th, t, d, fields, v, x, y, gut, w, h, point, dv, select, set, atlas)
         return
     }
     rs := rows(t, d, v.top, body, h, dv)
@@ -342,36 +344,6 @@ scrolled :: proc(r: Row, src: []u8, left, tab: int) -> Row {
     return out
 }
 
-// The text `<name>` resolves to on a line (§5). The kernel reads it out of the descriptor's
-// span, so a bind that wants "the path of the row under point" needs no callback into whoever
-// produced the document.
-//
-// A field carrying a `value` answers with it instead: the span is where the link was DRAWN and
-// the value is what it POINTS AT, and a browser row showing a bare name is the case that needs
-// the two to differ (desc.Field).
-// (hole overlay-is-the-lookup) `<name>` reads descriptor fields, not the overlay.
-field_text :: proc(
-    t: ^pt.Text,
-    d: ^desc.Descriptor,
-    line: int,
-    name: string,
-    dv: ^Derived = nil,
-    alloc := context.temp_allocator,
-) -> (string, bool) {
-    f, ok := desc.field_of(d, line, name)
-    if !ok {
-        return "", false
-    }
-    if f.value != "" {
-        return f.value, true
-    }
-    // A field is the ORIGINAL's: its span was measured over bytes no stage had touched yet.
-    src := pt.text_line(original(dv, t), line, alloc)
-    a := clamp(f.lo, 0, len(src))
-    b := clamp(f.hi, a, len(src))
-    return string(src[a:b]), true
-}
-
 // The widest number the gutter can show is an ORIGINAL line's, so a fold does not narrow it.
 gutter_width :: proc(t: ^pt.Text, d: ^desc.Descriptor, dv: ^Derived = nil) -> int {
     if d.numbers == .Off {
@@ -542,6 +514,7 @@ draw_columns :: proc(
     th: gfx.Theme,
     t: ^pt.Text,
     d: ^desc.Descriptor,
+    fields: []desc.Field,
     v: View,
     x, y, gut, w, h: int,
     point: bool,
@@ -564,8 +537,8 @@ draw_columns :: proc(
             if left <= 0 {
                 break
             }
-            s, _ := field_text(t, d, orig, c.name, dv)
-            run(g, col, y + i, transmute([]u8)pad(s, c.width, c.align), min(c.width, left),
+            f, _ := desc.field_of(fields, orig, c.name)
+            run(g, col, y + i, transmute([]u8)pad(f.value, c.width, c.align), min(c.width, left),
                 d.tab_width, th[.Fg], gfx.opaque(th[.Bg]), atlas)
             col += c.width + 1 // one column of air between fields
         }
@@ -821,6 +794,7 @@ caret_cell :: proc(
 locate :: proc(
     t: ^pt.Text,
     d: ^desc.Descriptor,
+    fields: []desc.Field,
     v: View,
     x, y, w, h: int,
     cx, cy: int,
@@ -843,7 +817,7 @@ locate :: proc(
     if columnar(d) {
         line := v.top + cy - y
         orig := src_line(dv, t, line)
-        return locate_columns(t, d, line, orig, col - indent(d, body, orig))
+        return locate_columns(t, d, fields, line, orig, col - indent(d, body, orig))
     }
 
     rs := rows(t, d, v.top, body, h, dv)
@@ -861,7 +835,7 @@ locate :: proc(
     // pointer. A row that names its whole line as well as the parts of it — a listing whose
     // text is `ls -la` output — has both, and the wider one would answer for every cell of it.
     best, found := desc.Field{}, false
-    for f in desc.line_fields(d, p.line) {
+    for f in desc.line_fields(fields, p.line) {
         if p.col >= f.lo && p.col < f.hi && (!found || f.hi - f.lo < best.hi - best.lo) {
             best, found = f, true
         }
@@ -874,6 +848,7 @@ locate :: proc(
 locate_columns :: proc(
     t: ^pt.Text,
     d: ^desc.Descriptor,
+    fields: []desc.Field,
     line, orig, col: int,
 ) -> (txt.Pos, string, bool) {
     if line >= pt.text_line_count(t) || orig < 0 {
@@ -883,7 +858,7 @@ locate_columns :: proc(
     if !over {
         return {orig, 0}, "", true
     }
-    lo, _, named := desc.field_span(d, orig, name)
+    lo, _, named := desc.field_span(fields, orig, name)
     return {orig, named ? lo : 0}, named ? name : "", true
 }
 
@@ -955,6 +930,7 @@ underline :: proc(
     g: ^gfx.Grid,
     t: ^pt.Text,
     d: ^desc.Descriptor,
+    fields: []desc.Field,
     v: View,
     x, y, w, h: int,
     line, lo, hi: int, // the field, in the ORIGINAL: a descriptor holds no other coordinates
@@ -978,7 +954,7 @@ underline :: proc(
         }
         at := indent(d, body, line)
         for c in d.columns {
-            a, b, named := desc.field_span(d, line, c.name)
+            a, b, named := desc.field_span(fields, line, c.name)
             if named && a == lo && b == hi {
                 mark(g, x + gut, y + row, at, min(at + c.width, body), {.Underline})
                 return

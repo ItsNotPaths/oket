@@ -586,8 +586,11 @@ get_desc :: proc(a: ^App, b: ^strings.Builder) {
     for c in d.columns {
         fmt.sbprintf(b, "column %s %d %v\n", c.name, c.width, c.align)
     }
-    for f in d.fields {
-        fmt.sbprintf(b, "field %d %s %d %d %s\n", f.line, f.name, f.lo, f.hi, f.value)
+    if snap := store.store_snapshot(a.docs, s.doc); snap != nil {
+        defer pt.snapshot_release(snap)
+        for f in doc_fields(a, s.doc, &snap.text, 0, max(int)) {
+            fmt.sbprintf(b, "field %d %s %d %d %s\n", f.line, f.name, f.lo, f.hi, f.value)
+        }
     }
     for n, line in d.depth {
         if n != 0 {

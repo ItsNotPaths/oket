@@ -411,7 +411,7 @@ the_renderer_paints_a_style_run :: proc(t: ^testing.T) {
     red := [3]f32{1, 0, 0}
     snap := txt.doc_snapshot(&doc)
     defer pt.snapshot_release(snap)
-    view.draw(&g, th, &snap.text, d, {}, 0, 0, 10, 1,
+    view.draw(&g, th, &snap.text, d, nil, {}, 0, 0, 10, 1,
               {{line = 0, lo = 2, hi = 4, fg = gfx.color_pack(red)}})
     testing.expect_value(t, gfx.grid_at(&g, 1, 0).fg, th[.Fg])
     testing.expect_value(t, gfx.grid_at(&g, 2, 0).fg, red)

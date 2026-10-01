@@ -25,7 +25,7 @@
 extern "C" {
 #endif
 
-#define OKET_API 10 /* lues_api.app_version, under app "oket" */
+#define OKET_API 11 /* lues_api.app_version, under app "oket" */
 
 /* --- the descriptor's vocabulary (§5). The kernel's enum order, and it is an ABI. --- */
 
@@ -61,6 +61,9 @@ typedef struct {
 
 /* --- the descriptor (§5) ---
  *
+ * Named spans are not here: they are data spans (a lues_span with a `key`), submitted with the
+ * text they cover. oket_build_span and oket_build_link write them.
+ *
  * No `ctx` field: a kind's bind context is fixed where the kind is registered, so publishing a
  * descriptor cannot move your documents into another context's keys. */
 
@@ -72,26 +75,11 @@ typedef struct {
     uint8_t     _pad[3];
 } oket_column;
 
-/* A named byte span inside one line, offsets from that line's start. THE SPAN IS WHAT IS DRAWN
- * AND `value` IS WHAT IS ACTED ON: NULL means the span's own bytes fill `<name>`. Set it and a
- * line may show `browser.c` while `<path>` hands on the whole of where it lives — a LINK. */
-/* (hole fields-are-spans) a field crosses the seam in the descriptor, not as a span. */
-typedef struct {
-    const char *name;
-    size_t      name_len;
-    const char *value; /* NULL: the span's own bytes are the value */
-    size_t      value_len;
-    int32_t     line, lo, hi;
-    uint8_t     _pad[4];
-} oket_field;
-
 typedef struct oket_descriptor {
     const char        *file;
     size_t             file_len;
     const oket_column *columns;
     size_t             ncolumns;
-    const oket_field  *fields;
-    size_t             nfields;
     /* One per LINE, dense and in line order. A short array leaves the rest at depth 0. */
     const int32_t     *depth;
     size_t             ndepth;
@@ -212,8 +200,7 @@ LUES_SIZE(oket_pos, 16);
 LUES_SIZE(oket_cursor, 48);
 LUES_SIZE(oket_range, 32);
 LUES_SIZE(oket_column, 24);
-LUES_SIZE(oket_field, 48);
-LUES_SIZE(oket_descriptor, 80);
+LUES_SIZE(oket_descriptor, 64);
 LUES_SIZE(oket_side, 48);
 LUES_SIZE(oket_view_out, 32);
 LUES_SIZE(oket_pane, 32);

@@ -26,7 +26,6 @@ Side_Box :: struct {
     dv:   plug.Descriptor,
     d:    ^desc.Descriptor,
     cols: []plug.Column,
-    flds: []plug.Field,
     dpth: []c.int32_t,
     curs: []plug.Cursor,
     hid:  []plug.Range,
@@ -77,7 +76,6 @@ side_free :: proc(b: ^Side_Box) {
     }
     desc.release(b.d)
     delete(b.cols)
-    delete(b.flds)
     delete(b.dpth)
     delete(b.curs)
     delete(b.hid)
@@ -172,13 +170,6 @@ view_desc :: proc(v: ^Side_Box) -> ^plug.Descriptor {
     for c, i in d.columns {
         v.cols[i] = {raw_data(c.name), len(c.name), i32(c.width), c.align, {}}
     }
-    v.flds = make([]plug.Field, len(d.fields))
-    for f, i in d.fields {
-        // "" is the kernel's "no value"; the ABI spells it NULL, so hand exactly that across.
-        value := f.value != "" ? raw_data(f.value) : nil
-        v.flds[i] = {raw_data(f.name), len(f.name), value, len(f.value),
-                     i32(f.line), i32(f.lo), i32(f.hi), {}}
-    }
     v.dpth = make([]c.int32_t, len(d.depth))
     for n, i in d.depth {
         v.dpth[i] = i32(n)
@@ -188,8 +179,6 @@ view_desc :: proc(v: ^Side_Box) -> ^plug.Descriptor {
         file_len  = len(d.file),
         columns   = raw_data(v.cols),
         ncolumns  = len(v.cols),
-        fields    = raw_data(v.flds),
-        nfields   = len(v.flds),
         depth     = raw_data(v.dpth),
         ndepth    = len(v.dpth),
         kind      = abi.Kind(d.kind),
@@ -225,11 +214,6 @@ plug_desc_take :: proc(a: ^App, id: store.Id, p: ^plug.Descriptor) -> ^desc.Desc
     for c, i in p.columns[:p.ncolumns] {
         cols[i] = {string(c.name[:c.name_len]), int(c.width), c.align}
     }
-    flds := make([]desc.Field, p.nfields, context.temp_allocator)
-    for f, i in p.fields[:p.nfields] {
-        value := f.value != nil ? string(f.value[:f.value_len]) : ""
-        flds[i] = {int(f.line), string(f.name[:f.name_len]), int(f.lo), int(f.hi), value}
-    }
     dpth := make([]int, p.ndepth, context.temp_allocator)
     for n, i in p.depth[:p.ndepth] {
         dpth[i] = int(n)
@@ -249,7 +233,6 @@ plug_desc_take :: proc(a: ^App, id: store.Id, p: ^plug.Descriptor) -> ^desc.Desc
             editable  = bool(p.editable),
             tab_width = int(p.tab_width),
             columns   = cols,
-            fields    = flds,
             depth     = dpth,
         },
     )

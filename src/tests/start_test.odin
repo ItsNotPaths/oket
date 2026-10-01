@@ -109,10 +109,9 @@ the_home_page_offers_recovered_work :: proc(t: ^testing.T) {
     app.ring_add(&a, page)
     testing.expect_value(t, app.doc_kind(&a, page), app.KIND_HOME)
 
-    d := store.store_descriptor(a.docs, page)
-    defer desc.release(d)
+    fields := all_fields(&a, page)
     line := -1
-    for f in d.fields {
+    for f in fields {
         if f.name == "path" {
             line = f.line
         }
@@ -120,7 +119,7 @@ the_home_page_offers_recovered_work :: proc(t: ^testing.T) {
     if !testing.expect(t, line >= 0, "the page listed no recovered work") {
         return
     }
-    lo, hi, spanned := desc.field_span(d, line, "path")
+    lo, hi, spanned := desc.field_span(fields, line, "path")
     testing.expect(t, spanned, "the row named no path")
     row := doc_line_text(&a, page, line)
     testing.expect_value(t, row[lo:hi], file)
@@ -169,10 +168,9 @@ a_quiet_start_still_opens_the_page :: proc(t: ^testing.T) {
     testing.expect(t, strings.contains(doc_line_text(&a, page, 0), "oket"), "no version line")
 
     cwd, _ := os.get_working_directory(context.temp_allocator)
-    d := store.store_descriptor(a.docs, page)
-    defer desc.release(d)
+    fields := all_fields(&a, page)
     at := -1
-    for f in d.fields {
+    for f in fields {
         if f.name == "file" {
             at = f.line
         }
@@ -180,7 +178,7 @@ a_quiet_start_still_opens_the_page :: proc(t: ^testing.T) {
     if !testing.expect(t, at >= 0, "the page offered no file to open") {
         return
     }
-    lo, hi, spanned := desc.field_span(d, at, "file")
+    lo, hi, spanned := desc.field_span(fields, at, "file")
     testing.expect(t, spanned, "the row named no file")
     testing.expect_value(t, doc_line_text(&a, page, at)[lo:hi], cwd)
 }
@@ -289,10 +287,8 @@ the_page_shows_the_newest_notes :: proc(t: ^testing.T) {
     testing.expect(t, !strings.contains(text, over), "the page showed past the cap")
 
     // The file itself is a row, so `enter` over it opens what the page could not fit.
-    d := store.store_descriptor(a.docs, page)
-    defer desc.release(d)
     offered := false
-    for f in d.fields {
+    for f in all_fields(&a, page) {
         if f.name != "file" {
             continue
         }

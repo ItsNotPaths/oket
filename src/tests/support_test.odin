@@ -231,14 +231,14 @@ chord :: proc(name: string, mods: input.Mods = {}, held := "") -> input.Chord {
 // field carries as its VALUE over the same span the name is drawn in.
 LISTING_COLUMNS :: [?]desc.Column{{"name", 28, .Left}, {"kind", 4, .Left}, {"size", 9, .Right}}
 
-// One row per entry, tab-separated, with each column's span recorded as a field. The separator
-// is arbitrary: the descriptor says where the fields are, so nothing downstream parses this
+// One row per entry, tab-separated, with each column's span published as a data span. The
+// separator is arbitrary: the spans say where the fields are, so nothing downstream parses this
 // text again.
 listing_doc :: proc(a: ^app.App, dir: string) -> store.Id {
     s := a.docs
     columns := LISTING_COLUMNS
     text := strings.builder_make(context.temp_allocator)
-    fields := make([dynamic]desc.Field, context.temp_allocator)
+    spans := make([dynamic]store.Span, context.temp_allocator)
 
     // A directory that will not read is still a listing, and it still says which one: the
     // descriptor goes on either way, or a failed read would hand back a document of no kind and
@@ -258,21 +258,21 @@ listing_doc :: proc(a: ^app.App, dir: string) -> store.Id {
         full, _ := filepath.join({dir, info.name}, context.temp_allocator)
         size := is_dir ? "" : fmt.tprintf("%d", info.size)
         cells := [?]string{info.name, is_dir ? "dir" : "file", size}
-        at := 0
         for cell, i in cells {
             if i > 0 {
                 strings.write_rune(&text, '\t')
-                at += 1
             }
+            at := strings.builder_len(text)
             strings.write_string(&text, cell)
-            append(&fields, desc.Field{line, columns[i].name, at, at + len(cell), ""})
+            append(&spans, store.Span{lo = at, hi = at + len(cell), key = field_key(a, columns[i].name),
+                                      open = true})
             if i == 0 {
                 // The row is a LINK: the same span the name is drawn in, acting on the whole
-                // path it stands for (desc.Field). Two fields over one span, and the one that
-                // is not drawn carries its value rather than hiding its bytes in a cell.
-                append(&fields, desc.Field{line, "path", at, at + len(cell), full})
+                // path it stands for. Two spans over one range, and the one that is not drawn
+                // carries its value rather than hiding its bytes in a cell.
+                append(&spans, store.Span{lo = at, hi = at + len(cell), key = field_key(a, "path"),
+                                          open = true, text = full, valued = true})
             }
-            at += len(cell)
         }
     }
 
@@ -290,13 +290,51 @@ listing_doc :: proc(a: ^app.App, dir: string) -> store.Id {
             selection = .Line,
             tab_width = 4,
             columns = columns[:],
-            fields = fields[:],
         },
     )
-    store.store_submit(s, id, gen, nil, d)
+    store.store_submit(s, id, gen, nil, d, store.Spans{who = app.producer_intern(a, "listing"),
+                                                       hi = strings.builder_len(text), list = spans[:]})
     desc.release(d)
     store.store_drain(s)
     return id
+}
+
+field_key :: proc(a: ^app.App, name: string) -> store.Key {
+    return store.Key(app.token_intern(a, name))
+}
+
+// Fields written the way a test reads them, (line, name, lo, hi, value), published as the data
+// spans the kernel reads. An empty value is the span's own bytes.
+fields_spans :: proc(a: ^app.App, id: store.Id, fields: []desc.Field) -> store.Spans {
+    snap := store.store_snapshot(a.docs, id)
+    defer pt.snapshot_release(snap)
+    list := make([]store.Span, len(fields), context.temp_allocator)
+    for f, i in fields {
+        at := pt.text_line_start(&snap.text, f.line)
+        list[i] = {lo = at + f.lo, hi = at + f.hi, key = field_key(a, f.name), open = true,
+                   text = f.value, valued = f.value != ""}
+    }
+    return {who = app.producer_intern(a, "test"), hi = max(int), list = list}
+}
+
+// Every field in a document, off the store.
+all_fields :: proc(a: ^app.App, id: store.Id) -> []desc.Field {
+    snap := store.store_snapshot(a.docs, id)
+    if snap == nil {
+        return nil
+    }
+    defer pt.snapshot_release(snap)
+    return app.doc_fields(a, id, &snap.text, 0, max(int))
+}
+
+// The field `<name>` reads on one line of a document, as the kernel reads it: off the store.
+field_at :: proc(a: ^app.App, id: store.Id, line: int, name: string) -> (desc.Field, bool) {
+    snap := store.store_snapshot(a.docs, id)
+    if snap == nil {
+        return {}, false
+    }
+    defer pt.snapshot_release(snap)
+    return desc.field_of(app.doc_fields(a, id, &snap.text, line, line + 1), line, name)
 }
 
 // The whole configured stack, not just the primary: Arabic and Devanagari live in the fallback

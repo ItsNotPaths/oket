@@ -1,6 +1,7 @@
 package main
 
 import "lues:lues"
+import "lues:pt"
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
@@ -79,14 +80,17 @@ HOME_VERBS := [?]struct {
 
 home_enter :: proc(a: ^App) -> bool {
     s := active(a)
-    d := s != nil ? store.store_descriptor(a.docs, s.doc) : nil
-    if d == nil {
+    snap, d, ok := reading(a, s)
+    if !ok {
         message_set(a, ":home enter: nothing is focused")
         return false
     }
+    defer pt.snapshot_release(snap)
     defer desc.release(d)
+    at := s.view.point.head.line
+    fields := doc_fields(a, s.doc, &snap.text, at, at + 1)
     for v in HOME_VERBS {
-        if _, carried := desc.field_of(d, s.view.point.head.line, v.field); !carried {
+        if _, carried := desc.field_of(fields, at, v.field); !carried {
             continue
         }
         // bind_expand, so a hole fills here exactly the way it fills for a chord, and the
@@ -102,13 +106,14 @@ home_enter :: proc(a: ^App) -> bool {
     return false
 }
 
-// The page as it is being written: the bytes, the spans named in them, and how many lines are
-// down. One struct rather than three pointers threaded through every call.
+// The page as it is being written: the bytes, the data spans named in them, and how many lines
+// are down. One struct rather than four pointers threaded through every call.
 @(private = "file")
 Page :: struct {
-    text:   strings.Builder,
-    fields: [dynamic]desc.Field,
-    line:   int,
+    a:     ^App,
+    text:  strings.Builder,
+    spans: [dynamic]store.Span,
+    line:  int,
 }
 
 @(private = "file")
@@ -129,27 +134,29 @@ head :: proc(p: ^Page, s: string) {
 
 // A row: two spaces, the value a bind acts on, then whatever else the line says. The value is a
 // span of the line's own bytes, so hover underlines exactly what `enter` would take.
-// (hole fields-are-spans) home writes its offers as descriptor fields.
 @(private = "file")
 row :: proc(p: ^Page, name, value, tail: string) {
-    at := 2
+    at := strings.builder_len(p.text) + (p.line > 0 ? 1 : 0) + 2
     say(p, fmt.tprintf("  %s%s", value, tail))
-    append(&p.fields, desc.Field{p.line - 1, name, at, at + len(value), ""})
+    append(&p.spans, store.Span{lo = at, hi = at + len(value), key = store.Key(token_intern(p.a, name)),
+                                open = true})
 }
 
 // A second name over the row already written, whose VALUE is not the span it covers. What makes
 // a chord row a link: the line draws the chord, and `<file>` hands on binds.conf.
 @(private = "file")
 also :: proc(p: ^Page, name, value: string) {
-    last := p.fields[len(p.fields) - 1]
-    append(&p.fields, desc.Field{last.line, name, last.lo, last.hi, value})
+    last := p.spans[len(p.spans) - 1]
+    append(&p.spans, store.Span{lo = last.lo, hi = last.hi, key = store.Key(token_intern(p.a, name)),
+                                open = true, text = value, valued = true})
 }
 
 @(private = "file")
 home_fill :: proc(a: ^App, id: store.Id) {
     p := Page {
-        text   = strings.builder_make(context.temp_allocator),
-        fields = make([dynamic]desc.Field, context.temp_allocator),
+        a     = a,
+        text  = strings.builder_make(context.temp_allocator),
+        spans = make([dynamic]store.Span, context.temp_allocator),
     }
     say(&p, fmt.tprintf("oket %s", version_text()))
     // The mode, only when it is not the ordinary one. A start that held every plugin back looks
@@ -210,11 +217,12 @@ home_fill :: proc(a: ^App, id: store.Id) {
             kind = KIND_HOME,
             selection = .Line,
             tab_width = 4,
-            fields = p.fields[:],
         },
     )
-    whole := txt.Edit{0, txt.doc_len(doc), strings.to_string(p.text), 0, 0}
-    store.store_submit(a.docs, id, gen, {whole}, d)
+    text := strings.to_string(p.text)
+    whole := txt.Edit{0, txt.doc_len(doc), text, 0, 0}
+    store.store_submit(a.docs, id, gen, {whole}, d,
+                       store.Spans{who = producer_intern(a, "home"), hi = len(text), list = p.spans[:]})
     desc.release(d)
     lues.kernel_settle(a.kernel)
 }

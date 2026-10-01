@@ -17,6 +17,7 @@ import "../txt"
 Store :: docs.Store
 Id :: docs.Id
 Producer :: docs.Producer
+Key :: docs.Key
 Span :: docs.Span_Run
 Spans :: docs.Spans
 SPAN_MAX :: docs.SPAN_MAX
@@ -108,14 +109,12 @@ store_spans_forget :: proc(s: ^Store, who: Producer) {
     docs.spans_forget(s, who)
 }
 
-// A reference the caller owns and must release. Every reader comes through here, which is what
-// lets the fields follow the text LAZILY (fields.odin).
+// A reference the caller owns and must release.
 store_descriptor :: proc(s: ^Store, id: Id) -> ^desc.Descriptor {
     x := extra(s, id)
     if x == nil {
         return nil
     }
-    fields_follow(x)
     desc.retain(x.desc)
     return x.desc
 }
@@ -282,9 +281,6 @@ store_land :: proc(s: ^Store, id: docs.Id, side: rawptr, landed: bool) {
     if x := extra(s, id) if landed else nil; x != nil {
         txt.doc_landed(&x.doc, t.edits, t.gen, !t.regen, {policy = cursor_policy(x, t)})
         if t.desc != nil {
-            // Written against the text this transaction just landed, so its spans are already
-            // true: the ack stops fields.odin shifting them a second time.
-            txt.doc_changes_ack(&x.doc, .Fields)
             desc.release(x.desc)
             desc.retain(t.desc)
             x.desc = t.desc

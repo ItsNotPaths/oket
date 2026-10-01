@@ -42,7 +42,6 @@ Doc_Sink :: struct {
 Doc_Reader :: enum {
     Highlight, // folds each change into the cached parse tree (highlight.odin)
     Folds,     // shifts collapsed ranges so an edit elsewhere does not drop them (src/edit)
-    Fields,    // carries the descriptor's spans along with the text (src/store/fields.odin)
     Carets,    // carries the set through a splice for .Shift
 }
 
