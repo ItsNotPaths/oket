@@ -4,46 +4,32 @@
 
 A graphical text editing kernel with `.so` plugins.
 
-emacs like, buffer/doc based, a panel is a document + descriptor. Documents sit in rings, one
-numbered lane per kind, so `alt+1..9` reaches the third file and the third listing without
-either knowing the other exists.
-
-Panel displays are built in four layers, plugins write to each separately.
-
-**The document** is the bytes. A piece table the kernel owns, in an arena a reader can hold
-across a write. A plugin submits edits and never holds the text.
-
-**The descriptor** is how one generation renders and routes: wrap, line numbers, columns,
-per-line depth, the bind context a chord lands in, and named fields that turn a row into a
-link. It is immutable and replaced whole per write, and it carries no colour at all. This is
-effectively render params to the kernel.
-
-**Spans** are the colour. A parser, a linter or a search publishes byte ranges carrying a style
-token, into a bucket under its own name, on the same transaction as the text, so runs and the
-bytes they cover land at one generation. A run says which channels it sets, foreground,
-background or attributes, so an underline over a colour draws as both instead of replacing it.
-A config line ranks the names, lowest first; a publisher the line does not name draws on top.
-
-**View stages** are the post-processing, and they run at settle, not at draw. A stage is handed
-a snapshot and returns edits against it, in the vocabulary `submit` already uses. A fold is a
-deleted run, a ghost an insert, a popup a replace over the cells it covers. Each stage sees
-what the last one returned.
-
-Both orders are config, per kind, so every plugin-owned panel sets its own:
-
-```conf
-[plugin-name] layer = post-processing-plugin-1, post-processing-plugin-2
-[edit] spans = syntax, lsp     # who colours over whom
-[edit] view  = fold, example   # the pipeline, in order
-```
-
-Neither the spans nor the stages reach the file.
-
 Linux, x86_64.
 
 ```sh
 curl -fsSL https://github.com/ItsNotPaths/oket/releases/latest/download/install.sh | sh
 ```
+
+Emacs-like and document based: a panel shows a document and a descriptor. Documents sit in
+rings, one numbered lane per kind, so `alt+3` reaches the third file or the third listing.
+
+The kernel is [lues](https://github.com/ItsNotPaths/lues). oket adds three layers over each
+document, and plugins write:
+
+- **descriptors** say how a document draws and routes: wrap, line numbers, columns, depth,
+  bind context, and fields that turn a row into a link.
+- **spans** are colour. Each publisher has its own bucket, and its runs land with the text
+  they cover.
+- **view stages** derive what is drawn, as edits against a snapshot: a fold, a ghost, a popup.
+
+Both orders are config, per kind:
+
+```conf
+[edit] spans = syntax, lsp     # who colours over whom, lowest first
+[edit] view  = fold, example   # the pipeline, in order
+```
+
+None of this reaches the file.
 
 Or unpack the tarball and run it. Nothing is touched until you `:oket install`.
 
@@ -69,64 +55,25 @@ starts where N0's shell is standing.
 
 ## Getting around
 
-| | |
-|---|---|
-| `alt+f` `alt+t` `alt+e` | files, terminal, editor |
-| `alt+1`..`alt+9` | slot N of the lane you are in |
-| `alt+0` | N0, the terminal oket runs things in, and where a command's output lands |
-| hold `alt` | the lane drawn down the side of the panel, so the numbers are on screen |
-| ``alt+` `` | back where you just were, across lanes |
-| `alt+q` | close this slot, and the panel with it |
-| `alt+c` | the command line; `alt+;` with `:` typed, `alt+.` with `:ring ` |
-| `alt+space` | the menubar |
-| `f1` then any chord | what it does, and where it was bound |
+`alt+space` opens the menubar. Every command and bind is listed there, under the plugin or
+context that owns it, so explore it in the app. `f1` and then a chord says what the chord does
+and where it was bound.
 
-`alt+f` is the file browser, a plugin like the editor. `up`/`down` move a row, `enter` visits
-it, `ctrl+backspace` and the `..` row go back up. The caret sits at the end of each name, so any
-row you land on is ready to rename; `ctrl+s` does the renames, `f5` re-reads, `ctrl+b` shows
-dotfiles. The side arrows stay the kernel's own motion, walking the name you are editing.
-
-`alt+t` is a real PTY. Scrollback and the live grid are the document's lines, so scrolling and
-drag-select are the kernel's own, with no terminal-specific code behind them. **`ctrl+c` copies
-there too.** One chord, one meaning, in every document. The interrupt is `ctrl+shift+c`. Both
-are ordinary rows, so a `binds.conf` that swaps them back is two lines.
-
-A new session starts where N0's shell is standing, so `cd` in `alt+0` and the next terminal you
-open is already there.
-
-Holding `alt` draws the lane you are in down the side of the panel — its number and its title,
-one row each, with the slot you are standing in filled. Gaps stay gaps, because the column has to
-read the way the key does. `[switcher] show = numbers` in `config.conf` cuts it back to the
-digits alone.
+Two chords are not what you expect. In the terminal, `ctrl+c` copies, the same as in every
+document; the interrupt is `ctrl+shift+c`. `alt+0` is N0, the terminal oket runs things in.
 
 ## Panels
 
-| | |
-|---|---|
-| `alt+left` `alt+right` | walk the strip |
-| `alt+shift+left` `alt+shift+right` | move this panel along it |
-| `alt+p` / `alt+shift+p` | new panel / close it |
-| `alt+w` | next width in its list; `:width 30 50 100` |
-| | `full` `half` `third` `quarter` are the same numbers in words |
-| `ctrl+enter` | open a link one panel left |
-| hold `tab`, `enter` | aim, steer with the arrows, release to drop it |
-
-Two files side by side is one oket, not two: the store, the bind table and the plugin ledger
-stay single, so a link can cross panels.
-
-A percent near an exact fraction becomes it. `:width 30` is a third, so three of them fill the
-strip instead of leaving a tenth of it empty.
-
-One grammar addresses both numberings. `#N` is a ring slot, `@N` a panel from the left, `@+N`
-and `@-N` either side of you, `@=` the panel already showing it.
+Two files side by side is one oket, so a link can cross panels. One grammar addresses ring slots
+and panels: `#N` is a ring slot, `@N` a panel from the left, `@+N` and `@-N` either side of you,
+`@=` the panel already showing it.
 
 ```
 :open src/oket/app.odin #3 @2
 :open src/oket/ring.odin @-1     # made if there is none
 ```
 
-One path is one document. Open a file the ring already holds and you land where it is, not on a
-second copy of it.
+One path is one document. Open a file the ring already holds and you land where it is.
 
 ## The command line
 
@@ -167,50 +114,22 @@ transparent: an unmodified key after one clears it and does what it always did.
 [cursor]  select = 90    # percent of the swap a selection carries
 [session] restore = on   # the ring, across restarts
 [switcher] show = titles # what a held alt draws: titles or numbers
-[edit]    spans = syntax, lsp     # who colours over whom, lowest first
-[edit]    view  = fold, example   # the view pipeline, in order
 [menu]    bar   = file, edit, view, panel
 ```
 
 Themes are helix's TOML, dropped in unchanged.
-
-## Editing
-
-| | |
-|---|---|
-| `ctrl+alt+up` `ctrl+alt+down` | another caret above / below |
-| `alt+d` / `alt+shift+d` | the word under the caret, one match / every match |
-| `alt+click` | a caret there; plain click puts them all down |
-| `alt+z` / `alt+shift+z` | fold the block point is in / unfold every one |
-| `alt+/` | complete from words in the buffer; again for the next |
-| `esc` | put the carets down |
-
-Carets are placed, not armed. No prefix key, no mode. The editor is a plugin; motion,
-selection, undo and the viewport are the kernel's, for every document.
 
 ## Syntax
 
 `alt+g` lists three hundred grammars, a `*` on the ones you have. Type to filter, `enter`
 builds the row under point. Nothing is shipped and nothing is fetched at startup.
 
-```conf
-[grammars]
-enter = exec :gr.build <lang> && oket-grammar <lang> <repo> <rev> <sub> || true && :grammar ready <lang>
-```
-
-Spans are stored per document and per publisher, so who draws over whom is a config line rather
-than load order. A run says which of foreground, background and attributes it sets; what it
-leaves alone shows through from below. A parse too big for one frame says so and resumes on the
-next.
-
 ## Plugins
 
-The kernel is [lues](https://github.com/ItsNotPaths/lues), and a plugin is a lues plugin: one
-`.so`, `dlopen`'d in-process, that exports `lues_main`. A plugin reads a snapshot by pointer with
-no lock. It writes by submitting a batch against the generation it read. lues gives the
-documents, the loader, the fault net and io. oket adds its own calls after lues's in the same
-api (`describe`, `cursors`, `reveal`, `register_view`, `world`), and its own view of each
-document behind `snap->app`: the descriptor, the carets and the folds.
+A plugin is a [lues](https://github.com/ItsNotPaths/lues) plugin: one `.so` that exports
+`lues_main`. lues's calls come first in the api, and oket's follow them (`describe`, `cursors`,
+`reveal`, `register_view`, `world`). `oket_side_of(snap)` gives oket's view of a snapshot: the
+descriptor, the carets and the folds.
 
 ```c
 #include "oket_helpers.h"
@@ -229,27 +148,21 @@ LUES_MAIN {
 ./plugins/stage.sh plugins/example build/plugins # or `:pluginify plugins/example` while it runs
 ```
 
-A chord is requested: the row lands in `binds.conf` and the file decides after
-that. Slow work is a kernel job, not a plugin thread — `io_spawn` and `io_watch` come back as
-ordinary events on the main thread.
-
-Every `.so` in `plugins/` loads at startup. One that faults is unloaded where it stands and
-named in the bar. `--no-plugins` starts with none.
+A plugin asks for a chord, and the row lands in `binds.conf`; the file decides after that. Every
+`.so` in `plugins/` loads at startup. `--no-plugins` starts with none.
 
 A repro is a file. `:harness repro.oks plugins/notes` runs it in a second oket with no window
-and no crash net, so the fault you are chasing drops a core instead of being recovered. A line
-is a command line, a chord (`> ctrl+shift+k`), text to type, or a check (`! lines == 12`) — and
-a check waits, so work that finishes on an I/O completion needs no sleep. `--dump` prints the
-document, its descriptor and every publisher's colour runs after each step.
+and no fault net, so a crash drops a core. A line is a command, a chord (`> ctrl+shift+k`), text
+to type, or a check (`! lines == 12`) that waits for its answer.
 
 ## Crashes
 
 Every file you type into is journaled as it lands, so recovery reads bytes that were already on
 the platter. `kill -9` mid-edit, start again, and the work is offered back on the home page.
 
-A plugin that takes the process down is named by the fault handler and held back at the next
-start. `:plug load <name>` says you fixed it. `--safe` is `--no-plugins` plus ignoring the
-session.
+A plugin that faults is unloaded and named in the bar. One that takes the process down is held
+back at the next start; `:plug load <name>` says you fixed it. `--safe` is `--no-plugins` plus
+ignoring the session.
 
 ## Build
 
