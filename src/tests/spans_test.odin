@@ -354,6 +354,33 @@ a_run_is_bytes_and_the_renderer_splits_it_by_line :: proc(t: ^testing.T) {
     testing.expect_value(t, one[0].line, 1)
 }
 
+// A run is mapped into the DRAWN document, not looked up by the line a row came from. A fold
+// that joins two lines puts both halves of one run on one drawn line, and the marker between
+// them takes none of it.
+@(test)
+a_run_across_a_fold_draws_on_both_sides_of_it :: proc(t: ^testing.T) {
+    a, id, ok := spans_app(t)
+    if !ok {
+        return
+    }
+    defer close_spans_app(&a)
+    snap := store.store_snapshot(a.docs, id)
+    defer pt.snapshot_release(snap)
+
+    across := [?]store.Span{fg(4, 16, RED)} // "a = 1\nlet b "
+    testing.expect(t, publish(&a, id, "syntax", 0, 20, across[:]))
+    drawn, dv := view.derive(&snap.text, {{6, 14, transmute([]u8)string("<>")}}) // "let a <>b = 2"
+
+    out := app.doc_styles(&a, id, nil, &drawn, &dv, 0, 1)
+    testing.expect_value(t, len(out), 2)
+    testing.expect_value(t, out[0].line, 0)
+    testing.expect_value(t, out[0].lo, 4)
+    testing.expect_value(t, out[0].hi, 6)
+    testing.expect_value(t, out[1].line, 0) // line 1 of the original, drawn on line 0
+    testing.expect_value(t, out[1].lo, 8)
+    testing.expect_value(t, out[1].hi, 10)
+}
+
 // A name is the vocabulary, not an id: whoever asks second gets what the first one got, which is
 // what lets a parser and a linter publish into one theme without knowing about each other.
 @(test)

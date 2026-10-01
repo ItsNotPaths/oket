@@ -38,7 +38,7 @@ Pipeline :: struct {
     text:    pt.Text, // what is drawn
     dv:      view.Derived, // and the map back to the original, every stage folded into one
     hidden:  []txt.Range, // §7's export to motion, and the whole of it
-    over:    []view.Style, // what the stages painted over their own output
+    over:    []view.Run, // what the stages painted, over the drawn document's bytes
     gen:     u64, // the generation it was built against
     point:   u64, // and the carets, which move without one
     rev:     u64, // the plugin set and the config it was built under
@@ -109,7 +109,7 @@ views_hidden :: proc(a: ^App, id: store.Id) -> []txt.Range {
     return held ? p.hidden : nil
 }
 
-views_over :: proc(a: ^App, id: store.Id) -> []view.Style {
+views_over :: proc(a: ^App, id: store.Id) -> []view.Run {
     p, held := a.views[id]
     return held ? p.over : nil
 }
@@ -170,7 +170,7 @@ views_build :: proc(a: ^App, id: store.Id, names: []string, gen, point: u64,
     p.snap, p.gen, p.point, p.rev, p.ghosted = snap, gen, point, views_rev(a), ghost != ""
 
     t, dv, any := &snap.text, view.Derived{}, false
-    runs := make([dynamic]View_Run, 0, 8, al)
+    runs := make([dynamic]view.Run, 0, 8, al)
     for name in names {
         i, known := plug_view_of(a, name)
         if !known {
@@ -199,7 +199,7 @@ views_build :: proc(a: ^App, id: store.Id, names: []string, gen, point: u64,
         if off, on := ghost_off(a, id, t, any ? &dv : nil); on {
             text := transmute([]u8)strings.clone(ghost, al)
             nt, step := chain_derive(t, []view.Edit{{off, off, text}}, runs[:], al)
-            append(&runs, View_Run{off, off + len(text),
+            append(&runs, view.Run{off, off + len(text),
                                    {fg = u32(gfx.Token.Fg), bg = u32(gfx.Token.Bg),
                                     attrs = {.Underline}}})
             dv = any ? view.compose(step, dv, al) : step
@@ -214,7 +214,7 @@ views_build :: proc(a: ^App, id: store.Id, names: []string, gen, point: u64,
     }
     p.text, p.dv = t^, dv
     p.hidden = view.hidden(&p.dv, al)
-    p.over = view_styles(&p.text, runs[:], al)
+    p.over = runs[:]
     a.views[id] = p
     return p.latch
 }
@@ -222,7 +222,7 @@ views_build :: proc(a: ^App, id: store.Id, names: []string, gen, point: u64,
 // One more link of the chain: the edits derived over what it produced so far, and every run
 // already collected moved into the new space.
 @(private = "file")
-chain_derive :: proc(t: ^pt.Text, edits: []view.Edit, runs: []View_Run,
+chain_derive :: proc(t: ^pt.Text, edits: []view.Edit, runs: []view.Run,
                      al: mem.Allocator) -> (^pt.Text, view.Derived) {
     nt := new(pt.Text, al)
     step: view.Derived
@@ -304,19 +304,11 @@ view_run :: proc(
     return own[:], spans, code, true
 }
 
-// A style run a stage published, in the space of what that stage produced. `view.Style` carries
-// a line, and these carry offsets until the whole chain has run: a later stage moves them.
-@(private = "file")
-View_Run :: struct {
-    lo, hi: int,
-    st:     view.Style,
-}
-
 // The token carried through UNRESOLVED, the way a submitted span is (plug.odin): `p.over`
 // outlives frames, and a colour written here would sit stale across a theme switch. A channel
 // nobody claimed is the theme's, said as its token.
 @(private = "file")
-view_run_take :: proc(sp: abi.Span, size: int) -> View_Run {
+view_run_take :: proc(sp: abi.Span, size: int) -> view.Run {
     set := sp.set & {.Fg, .Bg, .Attrs} // untrusted byte: stray bits are not channels
     return {
         lo = clamp(int(min(sp.lo, uint(max(int)))), 0, size),
@@ -327,34 +319,6 @@ view_run_take :: proc(sp: abi.Span, size: int) -> View_Run {
             attrs = .Attrs in set ? transmute(shape.Attrs)sp.attrs : {},
         },
     }
-}
-
-// The runs, split by line of the drawn document, which is what `view.line_styles` searches. Two
-// stages may have painted the same cell, so the sort is stable: the later one drew last and has
-// to stay last.
-@(private = "file")
-view_styles :: proc(
-    t: ^pt.Text,
-    runs: []View_Run,
-    alloc: mem.Allocator,
-) -> []view.Style {
-    out := make([dynamic]view.Style, 0, len(runs), alloc)
-    lines := pt.text_line_count(t)
-    for r in runs {
-        for line := pt.text_line_at_off(t, r.lo); line < lines; line += 1 {
-            lo, hi := pt.text_line_range(t, line)
-            if lo >= r.hi {
-                break
-            }
-            st := r.st
-            st.line, st.lo, st.hi = line, max(r.lo, lo) - lo, min(r.hi, hi) - lo
-            if st.lo < st.hi {
-                append(&out, st)
-            }
-        }
-    }
-    slice.stable_sort_by(out[:], proc(x, y: view.Style) -> bool {return x.line < y.line})
-    return out[:]
 }
 
 // --- internals ---

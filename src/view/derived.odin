@@ -303,6 +303,28 @@ run_at_src :: proc(runs: []Derived_Piece, off: int) -> int {
     return i
 }
 
+// Runs over the ORIGINAL's bytes, as runs over the drawn document's: one piece per stretch a
+// stage left in place, so a run across a fold comes out in two. Nothing lands on inserted text.
+forward :: proc(dv: ^Derived, runs: []Run, alloc := context.temp_allocator) -> []Run {
+    if dv == nil {
+        return runs
+    }
+    out := make([dynamic]Run, 0, len(runs), alloc)
+    for r in runs {
+        for i := max(run_at_src(dv.runs, r.lo), 0); i < len(dv.runs); i += 1 {
+            rn := dv.runs[i]
+            if rn.src >= r.hi {
+                break
+            }
+            x, y := max(r.lo, rn.src), min(r.hi, rn.src + rn.len)
+            if !rn.inserted && x < y {
+                append(&out, Run{rn.at + x - rn.src, rn.at + y - rn.src, r.st})
+            }
+        }
+    }
+    return out[:]
+}
+
 // The parts of one drawn row whose bytes came from [lo, hi) of the ORIGINAL, as byte offsets
 // into the row's own line. One part where nothing was cut out, none where the row is text a
 // stage inserted, and two or more across a fold — which is why a selection over one paints in

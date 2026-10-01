@@ -37,8 +37,8 @@ indent :: proc(d: ^desc.Descriptor, width, line: int) -> int {
     return min(desc.line_depth(d, line) * d.tab_width, max(width - 1, 0))
 }
 
-// A run of cells that draw in colours of their own. Byte offsets from the line's start, like a
-// Field, and sorted by line so a lookup is a binary search and a short scan.
+// A run of cells that draw in colours of their own. Byte offsets from the start of a DRAWN line,
+// sorted by line so a lookup is a binary search and a short scan.
 //
 // `fg` and `bg` are token ids (or literals under gfx.COLOR_LIT), resolved against the palette
 // only where a cell is written. Nothing below here knows what an SGR is, and nothing above
@@ -49,6 +49,42 @@ Style :: struct {
     lo, hi: int,
     fg, bg: u32,
     attrs:  gfx.Attrs,
+}
+
+// A Style over a whole document's bytes, before `cut_lines` splits it; `st.line` is unused.
+Run :: struct {
+    lo, hi: int,
+    st:     Style,
+}
+
+// Runs over the drawn document, as the Styles of lines [first, last). Stable, so a later run
+// still paints over an earlier one on the line they share.
+cut_lines :: proc(t: ^pt.Text, runs: []Run, first, last: int,
+                  alloc := context.temp_allocator) -> []Style {
+    out := make([dynamic]Style, 0, len(runs), alloc)
+    if first >= last {
+        return out[:]
+    }
+    lo, _ := pt.text_line_range(t, first)
+    _, hi := pt.text_line_range(t, last - 1)
+    for r in runs {
+        if r.hi <= lo || r.lo > hi {
+            continue
+        }
+        for line := max(pt.text_line_at_off(t, r.lo), first); line < last; line += 1 {
+            a, b := pt.text_line_range(t, line)
+            if a >= r.hi {
+                break
+            }
+            st := r.st
+            st.line, st.lo, st.hi = line, max(r.lo, a) - a, min(r.hi, b) - a
+            if st.lo < st.hi {
+                append(&out, st)
+            }
+        }
+    }
+    slice.stable_sort_by(out[:], proc(x, y: Style) -> bool {return x.line < y.line})
+    return out[:]
 }
 
 // Bytes [lo,hi) of one line of the DRAWN document. A line that does not wrap is one row;
@@ -72,6 +108,8 @@ draw :: proc(
     d: ^desc.Descriptor,
     v: View,
     x, y, w, h: int,
+    // Every run to paint, over DRAWN lines: the store's, the links and the stages', already
+    // mapped and in paint order (`cut_lines`).
     styles: []Style = nil,
     // The caret and its selection, which only the FOCUSED panel draws (PANELS.md §3): reverse
     // video in a panel the keys are not aimed at says the next keystroke lands there.
@@ -79,10 +117,6 @@ draw :: proc(
     // The position map (§6), when a view pipeline built `t` out of something else. nil is a
     // document nobody derived, and every lookup through it is then the identity.
     dv: ^Derived = nil,
-    // What a view STAGE published over its own output (§5), in the DRAWN document's own lines.
-    // `styles` above is the span store's, measured over original bytes; a fold marker and a
-    // popup box have none, so they could not be said that way.
-    over: []Style = nil,
     // How far the selection carries its swap (§3). 100 is the full reverse; less leaves the
     // cell's own colours showing through, so syntax under a selection is still readable.
     select := SELECT_FULL,
@@ -118,8 +152,7 @@ draw :: proc(
         left := x + gut + ind
         run(g, left, y + i, src[clipped.lo:clipped.hi], body - ind, d.tab_width, th[.Fg],
             gfx.opaque(th[.Bg]), atlas)
-        restyle(g, th, pal, t, d, dv, left, y + i, body - ind, clipped, src, styles)
-        overstyle(g, th, pal, d, left, y + i, body - ind, clipped, src, over)
+        restyle(g, th, pal, d, left, y + i, body - ind, clipped, src, styles)
         if point {
             mark_point(g, t, d, dv, left, y + i, body - ind, clipped, src, select, on)
         }
@@ -187,48 +220,19 @@ col_span :: proc(t: ^pt.Text, dv: ^Derived, top, h: int) -> (lo, hi: int) {
 
 // The style runs covering one drawn row, painted over what `run` just placed. Before
 // mark_point, so the caret and the selection still read on top of a coloured cell.
-// (hole overlay-after-view) two paint paths, one per coordinate space.
 @(private)
 restyle :: proc(
     g: ^gfx.Grid,
     th: gfx.Theme,
     pal: [][3]f32,
-    t: ^pt.Text,
     d: ^desc.Descriptor,
-    dv: ^Derived,
     x, y, width: int,
     r: Row,
     src: []u8,
     styles: []Style,
 ) {
-    if r.src < 0 {
-        return // nothing was measured over a marker, so nothing colours one
-    }
     row := src[r.lo:r.hi]
-    dls, ols := line_offs(t, dv, r)
-    for st in line_styles(styles, r.src) {
-        for part in parts(dv, r, dls, ols + st.lo, ols + st.hi) {
-            paint(g, th, pal, d, row, x, y, width, part[0] - r.lo, part[1] - r.lo, st)
-        }
-    }
-}
-
-// The same over a stage's own runs, which need no map: they were measured against the document
-// being drawn. Text a stage inserted is the whole reason this exists — `restyle` above declines
-// a row with no original line, and a fold marker is exactly that row.
-@(private)
-overstyle :: proc(
-    g: ^gfx.Grid,
-    th: gfx.Theme,
-    pal: [][3]f32,
-    d: ^desc.Descriptor,
-    x, y, width: int,
-    r: Row,
-    src: []u8,
-    over: []Style,
-) {
-    row := src[r.lo:r.hi]
-    for st in line_styles(over, r.line) {
+    for st in line_styles(styles, r.line) {
         paint(g, th, pal, d, row, x, y, width, max(st.lo, r.lo) - r.lo, min(st.hi, r.hi) - r.lo, st)
     }
 }
