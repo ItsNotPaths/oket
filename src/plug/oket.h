@@ -75,6 +75,7 @@ typedef struct {
 /* A named byte span inside one line, offsets from that line's start. THE SPAN IS WHAT IS DRAWN
  * AND `value` IS WHAT IS ACTED ON: NULL means the span's own bytes fill `<name>`. Set it and a
  * line may show `browser.c` while `<path>` hands on the whole of where it lives — a LINK. */
+/* (hole fields-are-spans) a field crosses the seam in the descriptor, not as a span. */
 typedef struct {
     const char *name;
     size_t      name_len;

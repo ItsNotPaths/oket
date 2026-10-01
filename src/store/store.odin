@@ -17,6 +17,7 @@ import "../txt"
 Store :: docs.Store
 Id :: docs.Id
 Producer :: docs.Producer
+// (hole span-key :tags (lues store)) a run carries one token per channel: no key, no data value, and one edge rule for every run.
 Span :: docs.Span_Run
 Spans :: docs.Spans
 SPAN_MAX :: docs.SPAN_MAX

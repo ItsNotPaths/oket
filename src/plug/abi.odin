@@ -50,6 +50,7 @@ Column :: struct {
 }
 
 // The span is what is DRAWN and `value` is what is ACTED ON; nil means the span's own bytes.
+// (hole fields-are-spans) a field crosses the seam in the descriptor, not as a span.
 Field :: struct {
     name:      [^]u8,
     name_len:  c.size_t,

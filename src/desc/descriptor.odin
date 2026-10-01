@@ -55,6 +55,7 @@ Descriptor :: struct {
     editable:  bool,
     tab_width: int,
     columns:   []Column,
+    // (hole fields-are-spans) the descriptor still carries fields, so only its owner can publish them.
     fields:    []Field,
     // How deep each line sits, indexed by line (§5). One field carries a file tree, an outline
     // and folding; a line past the end is depth 0, so a flat document publishes none of it.
@@ -141,6 +142,7 @@ field_span :: proc(d: ^Descriptor, line: int, name: string) -> (lo, hi: int, ok:
 }
 
 // The whole of it, for the caller that wants what the field IS as well as where it was drawn.
+// (hole overlay-is-the-lookup :tags (view input) :needs (overlay-after-view fields-are-spans)) first match per line, so a line holds one link; lookup should read the overlay, under the caret first.
 field_of :: proc(d: ^Descriptor, line: int, name: string) -> (Field, bool) {
     for f in line_fields(d, line) {
         if f.name == name {

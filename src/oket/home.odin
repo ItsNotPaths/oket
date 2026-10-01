@@ -129,6 +129,7 @@ head :: proc(p: ^Page, s: string) {
 
 // A row: two spaces, the value a bind acts on, then whatever else the line says. The value is a
 // span of the line's own bytes, so hover underlines exactly what `enter` would take.
+// (hole fields-are-spans) home writes its offers as descriptor fields.
 @(private = "file")
 row :: proc(p: ^Page, name, value, tail: string) {
     at := 2

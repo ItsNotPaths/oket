@@ -73,6 +73,7 @@ void oket_build_span(oket_build *b, const char *name, size_t lo, size_t hi) {
     memset(f->_pad, 0, sizeof f->_pad);
 }
 
+/* (hole fields-are-spans) builds a descriptor field, not a data span. */
 void oket_build_link(oket_build *b, const char *name, size_t lo, size_t hi,
                      const char *value, size_t value_len) {
     oket_build_span(b, name, lo, hi);

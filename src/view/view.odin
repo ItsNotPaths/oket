@@ -187,6 +187,7 @@ col_span :: proc(t: ^pt.Text, dv: ^Derived, top, h: int) -> (lo, hi: int) {
 
 // The style runs covering one drawn row, painted over what `run` just placed. Before
 // mark_point, so the caret and the selection still read on top of a coloured cell.
+// (hole overlay-after-view) two paint paths, one per coordinate space.
 @(private)
 restyle :: proc(
     g: ^gfx.Grid,
@@ -344,6 +345,7 @@ scrolled :: proc(r: Row, src: []u8, left, tab: int) -> Row {
 // A field carrying a `value` answers with it instead: the span is where the link was DRAWN and
 // the value is what it POINTS AT, and a browser row showing a bare name is the case that needs
 // the two to differ (desc.Field).
+// (hole overlay-is-the-lookup) `<name>` reads descriptor fields, not the overlay.
 field_text :: proc(
     t: ^pt.Text,
     d: ^desc.Descriptor,

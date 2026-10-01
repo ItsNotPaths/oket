@@ -1115,6 +1115,7 @@ hover_line :: proc(a: ^App, d: ^desc.Descriptor) -> (input.Bind_Line, bool) {
 //
 // Per frame rather than published into the span store, because both halves move under it — the
 // descriptor with every submit, the lines with every binds.conf re-read.
+// (hole overlay-is-the-lookup) link drawing rebuilds runs from descriptor fields each frame instead of reading data keys off the overlay.
 doc_links :: proc(a: ^App, d: ^desc.Descriptor, first, last: int,
                   allocator := context.temp_allocator) -> []view.Style {
     if d == nil {

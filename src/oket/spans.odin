@@ -21,6 +21,7 @@ import "../view"
 // TWO SPACES, and the split is §6's: the viewport counts lines of the DRAWN document, while the
 // store holds bytes of the ORIGINAL — nothing was ever measured over a fold marker. `t` is what
 // is drawn and `dv` is the map, which is nil and the identity for a document nobody derived.
+// (hole overlay-after-view :tags view) source runs are mapped per row and stage runs drawn apart; nothing resolves one overlay in drawn space after the view chain.
 doc_styles :: proc(
     a: ^App,
     id: store.Id,
