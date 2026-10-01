@@ -127,8 +127,8 @@ field_span :: proc(fields: []Field, line: int, name: string) -> (lo, hi: int, ok
     return f.lo, f.hi, true
 }
 
-// The whole of it, for the caller that wants what the field IS as well as where it was drawn.
-// (hole overlay-is-the-lookup :tags (view input)) first match per line, so a line holds one link; lookup should read the overlay, under the caret first.
+// The whole of it, for the caller that wants what the field IS as well as where it was drawn:
+// the first `name` on the line. A row-shaped caller (a column, a listing) wants this one.
 field_of :: proc(fields: []Field, line: int, name: string) -> (Field, bool) {
     for f in line_fields(fields, line) {
         if f.name == name {
@@ -136,6 +136,31 @@ field_of :: proc(fields: []Field, line: int, name: string) -> (Field, bool) {
         }
     }
     return {}, false
+}
+
+// The `name` a caret at `col` acts on: the span covering it, ends included, and of two that meet
+// there the one ending at it, since typed text joins that one. None covers it: the first on the
+// line, so a caret before a row's offer still takes it.
+field_under :: proc(fields: []Field, line, col: int, name: string) -> (Field, bool) {
+    first, under: Maybe(Field)
+    for f in line_fields(fields, line) {
+        if f.name != name {
+            continue
+        }
+        if f.lo <= col && col == f.hi {
+            return f, true
+        }
+        if under == nil && f.lo <= col && col < f.hi {
+            under = f
+        }
+        if first == nil {
+            first = f
+        }
+    }
+    if f, ok := under.?; ok {
+        return f, true
+    }
+    return first.?
 }
 
 @(private)

@@ -2,6 +2,7 @@ package main
 
 import "lues:lues"
 import "lues:pt"
+import "core:slice"
 import "../desc"
 import "../shape"
 import "../gfx"
@@ -45,9 +46,9 @@ shown_fields :: proc(a: ^App, id: store.Id, t: ^pt.Text, dv: ^view.Derived, top,
     return doc_fields(a, id, orig, pt.text_line_at_off(orig, lo), pt.text_line_at_off(orig, hi) + 1)
 }
 
-// Every run on the lines the viewport is showing, in DRAWN lines and paint order: the store's,
-// then the links among `fields`, then `live` (the one a click would take), then what the view
-// stages painted.
+// Every run on the lines the viewport is showing, in DRAWN lines and paint order: the store's
+// looks, then its data spans some line acts on (the links), then `live` (the one a click would
+// take), then what the view stages painted. One read of the store gives both.
 //
 // The store and the links speak the ORIGINAL (§6), so they go through the map; a stage's runs
 // were measured over the drawn document already. `dv` is nil for a document nobody derived.
@@ -58,7 +59,6 @@ doc_styles :: proc(
     t: ^pt.Text,
     dv: ^view.Derived,
     top, rows: int,
-    fields: []desc.Field = nil,
     live: []view.Style = nil,
 ) -> []view.Style {
     first, last, lo, hi, ok := shown(t, dv, top, rows)
@@ -66,10 +66,16 @@ doc_styles :: proc(
         return nil
     }
     orig := view.original(dv, t)
+    names := d != nil ? link_names(a, d) : nil
+    link := view.Style{fg = u32(token_intern(a, TOKEN_LINK)), bg = u32(gfx.Token.Bg), attrs = {.Underline}}
     runs := make([dynamic]view.Run, 0, 64, context.temp_allocator)
+    links := make([dynamic]view.Run, 0, 16, context.temp_allocator)
     for sp in store.store_spans(a.docs, id, lo, hi, spans_order(a, id)) {
         if sp.key != 0 {
-            continue // data, not a look
+            if slice.contains(names, lues.token_name(a.kernel, lues.Token(sp.key))) {
+                append(&links, view.Run{sp.lo, sp.hi, link})
+            }
+            continue
         }
         // A channel nobody set is the theme's, said as its TOKEN. The store merged whoever did
         // set it and stopped there, because a store that filled a colour in would have made
@@ -80,7 +86,7 @@ doc_styles :: proc(
             attrs = .Attrs in sp.set ? transmute(shape.Attrs)sp.attrs : {},
         }})
     }
-    line_runs(&runs, orig, doc_links(a, d, fields))
+    append(&runs, ..links[:])
     line_runs(&runs, orig, live)
     drawn := view.forward(dv, runs[:])
     if stages := views_over(a, id); len(stages) > 0 {

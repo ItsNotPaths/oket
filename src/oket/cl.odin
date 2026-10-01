@@ -152,7 +152,7 @@ cl_draw :: proc(a: ^App, g: ^gfx.Grid, th: gfx.Theme, workspace: string) {
     t, dv := views_text(a, a.cl.doc, &snap.text)
     fields := shown_fields(a, a.cl.doc, t, dv, a.cl.view.top, 1)
     view.draw(g, line, t, d, fields, a.cl.view, b.x, b.y, b.w, 1,
-              doc_styles(a, a.cl.doc, d, t, dv, a.cl.view.top, 1, fields), dv = dv,
+              doc_styles(a, a.cl.doc, d, t, dv, a.cl.view.top, 1), dv = dv,
               select = a.config.select, atlas = &a.painter.atlas)
     gfx.grid_write(g, b.x + b.w, b.y, workspace, line[.Dim], gfx.opaque(line[.Bg]))
 }

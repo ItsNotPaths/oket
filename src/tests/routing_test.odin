@@ -8,6 +8,7 @@ import "../gfx"
 import "../desc"
 import "../input"
 import "../store"
+import "../txt"
 import app "../oket"
 
 // The gate for build order stage 4, end to end: keys and clicks arrive at one funnel, the bind
@@ -72,6 +73,43 @@ a_field_a_line_would_act_on_is_drawn_as_a_link :: proc(t: ^testing.T) {
     at, on = linked(&a, 1)
     testing.expect(t, on)
     testing.expect_value(t, at.fg, app.token_color(&a, app.token_intern(&a, app.TOKEN_LINK_OVER)))
+}
+
+// `<name>` fills from the span the caret is on, not the first on its line, so a line holding two
+// paths acts on the one you stand on. A caret at a name's END is on it, which is where the
+// browser pins it; of two names that meet there, the one ending at it wins, the one typing grows.
+@(test)
+a_hole_fills_from_the_span_under_the_caret :: proc(t: ^testing.T) {
+    a, ok := bare_app(40, 6)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+    id := store.store_open(a.docs, "see a.c and b.c\nxy")
+    gen, _ := store.store_gen(a.docs, id)
+    fields := [?]desc.Field {
+        {0, "path", 4, 7, "/a.c"},
+        {0, "path", 12, 15, "/b.c"},
+        {1, "path", 0, 1, "/x"},
+        {1, "path", 1, 2, "/y"},
+    }
+    d := desc.new_from({ctx = .Surface, kind = app.KIND_HOME, selection = .Char, tab_width = 4})
+    store.store_submit(a.docs, id, gen, nil, d, fields_spans(&a, id, fields[:]))
+    desc.release(d)
+    store.store_drain(a.docs)
+    app.ring_add(&a, id)
+
+    path_at :: proc(a: ^app.App, id: store.Id, at: txt.Pos) -> string {
+        txt.doc_set_head(store.store_doc(a.docs, id), at, false)
+        app.point_sync(a)
+        line, _ := app.bind_expand(a, ":open <path>")
+        return line
+    }
+    testing.expect_value(t, path_at(&a, id, {0, 13}), ":open /b.c") // inside the second
+    testing.expect_value(t, path_at(&a, id, {0, 15}), ":open /b.c") // at its end
+    testing.expect_value(t, path_at(&a, id, {0, 7}), ":open /a.c")
+    testing.expect_value(t, path_at(&a, id, {0, 0}), ":open /a.c") // on none: the first
+    testing.expect_value(t, path_at(&a, id, {1, 1}), ":open /x") // where two meet
 }
 
 // Rows that are fields and nothing else: the browser's shape (no `columns`, so a caret and a

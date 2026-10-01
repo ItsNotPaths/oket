@@ -657,8 +657,8 @@ bind_expand :: proc(a: ^App, template: string) -> (string, bool) {
     defer pt.snapshot_release(snap)
     defer desc.release(d)
 
-    at := s.view.point.head.line
-    fields := doc_fields(a, s.doc, &snap.text, at, at + 1)
+    at := s.view.point.head
+    fields := doc_fields(a, s.doc, &snap.text, at.line, at.line + 1)
     b := strings.builder_make(context.temp_allocator)
     rest := template
     for {
@@ -667,7 +667,7 @@ bind_expand :: proc(a: ^App, template: string) -> (string, bool) {
         if !found {
             break
         }
-        f, got := desc.field_of(fields, at, name)
+        f, got := desc.field_under(fields, at.line, at.col, name)
         if !got {
             message_set(a, fmt.tprintf("nothing here has a %s", name))
             return "", false
@@ -1109,31 +1109,10 @@ hover_line :: proc(a: ^App, d: ^desc.Descriptor) -> (input.Bind_Line, bool) {
     return click_line(a, d, .Double_Click)
 }
 
-// The fields on the visible rows that something would ACT on, as style runs (§8). A link is a
-// field some LINE names, and the lines are the ones already written down: the rows reachable in
-// this document's own context, and the table `:home enter` runs behind one row (home.odin). So
-// a link is drawn exactly where a key or a click would do something, and neither table is read
-// twice for it.
-//
-// Per frame, because the lines move under it with every binds.conf re-read.
-// (hole overlay-is-the-lookup) link drawing rebuilds runs from the fields each frame instead of reading data keys off the overlay.
-doc_links :: proc(a: ^App, d: ^desc.Descriptor, fields: []desc.Field,
-                  allocator := context.temp_allocator) -> []view.Style {
-    if d == nil || len(fields) == 0 {
-        return nil
-    }
-    names := link_names(a, d, allocator)
-    fg, bg := u32(token_intern(a, TOKEN_LINK)), u32(gfx.Token.Bg)
-    out := make([dynamic]view.Style, allocator)
-    for f in fields {
-        if f.lo < f.hi && slice.contains(names, f.name) {
-            append(&out, view.Style{f.line, f.lo, f.hi, fg, bg, {.Underline}})
-        }
-    }
-    return out[:]
-}
-
-@(private = "file")
+// The names a LINE would act on (§8), which is what makes a data span a link: the rows reachable
+// in this document's own context, and the table `:home enter` runs behind one row (home.odin).
+// So a link is drawn exactly where a key or a click would do something. Per frame, because the
+// lines move under it with every binds.conf re-read.
 link_names :: proc(a: ^App, d: ^desc.Descriptor,
                    allocator := context.temp_allocator) -> []string {
     out := make([dynamic]string, allocator)
@@ -1177,12 +1156,12 @@ doc_link_over :: proc(a: ^App, p: ^Panel, d: ^desc.Descriptor, fields: []desc.Fi
         if !marked {
             return nil
         }
-        at := v.point.head.line
-        first, ok := link_at(a, d, fields, at)
+        at := v.point.head
+        under, ok := link_at(a, d, fields, at)
         if !ok {
             return nil
         }
-        line, lo, hi = at, first.lo, first.hi
+        line, lo, hi = at.line, under.lo, under.hi
     }
     fg, bg := u32(token_intern(a, TOKEN_LINK_OVER)), u32(gfx.Token.Bg)
     out := make([dynamic]view.Style, 0, 1, allocator)
@@ -1190,15 +1169,14 @@ doc_link_over :: proc(a: ^App, p: ^Panel, d: ^desc.Descriptor, fields: []desc.Fi
     return out[:]
 }
 
-// The link on a row, if it carries one. A row carrying more than one is a row `:home enter`
-// would take the FIRST of, so this answers the same way it does.
+// The link a caret acts on, by the rule `<name>` fills by (desc.field_under).
 @(private = "file")
-link_at :: proc(a: ^App, d: ^desc.Descriptor, fields: []desc.Field, line: int) -> (desc.Field, bool) {
+link_at :: proc(a: ^App, d: ^desc.Descriptor, fields: []desc.Field, at: txt.Pos) -> (desc.Field, bool) {
     if d == nil {
         return {}, false
     }
     for name in link_names(a, d) {
-        if f, named := desc.field_of(fields, line, name); named && f.lo < f.hi {
+        if f, named := desc.field_under(fields, at.line, at.col, name); named && f.lo < f.hi {
             return f, true
         }
     }

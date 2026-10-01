@@ -87,10 +87,10 @@ home_enter :: proc(a: ^App) -> bool {
     }
     defer pt.snapshot_release(snap)
     defer desc.release(d)
-    at := s.view.point.head.line
-    fields := doc_fields(a, s.doc, &snap.text, at, at + 1)
+    at := s.view.point.head
+    fields := doc_fields(a, s.doc, &snap.text, at.line, at.line + 1)
     for v in HOME_VERBS {
-        if _, carried := desc.field_of(fields, at, v.field); !carried {
+        if _, carried := desc.field_under(fields, at.line, at.col, v.field); !carried {
             continue
         }
         // bind_expand, so a hole fills here exactly the way it fills for a chord, and the

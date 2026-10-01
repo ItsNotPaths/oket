@@ -92,8 +92,7 @@ panel_draw :: proc(a: ^App, p: ^Panel, marked: bool) {
     // The link the pointer is in goes on LAST, so the one a click would take reads differently
     // from the rest of them (routing.odin).
     fields := shown_fields(a, s.doc, t, dv, s.view.top, b.h)
-    styles := doc_styles(a, s.doc, d, t, dv, s.view.top, b.h, fields,
-                         doc_link_over(a, p, d, fields, s.view, marked))
+    styles := doc_styles(a, s.doc, d, t, dv, s.view.top, b.h, doc_link_over(a, p, d, fields, s.view, marked))
     // Borrowed from the document: the drawn text is a snapshot and the cursors are live, but
     // both are read after the drain (docs_settle), so they name the same generation.
     carets: []txt.Cursor
