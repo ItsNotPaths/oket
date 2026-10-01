@@ -46,6 +46,9 @@ doc_styles :: proc(
     }
     runs := make([dynamic]view.Run, 0, 64, context.temp_allocator)
     for sp in store.store_spans(a.docs, id, lo, hi, spans_order(a, id)) {
+        if sp.key != 0 {
+            continue // data, not a look
+        }
         // A channel nobody set is the theme's, said as its TOKEN. The store merged whoever did
         // set it and stopped there, because a store that filled a colour in would have made
         // every publisher opaque again.

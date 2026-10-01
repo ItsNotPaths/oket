@@ -24,7 +24,7 @@ import "../txt"
 // Folds every splice this reader has not seen into the document's descriptor. Cheap and total: with
 // nothing to fold it is a compare, and every reader of a descriptor comes through here, so no
 // caller can see a span the text has moved out from under.
-// (hole fields-are-spans :tags (store seam) :needs span-key) fields ride the descriptor and follow the text on their own; they belong in the publisher's span bucket.
+// (hole fields-are-spans :tags (store seam)) fields ride the descriptor and follow the text on their own; they belong in the publisher's span bucket.
 @(private)
 fields_follow :: proc(x: ^Extra) {
     if x.desc == nil {
