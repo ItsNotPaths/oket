@@ -459,13 +459,14 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     // Surface claims: context-specific, so they shadow the global rows above (Esc must reach
     // vim inside the shell, never quit oket). Shift+Ctrl+Up extends via the Shift fallback.
     bind_put(&b, "ESC", {}, .Surface_Send)
-    // ctrl+c copies HERE TOO, so one chord means one thing in every document. The interrupt is
+    // ctrl+c and ctrl+v copy and paste HERE TOO, so one chord means one thing in every document.
+    // ctrl+shift+v still pastes, through the Shift fallback. The interrupt is
     // ctrl+shift+c: it sends the 0x03 a shell reads as SIGINT, narrowed to the terminal so no
     // other surface claims the chord. Both are ordinary rows, so a binds.conf that swaps them
     // back is two lines.
     bind_put(&b, "AB03", {.Ctrl}, .Term_Copy) // ctrl+c
     bind_put(&b, "AB03", {.Ctrl, .Shift}, .Surface_Send, ctx = {.Terminal})
-    bind_put(&b, "AB04", {.Ctrl, .Shift}, .Term_Paste) // ctrl+shift+v
+    bind_put(&b, "AB04", {.Ctrl}, .Term_Paste) // ctrl+v
     // Scrolling a session is the KERNEL's viewport over its document (§11), so these are the
     // same two verbs every other document has and there is no terminal scroll code to bind to.
     bind_put(&b, "PGUP", {.Shift}, .View_Page_Up)

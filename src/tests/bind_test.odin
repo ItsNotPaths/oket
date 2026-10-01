@@ -144,11 +144,11 @@ terminal_esc_shadows_quit :: proc(t: ^testing.T) {
     testing.expect_value(t, b.target, input.Bind_Target(input.Command.Quit))
 }
 
-// The ctx column is the whole safety argument for putting cut, paste and the kills on ctrl+x/v
+// The ctx column is the whole safety argument for putting cut and the kills on ctrl+x
 // and ctrl+k/u: Terminal is not in {.Text, .Surface}, so bind_find misses and the miss rule
 // forwards the chord to the job. Get this wrong and every shell in the ring loses ctrl+u.
 //
-// ctrl+c is the ONE that is claimed, and by the terminal's own verb rather than by editing's.
+// ctrl+c and ctrl+v are claimed, by the terminal's own verbs rather than by editing's.
 @(test)
 the_terminal_keeps_the_chords_editing_took :: proc(t: ^testing.T) {
     binds := input.binds_default()
@@ -164,7 +164,6 @@ the_terminal_keeps_the_chords_editing_took :: proc(t: ^testing.T) {
             cmd: input.Command,
         }{
             {"AB02", .Cut},
-            {"AB04", .Paste},
             {"AC08", .Kill_Line},
             {"AD07", .Kill_To_Line_Start},
         }) {
@@ -174,6 +173,14 @@ the_terminal_keeps_the_chords_editing_took :: proc(t: ^testing.T) {
 
         _, _, claimed := input.bind_lookup(binds[:], ctrl(e.key), .Terminal)
         testing.expectf(t, !claimed, "@%s was taken from the terminal", e.key)
+    }
+
+    // ctrl+v pastes in a session too, and ctrl+shift+v reaches it through the Shift fallback.
+    for mods in ([?]input.Mods{{.Ctrl}, {.Ctrl, .Shift}}) {
+        v, _ := input.key_code("AB04")
+        paste, _, _ := input.bind_lookup(binds[:], {v, mods, 0}, .Terminal)
+        got, _ := input.bind_command(paste)
+        testing.expect_value(t, got, input.Command.Term_Paste)
     }
 
     // ctrl+c means copy in every document, the terminal included, so the chord resolves in both
