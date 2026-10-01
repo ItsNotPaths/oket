@@ -1,5 +1,6 @@
 package tests
 
+import "lues:pt"
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
@@ -10,7 +11,6 @@ import "core:time"
 import "../desc"
 import "../gfx"
 import "../store"
-import "../txt"
 import "../view"
 import app "../oket"
 
@@ -32,7 +32,6 @@ FRAME :: 16 * time.Millisecond
 @(private = "file")
 syntax_app :: proc(t: ^testing.T, name: string) -> (a: app.App, ok: bool) {
     a = plug_app(t, name, "plugins/syntax") or_return
-    app.plug_init(&a)
     if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "syntax")), a.message) {
         close_plug_app(&a)
         return {}, false
@@ -96,7 +95,7 @@ json_doc :: proc(a: ^app.App, text: string) -> store.Id {
 // Every publisher's runs over the whole document, in the order this document ranks them.
 @(private = "file")
 all_styles :: proc(a: ^app.App, id: store.Id) -> []store.Span {
-    return store.store_spans(&a.docs, id, 0, max(int), app.spans_order(a, id))
+    return store.store_spans(a.docs, id, 0, max(int), app.spans_order(a, id))
 }
 
 // The gate's first half: a plugin with no kind and no surface colours a file it never opened,
@@ -141,9 +140,9 @@ a_grammar_colours_a_file_it_never_opened :: proc(t: ^testing.T) {
 // The line-number gutter the scratch document draws, which is what the cells above sit past.
 @(private = "file")
 gutter :: proc(a: ^app.App, id: store.Id) -> int {
-    snap := store.store_snapshot(&a.docs, id)
-    defer txt.snapshot_release(snap)
-    d := store.store_descriptor(&a.docs, id)
+    snap := store.store_snapshot(a.docs, id)
+    defer pt.snapshot_release(snap)
+    d := store.store_descriptor(a.docs, id)
     defer desc.release(d)
     return view.gutter_width(&snap.text, d)
 }
@@ -222,7 +221,6 @@ a_grammar_that_arrives_late_is_picked_up_by_the_chain :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.plug_init(&a)
     if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "syntax")), a.message) {
         return
     }
@@ -446,7 +444,7 @@ a_row_carries_its_whole_registry_entry :: proc(t: ^testing.T) {
     // in again here: three steps, and the shell one is `|| true` so the LAST always runs. A
     // chain that stopped on a failure would leave the bar running with nothing behind it.
     asked := ""
-    for r in a.reqs {
+    for r in a.kernel.reqs {
         if r.ctx == "grammars" && r.chord == "enter" {
             asked = r.line
         }

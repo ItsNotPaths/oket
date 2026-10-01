@@ -1,6 +1,8 @@
 package main
 
+import "lues:pt"
 import "core:c"
+import "lues:abi"
 import "core:slice"
 import "../desc"
 import "../input"
@@ -9,129 +11,109 @@ import "../store"
 import "../txt"
 import "../view"
 
-// The read half of the seam (§6). A plugin reads text, the line index, cursors and the
-// descriptor by POINTER, with no lock and no call back into the kernel — so what crosses is a
-// header naming the kernel's own arrays, never a copy of the document.
-//
-// The piece list, the line index and the text blocks are handed over UNCOPIED: their layouts
-// are identical on both sides and the asserts below are what keeps that true. Only the
-// descriptor's columns and fields are rebuilt, because desc's own structs carry Odin strings
-// and the seam carries pointer plus length.
+// The read half of the seam (§6). lues builds a snapshot's header over the document's own
+// arrays; oket hangs its view of the document behind `app` (plug.Side): the descriptor, the
+// carets and the folds. Only the descriptor is rebuilt, because desc's own structs carry Odin
+// strings and the seam carries pointer plus length.
 
-#assert(size_of(txt.Piece) == size_of(plug.Piece))
-#assert(size_of(txt.Line_Seg) == size_of(plug.Seg))
-#assert(size_of([]u8) == size_of(plug.Block))
-#assert(size_of(input.Kind) == size_of(plug.Kind))
+#assert(size_of(input.Kind) == size_of(abi.Kind))
 #assert(size_of(txt.Cursor) == size_of(plug.Cursor))
 #assert(size_of(txt.Range) == size_of(plug.Range))
 
-// The header, plus everything allocated to build it. `snap` is FIRST, so the pointer a plugin
-// holds casts straight back to this.
-Plug_View :: struct {
-    snap: plug.Snapshot,
+// A Side, plus everything allocated to build it. `side` is FIRST: Snapshot.app casts back.
+Side_Box :: struct {
+    side: plug.Side,
     dv:   plug.Descriptor,
-    src:  ^txt.Snapshot,
     d:    ^desc.Descriptor,
     cols: []plug.Column,
     flds: []plug.Field,
     dpth: []c.int32_t,
-    curs: []plug.Cursor, // empty when the snapshot borrows the document's own array
+    curs: []plug.Cursor,
+    hid:  []plug.Range,
 }
 
-// One reference to the text and one to the descriptor, taken together so the two name the same
-// generation. nil for a document that is not open.
-view_make :: proc(a: ^App, id: store.Id) -> ^Plug_View {
-    src := store.store_snapshot(&a.docs, id)
-    if src == nil {
-        return nil
+// hooks.side_make. Copies: a held snapshot outlives the call, and the carets and folds move
+// with no generation behind them.
+side_make :: proc(a: ^App, id: store.Id) -> ^Side_Box {
+    return side_fill(a, new(Side_Box), id, nil, nil)
+}
+
+// A view stage's input: the text THE KERNEL BUILT for the stage before it (§5), so there is no
+// document snapshot to take and the caller owns the bytes for the whole call.
+Stage_View :: struct {
+    snap: abi.Snapshot,
+    box:  ^Side_Box,
+}
+
+view_over :: proc(a: ^App, id: store.Id, t: ^pt.Text, gen: u64, dv: ^view.Derived) -> ^Stage_View {
+    v := new(Stage_View)
+    v.box = side_fill(a, new(Side_Box), id, t, dv)
+    v.snap = {
+        blocks  = ([^]abi.Block)(raw_data(t.blocks)),
+        starts  = ([^]c.ptrdiff_t)(raw_data(t.starts)),
+        pieces  = ([^]abi.Piece)(raw_data(t.pieces[:])),
+        segs    = ([^]abi.Seg)(raw_data(t.segs[:])),
+        nblocks = len(t.blocks),
+        nstarts = len(t.starts),
+        npieces = len(t.pieces),
+        nsegs   = len(t.segs),
+        size    = uint(t.size),
+        lines   = uint(t.lines),
+        gen     = gen,
+        doc     = plug_doc(id),
+        app     = &v.box.side,
     }
-    v := new(Plug_View)
-    v.src = src
-    view_fill(a, v, id, &src.text, src.gen, nil)
     return v
 }
 
-// A snapshot a plugin keeps past the call (api_snapshot). The borrowed cursor array is only
-// good for the call — an append moves it — so this one owns a copy.
-view_hold :: proc(a: ^App, id: store.Id) -> ^Plug_View {
-    v := view_make(a, id)
-    if v == nil {
-        return nil
+view_free :: proc(v: ^Stage_View) {
+    side_free(v.box)
+    free(v)
+}
+
+side_free :: proc(b: ^Side_Box) {
+    if b == nil {
+        return
     }
-    v.curs = slice.clone(v.snap.cursors[:v.snap.ncursors])
-    v.snap.cursors = raw_data(v.curs)
-    return v
+    desc.release(b.d)
+    delete(b.cols)
+    delete(b.flds)
+    delete(b.dpth)
+    delete(b.curs)
+    delete(b.hid)
+    free(b)
 }
 
-// The same header over text THE KERNEL BUILT rather than a document's own. A view stage past the
-// first is handed the stage before it (§5), and that document exists only inside the pipeline —
-// so there is no snapshot to hold and the caller owns the bytes for the whole call.
-view_over :: proc(
-    a: ^App,
-    id: store.Id,
-    t: ^txt.Text,
-    gen: u64,
-    dv: ^view.Derived,
-) -> ^Plug_View {
-    v := new(Plug_View)
-    view_fill(a, v, id, t, gen, dv)
-    return v
-}
-
+// Cursors come off the live document: the caret a plugin should read is the one the renderer
+// draws (§5). Over a stage's derived text `t`, MAPPED into it, and no folds: that text is
+// already derived.
 @(private = "file")
-view_fill :: proc(a: ^App, v: ^Plug_View, id: store.Id, t: ^txt.Text, gen: u64,
-                  dv: ^view.Derived) {
-    v.d = store.store_descriptor(&a.docs, id)
-
-    // Cursors come off the live document, not the snapshot: the caret a plugin should read is
-    // the one the renderer is drawing (§5). MAPPED into the space this call hands over, or a
-    // popup positioning itself under the caret lands where the text used to be.
-    //
-    // With no map to apply the document's own array is the answer (CURSORS.md §7): nothing a
-    // plugin can call writes it before the drain — submit and cursors both queue — so the
-    // borrow is good for the call, like the text and the line index beside it.
+side_fill :: proc(a: ^App, b: ^Side_Box, id: store.Id, t: ^pt.Text, dv: ^view.Derived) -> ^Side_Box {
+    b.d = store.store_descriptor(a.docs, id)
     primary: uint
-    curs: []plug.Cursor
-    if doc := store.store_doc(&a.docs, id); doc != nil {
+    if doc := store.store_doc(a.docs, id); doc != nil {
         primary = uint(doc.primary)
-        if dv == nil {
-            curs = transmute([]plug.Cursor)doc.cursors[:]
-        } else {
-            mapped := slice.clone(doc.cursors[:])
+        mapped := slice.clone(doc.cursors[:])
+        if t != nil {
             for &c in mapped {
                 c.anchor, _ = view.view_pos(dv, t, c.anchor)
                 c.head, _ = view.view_pos(dv, t, c.head)
             }
-            v.curs = transmute([]plug.Cursor)mapped
-            curs = v.curs
         }
+        b.curs = transmute([]plug.Cursor)mapped
     }
-    v.snap = {
-        desc     = view_desc(v),
-        blocks   = ([^]plug.Block)(raw_data(t.blocks)),
-        starts   = ([^]c.ptrdiff_t)(raw_data(t.starts)),
-        pieces   = ([^]plug.Piece)(raw_data(t.pieces[:])),
-        segs     = ([^]plug.Seg)(raw_data(t.segs[:])),
-        cursors  = raw_data(curs),
-        nblocks  = len(t.blocks),
-        nstarts  = len(t.starts),
-        npieces  = len(t.pieces),
-        nsegs    = len(t.segs),
-        ncursors = len(curs),
+    if t == nil {
+        b.hid = transmute([]plug.Range)slice.clone(views_hidden(a, id))
+    }
+    b.side = {
+        desc     = view_desc(b),
+        cursors  = raw_data(b.curs),
+        ncursors = len(b.curs),
         primary  = primary,
-        size     = uint(t.size),
-        lines    = uint(t.lines),
-        gen      = gen,
-        doc      = plug_doc(id),
+        hidden   = raw_data(b.hid),
+        nhidden  = len(b.hid),
     }
-    // The runs no cell stands for, so a plugin computing motion does not land inside a fold
-    // (CURSORS.md §6). Original coordinates, which is the text this call hands over — a view
-    // stage's input is already derived, so there the list stays empty.
-    if dv == nil {
-        h := views_hidden(a, id)
-        v.snap.hidden = ([^]plug.Range)(raw_data(h))
-        v.snap.nhidden = len(h)
-    }
+    return b
 }
 
 // --- the world (§12) ---
@@ -178,25 +160,10 @@ world_free :: proc(w: ^Plug_World) {
     free(w)
 }
 
-view_free :: proc(v: ^Plug_View) {
-    if v == nil {
-        return
-    }
-    if v.src != nil {
-        txt.snapshot_release(v.src) // nil for a stage's own input, which nobody refcounts
-    }
-    desc.release(v.d)
-    delete(v.cols)
-    delete(v.flds)
-    delete(v.dpth)
-    delete(v.curs)
-    free(v)
-}
-
 // The descriptor as the seam spells it. `ctx` is absent on purpose: a kind's context is fixed
 // where the kind is registered, so this direction cannot leak one either.
 @(private = "file")
-view_desc :: proc(v: ^Plug_View) -> ^plug.Descriptor {
+view_desc :: proc(v: ^Side_Box) -> ^plug.Descriptor {
     d := v.d
     if d == nil {
         return nil
@@ -225,7 +192,7 @@ view_desc :: proc(v: ^Plug_View) -> ^plug.Descriptor {
         nfields   = len(v.flds),
         depth     = raw_data(v.dpth),
         ndepth    = len(v.dpth),
-        kind      = plug.Kind(d.kind),
+        kind      = abi.Kind(d.kind),
         tab_width = i32(d.tab_width),
         render    = d.render,
         wrap      = d.wrap,
@@ -296,19 +263,19 @@ reveal_span :: proc(a: ^App, id: store.Id, lo, hi: int, at: plug.Reveal) {
     if s == nil {
         return
     }
-    snap := store.store_snapshot(&a.docs, id)
+    snap := store.store_snapshot(a.docs, id)
     if snap == nil {
         return
     }
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     // `top` counts lines of the DRAWN document and a reveal names bytes of the one being edited
     // (§6). A span a stage hid maps to the cell the cut left behind, which is §12's answer to
     // "reveal into a fold": scroll to the nearest visible position, and unfolding is a verb the
     // user presses.
     t, dv := views_text(a, id, &snap.text)
     orig := view.original(dv, t)
-    from, _ := view.view_pos(dv, t, txt.text_pos(orig, max(lo, 0)))
-    to, _ := view.view_pos(dv, t, txt.text_pos(orig, max(hi, lo)))
+    from, _ := view.view_pos(dv, t, pt.text_pos(orig, max(lo, 0)))
+    to, _ := view.view_pos(dv, t, pt.text_pos(orig, max(hi, lo)))
     first, last := from.line, to.line
     h := max(doc_rect(a, id).h, 1)
 
@@ -325,7 +292,7 @@ reveal_span :: proc(a: ^App, id: store.Id, lo, hi: int, at: plug.Reveal) {
             top = last - h + 1
         }
     }
-    s.view.top = clamp(top, 0, max(txt.text_line_count(t) - 1, 0))
+    s.view.top = clamp(top, 0, max(pt.text_line_count(t) - 1, 0))
 }
 
 // The slot showing a document, if one is. A plugin's document that is not on screen still

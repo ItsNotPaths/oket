@@ -13,12 +13,12 @@ import app "../oket"
 
 @(private = "file")
 lane_doc :: proc(a: ^app.App, file: string) -> store.Id {
-    id := store.store_open(&a.docs, "x")
-    gen, _ := store.store_gen(&a.docs, id)
+    id := store.store_open(a.docs, "x")
+    gen, _ := store.store_gen(a.docs, id)
     d := desc.new_from({kind = app.KIND_HOME, ctx = .Surface, file = file})
-    store.store_submit(&a.docs, id, gen, nil, d)
+    store.store_submit(a.docs, id, gen, nil, d)
     desc.release(d)
-    store.store_drain(&a.docs)
+    store.store_drain(a.docs)
     return id
 }
 

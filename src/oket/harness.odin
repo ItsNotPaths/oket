@@ -74,13 +74,17 @@ harness_main :: proc(args: []string) -> int {
     defer delete(dir)
     defer os.remove_all(dir)
 
-    a: App
-    a.harness = true
     home_export() // the REAL directories: a plugin reads them out of the environment (path.odin)
-    input_init(&a) // before app_init, because binds.conf spells chords in layout glyphs
     home: Home
     home_set(&home, dir)
-    app_init(&a, home)
+    a, made := app_make(home, unguarded = true)
+    if !made {
+        fmt.eprintfln("%s: the kernel did not start", HARNESS)
+        return 2
+    }
+    a.harness = true
+    input_init(&a) // before app_init, because binds.conf spells chords in layout glyphs
+    app_init(&a)
     defer app_destroy(&a)
     // Not `start_dir`'s answer, which app_init already took: a plugin argument IS a directory,
     // and it would become the place every shell step in the sequence ran in.
@@ -313,7 +317,6 @@ harness_frame :: proc(a: ^App) -> (busy: bool) {
     sh_pump(a)
     chain_pump(a)
     settled := docs_settle(a)
-    io_pump(a)
     latched := plug_pump(a) | settled
     surface_draw(a)
     return chain_busy(a) || latched

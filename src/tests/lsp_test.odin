@@ -39,7 +39,6 @@ done
 @(private = "file")
 lsp_app :: proc(t: ^testing.T, name: string) -> (a: app.App, ok: bool) {
     a = plug_app(t, name, "src/tests/lsp") or_return
-    app.plug_init(&a)
     if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "lsp")), a.message) {
         close_plug_app(&a)
         return {}, false
@@ -94,7 +93,7 @@ a_closed_server_is_not_reported :: proc(t: ^testing.T) {
     app.cl_exec(&a, fmt.tprintf(":lsp %s", script(&a, "slow.sh", "sleep 30\n")))
     app.cl_exec(&a, ":lsp stop")
     for _ in 0 ..< 100 {
-        app.io_pump(&a)
+        app.plug_pump(&a)
         time.sleep(5 * time.Millisecond)
     }
     testing.expect_value(t, a.message, "lsp: stopped")
@@ -113,8 +112,8 @@ an_unloaded_plugin_takes_its_server_with_it :: proc(t: ^testing.T) {
     app.cl_exec(&a, fmt.tprintf(":lsp %s", script(&a, "slow.sh", "sleep 30\n")))
     testing.expect(t, app.plug_unload(&a, app.plug_find(&a, "lsp")), "the plugin did not unload")
     for _ in 0 ..< 100 {
-        app.io_pump(&a) // a completion for a plugin that is gone must reach nobody
+        app.plug_pump(&a) // a completion for a plugin that is gone must reach nobody
         time.sleep(5 * time.Millisecond)
     }
-    testing.expect_value(t, len(a.io_jobs), 0)
+    testing.expect_value(t, len(a.kernel.io_jobs), 0)
 }

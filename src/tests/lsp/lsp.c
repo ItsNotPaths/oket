@@ -20,7 +20,7 @@
 #include "oket_helpers.h"
 
 static pthread_t MAIN_THREAD;
-static oket_io SERVER;
+static lues_io SERVER;
 static size_t SENT;  /* the body we asked about, in bytes */
 static int READY;    /* the round trip completed; the answer and a clean exit can share a frame,
                       * so an exit after it must not overwrite the message the test waits on */
@@ -30,7 +30,7 @@ static char *BUF;
 static size_t BUF_LEN;
 
 /* The one rule this fixture exists to check. */
-static int on_main_thread(const oket_api *api, oket_self self) {
+static int on_main_thread(const lues_api *api, lues_self self) {
     if (pthread_equal(pthread_self(), MAIN_THREAD)) {
         return 1;
     }
@@ -38,7 +38,7 @@ static int on_main_thread(const oket_api *api, oket_self self) {
     return 0;
 }
 
-static void frame(const oket_api *api, oket_self self, const char *body) {
+static void frame(const lues_api *api, lues_self self, const char *body) {
     char out[512];
     int n = snprintf(out, sizeof out, "Content-Length: %zu\r\n\r\n%s", strlen(body), body);
     SENT = strlen(body);
@@ -47,7 +47,7 @@ static void frame(const oket_api *api, oket_self self, const char *body) {
 
 /* One complete frame, or nothing yet. The header is read, the body is waited for, and what is
  * consumed leaves the buffer. */
-static void take_frames(const oket_api *api, oket_self self) {
+static void take_frames(const lues_api *api, lues_self self) {
     for (;;) {
         char *head = BUF ? strstr(BUF, "\r\n\r\n") : NULL;
         if (!head) {
@@ -93,18 +93,18 @@ static void take_frames(const oket_api *api, oket_self self) {
 
 /* A watcher, so this plugin is reached with no kind and no document of its own (§9). Its I/O
  * jobs name no document either, which is what routes their answers here. */
-static int32_t watch(const oket_api *api, oket_self self, const oket_at *at, oket_event ev,
+static int32_t watch(const lues_api *api, lues_self self, const lues_at *at, lues_event ev,
                      const char *text, size_t len) {
     if (!on_main_thread(api, self)) {
         return 0;
     }
-    if (ev != OKET_EVENT_IO && ev != OKET_EVENT_IO_END) {
+    if (ev != LUES_EVENT_IO && ev != LUES_EVENT_IO_END) {
         return 0; /* a document moved; this fixture draws nothing and does not care */
     }
     if (SERVER == 0 || at->io != SERVER) {
         return 0;
     }
-    if (ev == OKET_EVENT_IO) {
+    if (ev == LUES_EVENT_IO) {
         char *grown = realloc(BUF, BUF_LEN + len + 1);
         if (!grown) {
             return 0;
@@ -114,7 +114,7 @@ static int32_t watch(const oket_api *api, oket_self self, const oket_at *at, oke
         BUF_LEN += len;
         BUF[BUF_LEN] = 0;
         take_frames(api, self);
-    } else if (ev == OKET_EVENT_IO_END) {
+    } else if (ev == LUES_EVENT_IO_END) {
         char msg[64];
         if (!READY) {
             snprintf(msg, sizeof msg, "lsp: server exited %d", at->code);
@@ -125,7 +125,7 @@ static int32_t watch(const oket_api *api, oket_self self, const oket_at *at, oke
     return 0;
 }
 
-static int32_t lsp_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t lsp_cmd(const lues_api *api, lues_self self, const lues_at *at,
                        const char *args, size_t args_len) {
     (void)at;
     if (args_len == 4 && memcmp(args, "stop", 4) == 0) {
@@ -151,7 +151,7 @@ static int32_t lsp_cmd(const oket_api *api, oket_self self, const oket_at *at,
     return 0;
 }
 
-OKET_MAIN {
+LUES_MAIN {
     MAIN_THREAD = pthread_self();
     api->register_command(api, self, "lsp", 3, "talk to a language server", 25, lsp_cmd);
     api->register_watch(api, self, watch);

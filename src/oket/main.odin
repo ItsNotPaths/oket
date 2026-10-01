@@ -6,7 +6,8 @@ import "core:strings"
 import "core:time"
 import sdl "vendor:sdl3"
 import "../gfx"
-import "../wake"
+import "lues:lues"
+import "lues:wake"
 
 WIDTH :: 1200
 HEIGHT :: 760
@@ -80,7 +81,8 @@ main :: proc() {
     // bare on purpose: these three read directories and write files, and none of them wants a
     // renderer, a plugin or a bind table (install.odin).
     {
-        a: App
+        st: State
+        a := App{&st}
         a.home = home_resolve()
         defer home_destroy(&a.home)
         if install_cli(&a, os.args[1:]) {
@@ -106,7 +108,17 @@ main :: proc() {
     // Forward-compatible is required on macOS for a core profile.
     sdl.GL_SetAttribute(.CONTEXT_FLAGS, i32(transmute(u32)sdl.GL_CONTEXT_FORWARD_COMPATIBLE_FLAG))
 
-    a: App
+    // The environment the plugins and every shell step read their directories out of
+    // (path.odin): PROCESS state, so here and not in app_make, which a test calls too. Before
+    // the kernel, which reads them.
+    home_export()
+    // lues's fault net goes in with the kernel, before anything can dispatch, and so do the
+    // quarantine and the trace file it writes (§10, §13).
+    a, made := app_make(home_resolve())
+    if !made {
+        fmt.eprintln("the kernel did not start")
+        os.exit(1)
+    }
     a.window = sdl.CreateWindow(TITLE, WIDTH, HEIGHT, {.OPENGL, .RESIZABLE, .HIGH_PIXEL_DENSITY})
     if a.window == nil {
         fmt.eprintfln("SDL_CreateWindow failed: %s", sdl.GetError())
@@ -149,12 +161,7 @@ main :: proc() {
     // Input first: binds.conf may spell a chord as a layout glyph, and resolving one needs the
     // scancode base this sets.
     input_init(&a)
-    // The environment the plugins and every shell step read their directories out of
-    // (path.odin). Said here rather than in app_init because it is PROCESS state: a test holds
-    // an App of its own and must not reach into this one's environment. Before app_init,
-    // because that is where a plugin loads and asks.
-    home_export()
-    app_init(&a, home_resolve())
+    app_init(&a)
     defer app_destroy(&a)
 
     // A configured size is the baseline `font.reset` returns to: it is what this user asked
@@ -173,17 +180,8 @@ main :: proc() {
         _ = sdl.PushEvent(&ev) // thread-safe by contract, which is the whole point of the hook
     }
 
-    // §10's net, before anything can dispatch, and the watchdog that turns a hang into the
-    // same named death a fault gets. Without them nothing below should be loading a plugin
-    // by itself.
-    fault_install()
-    fault_watchdog_start()
-    // Before autoload, and it reads the file before it opens it for the handler: a plugin an
-    // earlier start died IN is held back, and the handler gets somewhere to name the next one
-    // (§13).
-    quarantine_open(&a)
-    // The other file the handler cannot open for itself (§5): a fault's frames land here.
-    fault_trace_open(&a)
+    // The watchdog that turns a hang into the same named death a fault gets (§10).
+    lues.fault_watchdog_start()
     if a.start == .Ordinary {
         plug_autoload(&a)
     }
@@ -219,11 +217,10 @@ main :: proc() {
         sh_pump(&a)
         chain_pump(&a)
         settled := docs_settle(&a) // and, with it, the view pipeline (VIEWS.md §5)
-        io_pump(&a) // before the moved pass, so what an I/O handler wrote is reported once
-        // Whose generation moved, told once the drain has settled. A plugin that answered
-        // "not finished" is the one thing no keystroke and no reader thread will wake, so the
-        // frame after it is polled rather than waited for (§9). A view stage says the same
-        // thing the same way.
+        // The I/O worker's answers, then whose generation moved, told once the drain has
+        // settled. A plugin that answered "not finished" is the one thing no keystroke and no
+        // reader thread will wake, so the frame after it is polled rather than waited for (§9).
+        // A view stage says the same thing the same way.
         latched := plug_pump(&a) | settled
 
         surface_draw(&a)

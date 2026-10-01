@@ -1,5 +1,6 @@
 package tests
 
+import "lues:lues"
 import "core:encoding/endian"
 import "core:fmt"
 import "core:mem"
@@ -27,7 +28,6 @@ import app "../oket"
 crash_app :: proc(t: ^testing.T, name, text: string) ->
                   (a: app.App, path, home: string, ok: bool) {
     a = plug_app(t, name, "plugins/edit") or_return
-    app.plug_init(&a)
     if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "edit")), a.message) {
         close_plug_app(&a)
         return {}, "", "", false
@@ -55,8 +55,7 @@ crash_app :: proc(t: ^testing.T, name, text: string) ->
 @(private = "file")
 restart :: proc(home: string) -> (a: app.App, ok: bool) {
     a = bare_app() or_return
-    app.home_set(&a.home, home)
-    app.plug_init(&a)
+    app.app_home(&a, home)
     app.plug_autoload(&a)
     return a, true
 }
@@ -114,7 +113,7 @@ work_survives_a_crash_and_a_restart :: proc(t: ^testing.T) {
 // Which line of the page carries the first row of recovered work.
 @(private = "file")
 home_row :: proc(a: ^app.App, page: store.Id) -> int {
-    d := store.store_descriptor(&a.docs, page)
+    d := store.store_descriptor(a.docs, page)
     defer desc.release(d)
     for f in d.fields {
         if f.name == "path" {
@@ -156,7 +155,7 @@ only_editable_files_are_journaled :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.home_set(&a.home, home)
+    app.app_home(&a, home)
 
     file, _ := filepath.join({home, "alpha.txt"}, context.temp_allocator)
     app.ring_add(&a, listing_doc(&a, home)) // a file, and not editable
@@ -335,7 +334,7 @@ a_journal_that_cannot_write_stops_and_says_so :: proc(t: ^testing.T) {
     }
     writable := j.file
     j.file = ro
-    app.fault_journal_add(os.fd(ro))
+    lues.fault_sync_add(os.fd(ro))
 
     app.handle_chord(&a, chord("END"))
     app.text_input(&a, 'Z')
@@ -343,14 +342,14 @@ a_journal_that_cannot_write_stops_and_says_so :: proc(t: ^testing.T) {
     // Broken is sticky: hand the working fd back, and the next record still must not land —
     // bytes appended after a torn record would replay as its text.
     j.file = writable
-    app.fault_journal_drop(os.fd(ro))
+    lues.fault_sync_drop(os.fd(ro))
     os.close(ro)
     size := file_size(journal)
     app.text_input(&a, 'Y')
     testing.expect_value(t, file_size(journal), size)
 
     app.journal_sync(&a)
-    doc := store.store_doc(&a.docs, id)
+    doc := store.store_doc(a.docs, id)
     testing.expect(t, doc != nil && doc.sink.write == nil, "the journal went on taking records")
     testing.expect(t, strings.contains(a.message, "stopped taking records"), a.message)
     testing.expect(t, os.exists(journal), "the work written before the failure was thrown away")

@@ -1,5 +1,6 @@
 package view
 
+import "lues:pt"
 import "core:fmt"
 import "core:slice"
 import "core:unicode/utf8"
@@ -67,7 +68,7 @@ Row :: struct {
 draw :: proc(
     g: ^gfx.Grid,
     th: gfx.Theme,
-    t: ^txt.Text,
+    t: ^pt.Text,
     d: ^desc.Descriptor,
     v: View,
     x, y, w, h: int,
@@ -110,7 +111,7 @@ draw :: proc(
     rs := rows(t, d, v.top, body, h, dv)
     on := onscreen(set, row_span(rs))
     for r, i in rs {
-        src := txt.text_line(t, r.line, context.temp_allocator)
+        src := pt.text_line(t, r.line, context.temp_allocator)
         clipped := scrolled(r, src, v.left, d.tab_width)
         ind := indent(d, body, r.src)
         put_number(g, th, d, v, x, y + i, gut, r)
@@ -170,11 +171,11 @@ row_span :: proc(rs: []Row) -> (lo, hi: int) {
 // The same span for a columns document, which has no row list: one row per line, so the ends
 // of what fits, skipping the rows a view stage inserted the way row_span does.
 @(private)
-col_span :: proc(t: ^txt.Text, dv: ^Derived, top, h: int) -> (lo, hi: int) {
+col_span :: proc(t: ^pt.Text, dv: ^Derived, top, h: int) -> (lo, hi: int) {
     lo, hi = max(int), min(int)
     for i in 0 ..< h {
         line := top + i
-        if line >= txt.text_line_count(t) {
+        if line >= pt.text_line_count(t) {
             break
         }
         if orig := src_line(dv, t, line); orig >= 0 {
@@ -191,7 +192,7 @@ restyle :: proc(
     g: ^gfx.Grid,
     th: gfx.Theme,
     pal: [][3]f32,
-    t: ^txt.Text,
+    t: ^pt.Text,
     d: ^desc.Descriptor,
     dv: ^Derived,
     x, y, width: int,
@@ -266,8 +267,8 @@ paint :: proc(g: ^gfx.Grid, th: gfx.Theme, pal: [][3]f32, d: ^desc.Descriptor, r
 // The row's line as offsets: where it starts in the DRAWN document, and where the line it shows
 // starts in the ORIGINAL. One document, and one number, when there is no map.
 @(private)
-line_offs :: proc(t: ^txt.Text, dv: ^Derived, r: Row) -> (dls, ols: int) {
-    return txt.text_line_start(t, r.line), txt.text_line_start(original(dv, t), max(r.src, 0))
+line_offs :: proc(t: ^pt.Text, dv: ^Derived, r: Row) -> (dls, ols: int) {
+    return pt.text_line_start(t, r.line), pt.text_line_start(original(dv, t), max(r.src, 0))
 }
 
 // Every run on one line, in the order they were published.
@@ -292,15 +293,15 @@ line_styles :: proc(styles: []Style, line: int) -> []Style {
 // The visual rows a document lays out to, from `from`, at most `limit` of them. `wrap: none`
 // is one row per line and the draw clips it.
 rows :: proc(
-    t: ^txt.Text,
+    t: ^pt.Text,
     d: ^desc.Descriptor,
     from, width, limit: int,
     dv: ^Derived = nil,
     alloc := context.temp_allocator,
 ) -> []Row {
     out := make([dynamic]Row, 0, limit, alloc)
-    for line := max(from, 0); line < txt.text_line_count(t) && len(out) < limit; line += 1 {
-        src := txt.text_line(t, line, alloc)
+    for line := max(from, 0); line < pt.text_line_count(t) && len(out) < limit; line += 1 {
+        src := pt.text_line(t, line, alloc)
         orig := src_line(dv, t, line)
         // An indented line wraps in what is left of the row, and every row it takes is indented
         // — a hanging indent, and the reason the width is per line rather than per document.
@@ -344,7 +345,7 @@ scrolled :: proc(r: Row, src: []u8, left, tab: int) -> Row {
 // the value is what it POINTS AT, and a browser row showing a bare name is the case that needs
 // the two to differ (desc.Field).
 field_text :: proc(
-    t: ^txt.Text,
+    t: ^pt.Text,
     d: ^desc.Descriptor,
     line: int,
     name: string,
@@ -359,18 +360,18 @@ field_text :: proc(
         return f.value, true
     }
     // A field is the ORIGINAL's: its span was measured over bytes no stage had touched yet.
-    src := txt.text_line(original(dv, t), line, alloc)
+    src := pt.text_line(original(dv, t), line, alloc)
     a := clamp(f.lo, 0, len(src))
     b := clamp(f.hi, a, len(src))
     return string(src[a:b]), true
 }
 
 // The widest number the gutter can show is an ORIGINAL line's, so a fold does not narrow it.
-gutter_width :: proc(t: ^txt.Text, d: ^desc.Descriptor, dv: ^Derived = nil) -> int {
+gutter_width :: proc(t: ^pt.Text, d: ^desc.Descriptor, dv: ^Derived = nil) -> int {
     if d.numbers == .Off {
         return 0
     }
-    n := txt.text_line_count(original(dv, t))
+    n := pt.text_line_count(original(dv, t))
     return digits(n) + 1 // one column of air between the number and the text
 }
 
@@ -533,7 +534,7 @@ word_break :: proc(src: []u8, off, end: int) -> int {
 draw_columns :: proc(
     g: ^gfx.Grid,
     th: gfx.Theme,
-    t: ^txt.Text,
+    t: ^pt.Text,
     d: ^desc.Descriptor,
     v: View,
     x, y, gut, w, h: int,
@@ -546,7 +547,7 @@ draw_columns :: proc(
     on := onscreen(carets, col_span(t, dv, v.top, h))
     for i in 0 ..< h {
         line := v.top + i
-        if line >= txt.text_line_count(t) {
+        if line >= pt.text_line_count(t) {
             break
         }
         orig := src_line(dv, t, line)
@@ -680,7 +681,7 @@ mark_select :: proc(g: ^gfx.Grid, x, y, from, to, pct: int) {
 @(private)
 mark_point :: proc(
     g: ^gfx.Grid,
-    t: ^txt.Text,
+    t: ^pt.Text,
     d: ^desc.Descriptor,
     dv: ^Derived,
     x, y, width: int,
@@ -703,7 +704,7 @@ mark_point :: proc(
 @(private)
 mark_one :: proc(
     g: ^gfx.Grid,
-    t: ^txt.Text,
+    t: ^pt.Text,
     d: ^desc.Descriptor,
     dv: ^Derived,
     x, y, width: int,
@@ -728,8 +729,8 @@ mark_one :: proc(
     // over a fold paints the visible pieces of itself and leaves the marker between them dark:
     // what is lit is what the user selected, never what a stage added.
     orig := original(dv, t)
-    dls := txt.text_line_start(t, r.line)
-    for part in parts(dv, r, dls, txt.text_off(orig, lo), txt.text_off(orig, hi)) {
+    dls := pt.text_line_start(t, r.line)
+    for part in parts(dv, r, dls, pt.text_off(orig, lo), pt.text_off(orig, hi)) {
         mark_select(g, x, y, cell_of(row, part[0] - r.lo, d.tab_width),
                     min(cell_of(row, part[1] - r.lo, d.tab_width), width), select)
     }
@@ -740,7 +741,7 @@ mark_one :: proc(
 @(private)
 mark_caret :: proc(
     g: ^gfx.Grid,
-    t: ^txt.Text,
+    t: ^pt.Text,
     d: ^desc.Descriptor,
     dv: ^Derived,
     x, y, width: int,
@@ -762,7 +763,7 @@ mark_caret :: proc(
 // IME's candidate window docks where the caret is marked (IME.md §8). False off screen or in a
 // hidden run. Cell to pixel is the window layer's multiplication; nothing here knows a pixel.
 caret_cell :: proc(
-    t: ^txt.Text,
+    t: ^pt.Text,
     d: ^desc.Descriptor,
     v: View,
     x, y, w, h: int,
@@ -793,7 +794,7 @@ caret_cell :: proc(
         if at.line != r.line {
             continue
         }
-        src := txt.text_line(t, r.line, context.temp_allocator)
+        src := pt.text_line(t, r.line, context.temp_allocator)
         c := scrolled(r, src, v.left, d.tab_width)
         if at.col < c.lo || at.col > c.hi {
             continue
@@ -812,7 +813,7 @@ caret_cell :: proc(
 // because a click wants both and hover wants the name. Pixel to cell is the window layer's
 // division; nothing here knows what a pixel is.
 locate :: proc(
-    t: ^txt.Text,
+    t: ^pt.Text,
     d: ^desc.Descriptor,
     v: View,
     x, y, w, h: int,
@@ -843,7 +844,7 @@ locate :: proc(
     if cy - y >= len(rs) {
         return {}, "", false
     }
-    src := txt.text_line(t, rs[cy - y].line, context.temp_allocator)
+    src := pt.text_line(t, rs[cy - y].line, context.temp_allocator)
     r := scrolled(rs[cy - y], src, v.left, d.tab_width)
     col = max(col - indent(d, body, r.src), 0)
     p = {r.line, r.lo + byte_of(src[r.lo:r.hi], col, d.tab_width)}
@@ -865,11 +866,11 @@ locate :: proc(
 // The columns arm: the cell names a column, the column names the line's field.
 @(private)
 locate_columns :: proc(
-    t: ^txt.Text,
+    t: ^pt.Text,
     d: ^desc.Descriptor,
     line, orig, col: int,
 ) -> (txt.Pos, string, bool) {
-    if line >= txt.text_line_count(t) || orig < 0 {
+    if line >= pt.text_line_count(t) || orig < 0 {
         return {}, "", false
     }
     name, over := column_at(d, col)
@@ -898,14 +899,14 @@ column_at :: proc(d: ^desc.Descriptor, cell: int) -> (name: string, ok: bool) {
 
 // The wheel and the page keys, in whole lines. The last line stays reachable and the view never
 // runs off the end; `overscroll` is what would relax that, and it is not built.
-scroll :: proc(v: ^View, t: ^txt.Text, by: int) {
-    v.top = clamp(v.top + by, 0, max(txt.text_line_count(t) - 1, 0))
+scroll :: proc(v: ^View, t: ^pt.Text, by: int) {
+    v.top = clamp(v.top + by, 0, max(pt.text_line_count(t) - 1, 0))
 }
 
 // Keep point on screen after a motion, and `reveal` with it (§6): `top` is a line of the DRAWN
 // document and the caret is a position in the original, so the map is what puts them in one
 // space. The descriptor's `margin` (scrolloff) lands here.
-follow :: proc(v: ^View, h: int, t: ^txt.Text = nil, dv: ^Derived = nil) {
+follow :: proc(v: ^View, h: int, t: ^pt.Text = nil, dv: ^Derived = nil) {
     if h <= 0 {
         return
     }
@@ -915,9 +916,9 @@ follow :: proc(v: ^View, h: int, t: ^txt.Text = nil, dv: ^Derived = nil) {
 
 // The cell point sits at on its own line. Only this package measures cells, so the caller that
 // wants to keep point in view asks for the column rather than counting one of its own.
-point_col :: proc(t: ^txt.Text, d: ^desc.Descriptor, v: View, dv: ^Derived = nil) -> int {
+point_col :: proc(t: ^pt.Text, d: ^desc.Descriptor, v: View, dv: ^Derived = nil) -> int {
     at, _ := view_pos(dv, t, v.point.head)
-    src := txt.text_line(t, at.line, context.temp_allocator)
+    src := pt.text_line(t, at.line, context.temp_allocator)
     return cell_of(src, min(at.col, len(src)), d.tab_width)
 }
 
@@ -946,7 +947,7 @@ follow_col :: proc(v: ^View, col, w: int) {
 // The kernel asks the bind table and draws this; no surface is involved.
 underline :: proc(
     g: ^gfx.Grid,
-    t: ^txt.Text,
+    t: ^pt.Text,
     d: ^desc.Descriptor,
     v: View,
     x, y, w, h: int,
@@ -983,11 +984,11 @@ underline :: proc(
     // Through the rows the draw laid out, so a wrapped span underlines every row it covers and
     // hover cannot disagree with the paint about which one a field is on.
     for row, i in rows(t, d, v.top, body, h, dv) {
-        r := scrolled(row, txt.text_line(t, row.line, context.temp_allocator), v.left, d.tab_width)
+        r := scrolled(row, pt.text_line(t, row.line, context.temp_allocator), v.left, d.tab_width)
         if r.src != line {
             continue
         }
-        src := txt.text_line(t, r.line, context.temp_allocator)[r.lo:r.hi]
+        src := pt.text_line(t, r.line, context.temp_allocator)[r.lo:r.hi]
         dls, ols := line_offs(t, dv, r)
         ind := indent(d, body, r.src)
         for part in parts(dv, r, dls, ols + lo, ols + hi) {

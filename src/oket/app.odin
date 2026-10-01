@@ -4,15 +4,22 @@ import "core:os"
 import "core:strings"
 import sdl "vendor:sdl3"
 import "../gfx"
+import "../desc"
 import "../input"
+import "../plug"
 import "../store"
 import "../strip"
-import "../work"
 
 // The kernel's whole mutable state: one window, a store of documents, the ring that says which
 // one is on screen, one bind table, and the command line.
-
+//
+// An App is a HANDLE on it. Tests build one and return it by value, and lues's hooks reach the
+// same state through k.user, so the state itself never moves.
 App :: struct {
+    using state: ^State,
+}
+
+State :: struct {
     window:       ^sdl.Window,
     painter:      gfx.Painter,
     // The bar's own one-row grid (§11), anchored to the window's bottom edge: the one thing the
@@ -46,49 +53,31 @@ App :: struct {
     win:          [2]int,
     cell:         [2]int,
     theme:        gfx.Theme,
-    docs:         store.Store,
+    // lues (plug.odin), on the heap: it may not move once started. `docs` is its store.
+    kernel:       ^Kernel,
+    docs:         ^store.Store,
     ring:         Ring,
     // Every live PTY session, by the document it drives. A terminal is a kernel-implemented
     // document (§7), so what a session needs past text and a descriptor lives here and not in
     // the store.
     terms:        map[store.Id]^Term,
-    // The plugin seam (§7). One vtable behind one pointer, a table per registration, and the
-    // instance a plugin's document carries. Slots are tombstoned rather than compacted, so an
-    // id a bind row or a descriptor holds never means someone else.
-    api:          Api_Box,
-    plugs:        [dynamic]Plugin,
-    kinds:        [dynamic]Plug_Kind,
-    cmds:         [dynamic]Plug_Cmd,
-    insts:        map[store.Id]Plug_Inst,
-    // §9's I/O workers, and the record of who a job's answers belong to. The pool holds the
-    // one thread that waits; io.odin holds the routing. By pointer: a started Pool must not
-    // move (work.odin), and an App is a value a test harness returns by copy.
-    io:           ^work.Pool,
-    io_jobs:      map[work.Id]Io_Job,
+    // oket's own per-plugin state (plug.odin): view stages by plugin slot, and the descriptor
+    // each plugin staged for its next submit to a doc.
+    viewers:      map[int]plug.View_Fn,
+    staged:       map[Staged]^desc.Descriptor,
+    // Transactions and caret sets landed since docs_settle last looked (hooks.drained).
+    settled:      int,
     // §10's recovery journal, per document: what is journaled is a descriptor read, not a
     // field, and journal.odin's header says why. By pointer, because the sink holds the
     // address across the document's whole life.
     journals:     map[store.Id]^Journal,
-    // §13's quarantine: the plugins an earlier start died in, and the fd the fault handler
-    // writes the next name to. Read before autoload, appended to by a handler that cannot open
-    // a file of its own (quarantine.odin).
-    quarantined:  [dynamic]string,
-    report:       ^os.File,
-    // §5's trace file, beside it: the frames the handler walked before it unwound, so a
-    // recovered fault names a line and not only a plugin (fault.odin).
-    traces:       ^os.File,
-    // Style-token names, interned (tokens.odin). A span carries an id; the palette says what
-    // the id looks like, so a plugin never names a colour.
+    // What the palette says each interned token looks like, by id (tokens.odin).
     tokens:       [dynamic]Token_Def,
     // The loaded theme (theme.odin): the file's scopes, and the name last applied so a sync is
     // a compare. Empty scopes is the baked palette.
     scopes:       map[string]Theme_Entry,
     theme_on:     string, // owned
-    // Who publishes style runs, interned by name (spans.odin). The store keys its buckets by
-    // the id; config ranks them by the name.
-    producers:    [dynamic]string,
     config:       Config, // config.conf, which holds two settings today (config.odin)
-    creqs:        [dynamic]Config_Request, // what a plugin asked the file for (§7)
     // What the two config files could not be read as (config.odin). The bar says the last one
     // and the next keystroke clears it; the home page lists them all, because a start is where
     // a typo in binds.conf is actually read.
@@ -116,8 +105,6 @@ App :: struct {
     job:          Job,
     sys_seq:      u64, // the last injection into N0; a report carrying another is stale
     binds:        [dynamic]input.Bind,
-    reqs:         [dynamic]Bind_Request,
-    clashes:      [dynamic]Bind_Clash,
     pending:      input.Pending,
     // The key that is down, if one is (PANELS.md §6). It qualifies the next chord — `tab+enter`
     // is not `enter` — and its release is what commits an armed picker. One field, because a
@@ -164,15 +151,27 @@ Cells :: struct {
     x, y, w, h: int,
 }
 
-// The three directories are an ARGUMENT because the harness runs on a scratch home (§6): a
-// repro must not write the config file, the session or the journal of the oket that spawned it.
-// Owned from here on, and freed by app_destroy.
-app_init :: proc(a: ^App, home: Home) {
+// The state and its kernel. The three directories are an ARGUMENT because the harness runs on a
+// scratch home (§6): a repro must not write the config file, the session or the journal of the
+// oket that spawned it. Owned from here on, and freed by app_destroy. `unguarded` is the
+// harness's: no fault net, so a plugin's crash is a crash.
+app_make :: proc(home: Home = {}, unguarded := false) -> (a: App, ok: bool) {
+    a.state = new(State)
     a.theme = gfx.DEFAULT_THEME
+    a.home = home
+    return a, kernel_open(&a, unguarded)
+}
+
+// Another home, for the App and the kernel that reads it (lues borrows the strings).
+app_home :: proc(a: ^App, dir: string) {
+    home_set(&a.home, dir)
+    a.kernel.home = kernel_home(a.home)
+}
+
+app_init :: proc(a: ^App) {
     if a.window != nil {
         a.hand = sdl.CreateSystemCursor(.POINTER) // the window's, so a harness App makes none
     }
-    a.home = home
     a.dir = start_dir(os.args[1:])
     // Read once, here, so main and the home page cannot disagree about which start this is.
     switch {
@@ -182,33 +181,26 @@ app_init :: proc(a: ^App, home: Home) {
         a.start = .No_Plugins
     }
     config_sync(a)
-    plug_init(a) // before binds_sync: a row may name a kind or a command a plugin registers
     cl_init(a)
     binds_sync(a)
 }
 
+// Whatever holds a document or a snapshot goes before the kernel, whose heap they are on.
 app_destroy :: proc(a: ^App) {
     journals_destroy(a) // a clean exit leaves nothing to recover (§10)
-    quarantine_destroy(a)
-    fault_trace_close(a)
     job_destroy(a)
-    io_destroy(a) // before the plugins: their close runs with no completion still arriving
-    plug_destroy(a)
-    tokens_destroy(a)
-    theme_destroy(a)
-    producers_destroy(a)
     views_destroy(a)
-    config_requests_destroy(a)
-    config_destroy(&a.config)
-    gripes_destroy(a)
     chain_clear(a)
     queue_destroy(a)
     cl_destroy(a)
     ring_destroy(a)
     terms_destroy(a)
-    store.store_destroy(&a.docs)
+    kernel_close(a)
+    tokens_destroy(a)
+    theme_destroy(a)
+    config_destroy(&a.config)
+    gripes_destroy(a)
     input.binds_destroy(&a.binds)
-    binds_requests_destroy(a)
     input.pending_set(&a.pending) // an armed picker owns the line it captured
     message_set(a, "")
     clips_free(a) // the ring, not the selection: exiting must not empty the user's clipboard
@@ -227,6 +219,8 @@ app_destroy :: proc(a: ^App) {
         gfx.mesher_destroy(&a.mesher)
         gfx.painter_destroy(&a.painter) // the atlas and its faces go with it
     }
+    free(a.state)
+    a.state = nil
 }
 
 // Echo style: a message lives until the next keystroke clears it.

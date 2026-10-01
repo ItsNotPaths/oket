@@ -261,7 +261,7 @@ notes_app :: proc(t: ^testing.T, name, body: string) -> (a: app.App, ok: bool) {
 
 @(private = "file")
 focused_doc :: proc(a: ^app.App) -> ^txt.Doc {
-    return store.store_doc(&a.docs, app.active(a).doc)
+    return store.store_doc(a.docs, app.active(a).doc)
 }
 
 // The press half of a button chord, then the release half, the way input.odin drives them.
@@ -362,8 +362,7 @@ a_config_line_picks_what_a_split_leaves :: proc(t: ^testing.T) {
         return
     }
     defer close_app(&a)
-    app.home_set(&a.home, dir)
-    defer app.home_destroy(&a.home)
+    app.app_home(&a, dir)
 
     path, _ := filepath.join({dir, app.CONFIG_NAME}, context.temp_allocator)
     body := "[cursor]\nsplit = carets\n"
@@ -435,7 +434,7 @@ every_caret_is_drawn :: proc(t: ^testing.T) {
 
     id := scratch_doc(&a, "note.txt", "aaa\nbbb\nccc\nddd")
     app.ring_add(&a, id)
-    doc := store.store_doc(&a.docs, id)
+    doc := store.store_doc(a.docs, id)
 
     txt.doc_reset_cursor(doc, {0, 1})
     txt.doc_add_cursor(doc, {1, 1})
@@ -474,7 +473,7 @@ a_mixed_set_draws_both_shapes :: proc(t: ^testing.T) {
 
     id := scratch_doc(&a, "note.txt", "aaaa\nbbbb")
     app.ring_add(&a, id)
-    doc := store.store_doc(&a.docs, id)
+    doc := store.store_doc(a.docs, id)
 
     txt.doc_set_spans(doc, [][2]txt.Pos{{{0, 0}, {0, 3}}, {{1, 2}, {1, 2}}})
     app.point_sync(&a)

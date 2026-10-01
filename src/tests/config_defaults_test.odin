@@ -15,7 +15,7 @@ import app "../oket"
 config_at :: proc(t: ^testing.T, name: string) -> (a: app.App, dir: string, ok: bool) {
     dir = scratch(t, name) or_return
     a = bare_app() or_return
-    app.home_set(&a.home, dir) // owned, the way app_init sets it
+    app.app_home(&a, dir) // owned, the way app_init sets it
     app.config_sync(&a)
     return a, dir, true
 }
@@ -63,7 +63,6 @@ every_printed_default_is_the_real_one :: proc(t: ^testing.T) {
         return
     }
     defer os.remove_all(dir)
-    defer app.home_destroy(&a.home)
     defer close_app(&a)
 
     text := config_text(&a)
@@ -128,7 +127,6 @@ the_defaults_block_is_asked_once :: proc(t: ^testing.T) {
         return
     }
     defer os.remove_all(dir)
-    defer app.home_destroy(&a.home)
     defer close_app(&a)
 
     path, _ := filepath.join({dir, "config.conf"}, context.temp_allocator)

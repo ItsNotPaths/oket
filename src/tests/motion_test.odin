@@ -25,13 +25,13 @@ TAU_MS :: 90 // bare_app leaves the config zero, which is motion OFF; these test
 // is written here rather than by compiling the editor plugin for it.
 @(private = "file")
 wrap_doc :: proc(a: ^app.App, text: string) -> store.Id {
-    id := store.store_open(&a.docs, text)
-    gen, _ := store.store_gen(&a.docs, id)
+    id := store.store_open(a.docs, text)
+    gen, _ := store.store_gen(a.docs, id)
     d := desc.new_from({render = .Text, wrap = .Word, ctx = .Text, selection = .Char,
                         tab_width = 4})
-    store.store_submit(&a.docs, id, gen, nil, d)
+    store.store_submit(a.docs, id, gen, nil, d)
     desc.release(d)
-    store.store_drain(&a.docs)
+    store.store_drain(a.docs)
     return id
 }
 

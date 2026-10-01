@@ -25,7 +25,6 @@ themes_write :: proc(dir, file, body: string) {
 @(private = "file")
 themer_app :: proc(t: ^testing.T, name: string) -> (a: app.App, dir: string, ok: bool) {
     a = plug_app(t, name, "plugins/themer") or_return
-    app.plug_init(&a)
     if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "themer")), a.message) {
         close_plug_app(&a)
         return {}, "", false
@@ -62,7 +61,7 @@ each_row_carries_the_chain_its_state_means :: proc(t: ^testing.T) {
     testing.expect(t, strings.contains(text, "pulled"), text)
     testing.expect(t, strings.contains(text, "* gruvbox"), text)
 
-    d := store.store_descriptor(&a.docs, id)
+    d := store.store_descriptor(a.docs, id)
     defer desc.release(d)
 
     act, _ := desc.field_of(d, 2, "act") // dracula is here: a bare switch
@@ -140,7 +139,7 @@ a_stale_manifest_line_marks_nothing :: proc(t: ^testing.T) {
     themes_write(dir, ".themer", "dracula\nnord\n") // nord's file was never pulled
     app.cl_exec(&a, ":th.done")
 
-    d := store.store_descriptor(&a.docs, app.ring_focused(&a).doc)
+    d := store.store_descriptor(a.docs, app.ring_focused(&a).doc)
     defer desc.release(d)
     rm, held := desc.field_of(d, 3, "rm") // nord's row
     testing.expect(t, held && rm.value == "", "a stale manifest line grew an rm")

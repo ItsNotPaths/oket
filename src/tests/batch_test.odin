@@ -35,14 +35,14 @@ a_thousand_caret_edit_is_linear_in_pieces :: proc(t: ^testing.T) {
 
     // Splinter the table first: a rebuild over one piece would measure nothing.
     txt.doc_apply(&d, spread(CARETS, 0, 8, "a"))
-    pieces := len(d.pt.pieces)
+    pieces := len(d.table.pieces)
     testing.expectf(t, pieces > CARETS, "the fixture left %d pieces; it never splintered", pieces)
 
     txt.doc_apply(&d, spread(CARETS, 4, 9, "b"))
 
     budget := 2 * (pieces + CARETS)
-    testing.expectf(t, d.pt.touched <= budget, "%d piece visits for %d carets over %d pieces",
-                    d.pt.touched, CARETS, pieces)
+    testing.expectf(t, d.table.touched <= budget, "%d piece visits for %d carets over %d pieces",
+                    d.table.touched, CARETS, pieces)
     testing.expect_value(t, txt.doc_len(&d), 10 * CARETS)
 }
 

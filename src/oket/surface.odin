@@ -1,5 +1,6 @@
 package main
 
+import "lues:pt"
 import "core:unicode/utf8"
 import "../desc"
 import "../gfx"
@@ -73,13 +74,13 @@ surface_draw :: proc(a: ^App) {
 panel_draw :: proc(a: ^App, p: ^Panel, marked: bool) {
     th := a.theme
     s := panel_slot(a, p)
-    snap := s != nil ? store.store_snapshot(&a.docs, s.doc) : nil
+    snap := s != nil ? store.store_snapshot(a.docs, s.doc) : nil
     if snap == nil {
         screen_draw(&p.grid, th, &a.painter.atlas)
         return
     }
-    defer txt.snapshot_release(snap)
-    d := store.store_descriptor(&a.docs, s.doc) // the id just resolved, so this cannot miss
+    defer pt.snapshot_release(snap)
+    d := store.store_descriptor(a.docs, s.doc) // the id just resolved, so this cannot miss
     defer desc.release(d)
 
     gfx.grid_clear(&p.grid, th[.Fg], gfx.opaque(th[.Bg]))
@@ -95,7 +96,7 @@ panel_draw :: proc(a: ^App, p: ^Panel, marked: bool) {
     // Borrowed from the document: the drawn text is a snapshot and the cursors are live, but
     // both are read after the drain (docs_settle), so they name the same generation.
     carets: []txt.Cursor
-    if doc := store.store_doc(&a.docs, s.doc); doc != nil {
+    if doc := store.store_doc(a.docs, s.doc); doc != nil {
         carets = doc.cursors[:]
     }
     view.draw(&p.grid, th, t, d, s.view, b.x, b.y, b.w, b.h,
@@ -134,16 +135,16 @@ caret_px :: proc(a: ^App) -> (x, y: int, ok: bool) {
 @(private = "file")
 doc_caret_cell :: proc(a: ^App, id: store.Id, v: view.View,
                        x, y, w, h: int) -> (cx, cy: int, ok: bool) {
-    snap := store.store_snapshot(&a.docs, id)
+    snap := store.store_snapshot(a.docs, id)
     if snap == nil {
         return 0, 0, false
     }
-    defer txt.snapshot_release(snap)
-    doc := store.store_doc(&a.docs, id)
+    defer pt.snapshot_release(snap)
+    doc := store.store_doc(a.docs, id)
     if doc == nil {
         return 0, 0, false
     }
-    d := store.store_descriptor(&a.docs, id)
+    d := store.store_descriptor(a.docs, id)
     defer desc.release(d)
     t, dv := views_text(a, id, &snap.text)
     return view.caret_cell(t, d, v, x, y, w, h, doc.cursors[doc.primary].head, dv)

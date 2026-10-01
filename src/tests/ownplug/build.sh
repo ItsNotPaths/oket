@@ -6,4 +6,4 @@ set -euo pipefail
 SRC="$1"
 OUT="$2"
 zig c++ -shared -std=c++17 -fPIC -O2 -fvisibility=hidden \
-    -I"$OKET_SEAM" -o "$OUT/ownplug.so" "$SRC/ownplug.cxx"
+    -I"$OKET_SEAM" -I"$OKET_LUES" -o "$OUT/ownplug.so" "$SRC/ownplug.cxx"

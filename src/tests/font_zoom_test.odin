@@ -43,8 +43,8 @@ a_zoom_step_moves_the_cell :: proc(t: ^testing.T) {
     if !ok {
         return
     }
-    defer gfx.atlas_destroy(&a.painter.atlas)
     defer close_app(&a)
+    defer gfx.atlas_destroy(&a.painter.atlas)
 
     plus, _ := input.key_code("AE12")
     minus, _ := input.key_code("AE11")
@@ -77,8 +77,8 @@ a_zoom_at_the_range_end_says_so :: proc(t: ^testing.T) {
     if !ok {
         return
     }
-    defer gfx.atlas_destroy(&a.painter.atlas)
     defer close_app(&a)
+    defer gfx.atlas_destroy(&a.painter.atlas)
 
     plus, _ := input.key_code("AE12")
     app.handle_chord(&a, {plus, {.Ctrl}, 0})

@@ -29,16 +29,16 @@
 /* The folded header lines of one document, sorted. A document and not an instance: this plugin
  * registers no kind, so it is a stage over somebody else's buffers. */
 typedef struct doc_folds {
-    oket_doc          doc;
+    lues_doc          doc;
     size_t            lines[FOLDS_MAX];
     size_t            n;
     struct doc_folds *next;
 } doc_folds;
 
 static doc_folds *FOLDS;
-static oket_token DIM;
+static lues_token DIM;
 
-static doc_folds *folds_of(oket_doc doc, int make) {
+static doc_folds *folds_of(lues_doc doc, int make) {
     doc_folds *f;
 
     for (f = FOLDS; f != NULL; f = f->next) {
@@ -102,7 +102,7 @@ static void folds_drop(doc_folds *f, size_t line) {
 
 /* The last line of the block `line` heads: everything under it indented further, blank lines
  * carried along rather than ending it. `line` itself when nothing is. */
-static size_t block_end(const oket_snapshot *s, size_t line) {
+static size_t block_end(const lues_snapshot *s, size_t line) {
     char   buf[512];
     size_t head, last, i, len, cols;
 
@@ -130,9 +130,9 @@ static size_t block_end(const oket_snapshot *s, size_t line) {
 static oket_batch EDITS;
 static oket_spans MARKS;
 
-static int32_t fold_view(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t fold_view(const lues_api *api, lues_self self, const lues_at *at,
                          oket_view_out *out) {
-    const oket_snapshot *s = at->snap;
+    const lues_snapshot *s = at->snap;
     doc_folds *f = folds_of(at->doc, 0);
     char       marker[MARKER_MAX];
     size_t     i, head, last, lo, hi, tail, mark, cut = 0, put = 0;
@@ -164,7 +164,7 @@ static int32_t fold_view(const oket_api *api, oket_self self, const oket_at *at,
         /* The run is over the stage's OWN OUTPUT, so it is measured in the document these edits
          * make: everything cut out so far comes off, everything put in goes back on. */
         mark = hi - cut + put;
-        oket_spans_add(&MARKS, mark, mark + (size_t)n, DIM, 0, OKET_SET_FG);
+        oket_spans_add(&MARKS, mark, mark + (size_t)n, DIM, 0, LUES_CHAN_FG);
         cut += tail - hi;
         put += (size_t)n;
     }
@@ -176,14 +176,14 @@ static int32_t fold_view(const oket_api *api, oket_self self, const oket_at *at,
 
 /* The block point is standing on: the caret's line when something is under it, otherwise the
  * nearest line above that heads one. Standing anywhere inside a block folds the block. */
-static int caret_block(const oket_snapshot *s, size_t *line) {
+static int caret_block(const lues_snapshot *s, size_t *line) {
     char   buf[512];
     size_t at, i, len, want, cols;
 
-    if (s->ncursors == 0 || s->lines == 0) {
+    if (oket_side_of(s)->ncursors == 0 || s->lines == 0) {
         return 0;
     }
-    at = (size_t)s->cursors[s->primary].head.line;
+    at = (size_t)oket_side_of(s)->cursors[oket_side_of(s)->primary].head.line;
     if (at >= s->lines) {
         return 0;
     }
@@ -207,9 +207,9 @@ static int caret_block(const oket_snapshot *s, size_t *line) {
     return 0;
 }
 
-static int32_t fold_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t fold_cmd(const lues_api *api, lues_self self, const lues_at *at,
                         const char *args, size_t args_len) {
-    const oket_snapshot *s = at->snap;
+    const lues_snapshot *s = at->snap;
     doc_folds           *f;
     size_t               line;
 
@@ -239,9 +239,9 @@ static int32_t fold_cmd(const oket_api *api, oket_self self, const oket_at *at,
     return 0;
 }
 
-OKET_MAIN {
+LUES_MAIN {
     DIM = api->register_token(api, self, LIT("comment"));
-    api->register_view(api, self, fold_view);
+    oket(api)->register_view(api, self, fold_view);
     api->register_command(api, self, LIT("fold"),
                           LIT("fold or unfold the block point is on; `none` clears them"),
                           fold_cmd);

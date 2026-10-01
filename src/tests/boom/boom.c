@@ -21,7 +21,7 @@
  * instruction — a different signal, and not the one a wild pointer actually raises. */
 static int *volatile NOWHERE;
 
-static oket_kind BOOM;
+static lues_kind BOOM;
 
 /* The view stage's two dials: how many more calls answer "not finished", and whether it dies
  * instead. Both are commands, so a test drives them the way a user would. */
@@ -31,7 +31,7 @@ static oket_batch EDITS;
 
 /* The kernel has already made the document and its descriptor by the time this runs, so a
  * fault here is the case where a half-made document has to go back. */
-static void *open_boom(const oket_api *api, oket_self self, oket_doc doc,
+static void *open_boom(const lues_api *api, lues_self self, lues_doc doc,
                        const char *args, size_t args_len) {
     (void)api;
     (void)self;
@@ -42,7 +42,7 @@ static void *open_boom(const oket_api *api, oket_self self, oket_doc doc,
     return NULL;
 }
 
-static int32_t boom(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t boom(const lues_api *api, lues_self self, const lues_at *at,
                     const char *args, size_t args_len) {
     (void)api;
     (void)self;
@@ -55,7 +55,7 @@ static int32_t boom(const oket_api *api, oket_self self, const oket_at *at,
 
 /* Long enough that the watchdog is what ends the call, and bounded so a test still finishes if
  * the watchdog is the thing that is broken. */
-static int32_t hang(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t hang(const lues_api *api, lues_self self, const lues_at *at,
                     const char *args, size_t args_len) {
     struct timespec t = {5, 0};
     (void)api;
@@ -69,7 +69,7 @@ static int32_t hang(const oket_api *api, oket_self self, const oket_at *at,
 
 /* A stage that spreads its work over frames, which is the whole of what the latch is for: what
  * it emits this time is drawn, and a non-zero return asks for the next frame. */
-static int32_t slice_view(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t slice_view(const lues_api *api, lues_self self, const lues_at *at,
                           oket_view_out *out) {
     char mark[32];
     int  n;
@@ -88,7 +88,7 @@ static int32_t slice_view(const oket_api *api, oket_self self, const oket_at *at
     return SLICES-- > 0;
 }
 
-static int32_t slice(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t slice(const lues_api *api, lues_self self, const lues_at *at,
                      const char *args, size_t args_len) {
     (void)api;
     (void)self;
@@ -97,7 +97,7 @@ static int32_t slice(const oket_api *api, oket_self self, const oket_at *at,
     return 0;
 }
 
-static int32_t boomview(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t boomview(const lues_api *api, lues_self self, const lues_at *at,
                         const char *args, size_t args_len) {
     (void)api;
     (void)self;
@@ -108,8 +108,8 @@ static int32_t boomview(const oket_api *api, oket_self self, const oket_at *at,
     return 0;
 }
 
-OKET_MAIN {
-    static const oket_kind_spec SPEC = {"boom", 4, "surface", 7, {open_boom, NULL, NULL}};
+LUES_MAIN {
+    static const lues_kind_spec SPEC = {sizeof(lues_kind_spec), "boom", 4, "surface", 7, {open_boom, NULL, NULL}};
     BOOM = api->register_kind(api, self, &SPEC);
     if (BOOM == 0) {
         return 1;
@@ -118,6 +118,6 @@ OKET_MAIN {
     api->register_command(api, self, "hang", 4, "stop returning", 14, hang);
     api->register_command(api, self, "slice", 5, "latch for N more calls", 22, slice);
     api->register_command(api, self, "boomview", 8, "fault in the view stage", 23, boomview);
-    api->register_view(api, self, slice_view);
+    oket(api)->register_view(api, self, slice_view);
     return 0;
 }

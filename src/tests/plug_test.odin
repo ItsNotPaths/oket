@@ -1,5 +1,7 @@
 package tests
 
+import "lues:lues"
+import "lues:pt"
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
@@ -11,6 +13,7 @@ import "../desc"
 import "../gfx"
 import "../input"
 import "../shape"
+import "../plug"
 import "../store"
 import "../txt"
 import "../view"
@@ -30,7 +33,6 @@ a_plugin_registers_opens_renders_and_unloads :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.plug_init(&a)
 
     if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "example")), a.message) {
         return
@@ -51,11 +53,11 @@ a_plugin_registers_opens_renders_and_unloads :: proc(t: ^testing.T) {
     id, opened := app.kind_fresh(&a, kind)
     testing.expect(t, opened, "the kind opened nothing")
     app.ring_add(&a, id)
-    snap := store.store_snapshot(&a.docs, id)
-    defer txt.snapshot_release(snap)
-    d := store.store_descriptor(&a.docs, id)
+    snap := store.store_snapshot(a.docs, id)
+    defer pt.snapshot_release(snap)
+    d := store.store_descriptor(a.docs, id)
     defer desc.release(d)
-    testing.expect_value(t, txt.text_line_count(snap), 4)
+    testing.expect_value(t, pt.text_line_count(snap), 4)
     testing.expect_value(t, d.kind, kind)
     testing.expect_value(t, d.ctx, input.Bind_Ctx.Surface)
     testing.expect_value(t, len(d.columns), 2)
@@ -76,7 +78,7 @@ a_plugin_registers_opens_renders_and_unloads :: proc(t: ^testing.T) {
     testing.expect(t, !still_named, "the ledger left a kind behind")
     _, still_cmd := app.plug_cmd_named(&a, "example")
     testing.expect(t, !still_cmd, "the ledger left a command behind")
-    testing.expect(t, !store.store_is_open(&a.docs, id), "the ledger left a document open")
+    testing.expect(t, !store.store_is_open(a.docs, id), "the ledger left a document open")
     // The id stays valid and resolves to nothing. Reusing it would route a keystroke into
     // whoever loaded next, which is the failure a stale handle turns into silent corruption.
     testing.expect_value(t, app.kind_name(&a, kind), "")
@@ -97,7 +99,6 @@ autoload_takes_a_directory_and_the_library_inside_it :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.plug_init(&a)
 
     plugins, _ := filepath.join({a.home.data, app.PLUGIN_DIR}, context.temp_allocator)
     built, read := os.read_entire_file(app.plug_path(&a, "example"), context.temp_allocator)
@@ -114,7 +115,7 @@ autoload_takes_a_directory_and_the_library_inside_it :: proc(t: ^testing.T) {
     }
     // The leftover sorts FIRST, so a loader that took both shapes would run the library the
     // last release wrote and refuse this one as already loaded.
-    testing.expect_value(t, a.plugs[i].path, app.plug_path(&a, "example"))
+    testing.expect_value(t, a.kernel.plugs[i].path, app.plug_path(&a, "example"))
     testing.expect(t, !strings.contains(a.message, "hollow"), a.message)
 }
 
@@ -127,7 +128,6 @@ a_raw_chord_reaches_the_plugin :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.plug_init(&a)
     if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "example")), a.message) {
         return
     }
@@ -136,13 +136,13 @@ a_raw_chord_reaches_the_plugin :: proc(t: ^testing.T) {
     app.ring_add(&a, id)
 
     app.handle_chord(&a, chord("AD01")) // `q`, which no surface row claims
-    store.store_drain(&a.docs)
+    store.store_drain(a.docs)
     testing.expect(t, strings.contains(doc_text(&a, id), "1 chord(s)"), doc_text(&a, id))
 
     // Declined, so the kernel keeps it. A plugin that swallowed everything would make the miss
     // rule unobservable, which is the thing §8 exists to prevent.
     app.handle_chord(&a, chord("ESC"))
-    store.store_drain(&a.docs)
+    store.store_drain(a.docs)
     testing.expect(t, strings.contains(doc_text(&a, id), "1 chord(s)"), doc_text(&a, id))
 }
 
@@ -157,7 +157,6 @@ a_foreign_write_lands_and_the_owner_is_told :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.plug_init(&a)
     if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "example")), a.message) {
         return
     }
@@ -167,13 +166,13 @@ a_foreign_write_lands_and_the_owner_is_told :: proc(t: ^testing.T) {
     app.plug_pump(&a) // the plugin's own `open` write, which it is NOT told about
 
     // A splice nobody asked the plugin's permission for, the way a formatter would.
-    doc := store.store_doc(&a.docs, id)
+    doc := store.store_doc(a.docs, id)
     txt.doc_apply(doc, {{0, 4, "KIND", 0, 0}})
-    store.store_drain(&a.docs)
+    store.store_drain(a.docs)
     app.plug_pump(&a)
 
     app.handle_chord(&a, chord("AD01")) // makes the plugin redraw its count
-    store.store_drain(&a.docs)
+    store.store_drain(a.docs)
     text := doc_text(&a, id)
     testing.expect(t, strings.contains(text, "1 foreign write(s)"), text)
 }
@@ -188,7 +187,6 @@ a_dropped_write_of_our_own_still_reports_the_move :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.plug_init(&a)
     if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "example")), a.message) {
         return
     }
@@ -200,8 +198,8 @@ a_dropped_write_of_our_own_still_reports_the_move :: proc(t: ^testing.T) {
     // A foreign transaction is QUEUED first and the plugin's own goes on behind it, so the
     // drain applies the foreign one and drops the plugin's whole. (The seam drains behind each
     // call, so this is the shape a lost race has: two writers, one queue, one generation.)
-    gen, _ := store.store_gen(&a.docs, id)
-    store.store_submit(&a.docs, id, gen, {{0, 4, "KIND", 0, 0}})
+    gen, _ := store.store_gen(a.docs, id)
+    store.store_submit(a.docs, id, gen, {{0, 4, "KIND", 0, 0}})
     app.handle_chord(&a, chord("AD01")) // the plugin writes, and the drain behind it drops that
     testing.expect(t, strings.contains(doc_text(&a, id), "KIND"), "the foreign write did not land")
     testing.expect(t, !strings.contains(doc_text(&a, id), "1 chord(s)"), "the stale write landed")
@@ -221,12 +219,11 @@ a_registered_command_runs_from_the_command_line :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.plug_init(&a)
     if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "example")), a.message) {
         return
     }
     app.ring_add(&a, scratch_doc(&a, "note", "alpha\nbeta\ngamma"))
-    doc := store.store_doc(&a.docs, app.ring_focused(&a).doc)
+    doc := store.store_doc(a.docs, app.ring_focused(&a).doc)
     doc.cursors[doc.primary] = {anchor = {1, 0}, head = {1, 0}}
 
     app.cl_exec(&a, ":example")
@@ -242,16 +239,15 @@ a_reload_refuses_the_handle_the_last_load_had :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.plug_init(&a)
     if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "example")), a.message) {
         return
     }
     i := app.plug_find(&a, "example")
-    stale := app.plug_self(&a, i)
+    stale := lues.self_handle(a.kernel, i)
 
     testing.expect(t, app.plug_reload(&a, "example"), a.message)
     testing.expect_value(t, app.plug_find(&a, "example"), i) // the slot is reused
-    testing.expect(t, app.plug_self(&a, i) != stale, "the generation did not move")
+    testing.expect(t, lues.self_handle(a.kernel, i) != stale, "the generation did not move")
 }
 
 // The claim §7 makes for `pluginify` being a link step: the helpers a plugin uses INLINE into
@@ -274,7 +270,7 @@ helpers_inline_and_the_rest_are_stripped :: proc(t: ^testing.T) {
         return
     }
     syms := string(out)
-    testing.expect(t, strings.contains(syms, "oket_main"), "the entry point is missing")
+    testing.expect(t, strings.contains(syms, "lues_main"), "the entry point is missing")
     // Used, and gone: example.c calls all four, so what is left of them is inlined code.
     for gone in ([?]string{"oket_line_copy", "oket_copy", "oket_run", "oket_set"}) {
         testing.expectf(t, !strings.contains(syms, gone), "%s did not inline", gone)
@@ -288,31 +284,27 @@ helpers_inline_and_the_rest_are_stripped :: proc(t: ^testing.T) {
     }
 }
 
-// CURSORS.md §7: a dispatch's snapshot names the document's own cursor array. A held snapshot
-// copies, because an append moves that array out from under it.
+// A snapshot's side (Snapshot.app) holds its own copy of the carets: a held snapshot outlives
+// the call, and an append moves the document's array out from under it.
 @(test)
-a_dispatch_names_the_cursors_it_reads :: proc(t: ^testing.T) {
+a_snapshot_copies_the_cursors_it_reads :: proc(t: ^testing.T) {
     a, ok := bare_app()
     if !testing.expect(t, ok, "no app") {
         return
     }
     defer close_app(&a)
     id := scratch_doc(&a, "note", "one\ntwo")
-    doc := store.store_doc(&a.docs, id)
+    doc := store.store_doc(a.docs, id)
     txt.doc_add_cursor(doc, txt.Pos{1, 3})
 
-    v := app.view_make(&a, id)
-    defer app.view_free(v)
-    testing.expect_value(t, rawptr(v.snap.cursors), rawptr(raw_data(doc.cursors[:])))
-    testing.expect_value(t, int(v.snap.ncursors), len(doc.cursors))
-    testing.expect(t, v.curs == nil, "a dispatch allocated for cursors")
-
-    kept := app.view_hold(&a, id)
-    defer app.view_free(kept)
-    testing.expect(t, rawptr(kept.snap.cursors) != rawptr(raw_data(doc.cursors[:])),
-                   "a held snapshot borrowed an array that will move")
-    testing.expect_value(t, int(kept.snap.ncursors), len(doc.cursors))
-    testing.expect_value(t, int(kept.snap.cursors[1].head.line), doc.cursors[1].head.line)
+    v := lues.view_make(a.kernel, id)
+    defer lues.view_free(a.kernel, v)
+    side := (^plug.Side)(v.snap.app)
+    testing.expect(t, rawptr(side.cursors) != rawptr(raw_data(doc.cursors[:])),
+                   "a snapshot borrowed an array that will move")
+    testing.expect_value(t, int(side.ncursors), len(doc.cursors))
+    testing.expect_value(t, int(side.primary), doc.primary)
+    testing.expect_value(t, int(side.cursors[1].head.line), doc.cursors[1].head.line)
 }
 
 // --- §8: the seam is a C ABI, not a C-only ABI ---
@@ -341,7 +333,6 @@ a_plugin_the_c_compiler_never_saw_loads_and_runs :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.plug_init(&a)
 
     for l in LANGS {
         if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, l.name)), a.message) {
@@ -383,7 +374,6 @@ a_bare_pluginify_resolves_the_focused_file_to_its_plugin :: proc(t: ^testing.T) 
         return
     }
     defer close_plug_app(&a)
-    app.plug_init(&a)
     app.plug_autoload(&a) // `edit` is what opens a file at all
 
     src, _ := filepath.join({REPO, "plugins", "example", "example.c"}, context.temp_allocator)
@@ -451,7 +441,6 @@ a_plugins_attribute_bits_are_the_renderers :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.plug_init(&a)
     app.plug_autoload(&a)
 
     id := scratch_doc(&a, "bold.txt", "abcdef")
@@ -459,8 +448,8 @@ a_plugins_attribute_bits_are_the_renderers :: proc(t: ^testing.T) {
     app.cl_exec(&a, ":cppbold")
     testing.expect_value(t, a.message, "")
 
-    snap := store.store_snapshot(&a.docs, id)
-    defer txt.snapshot_release(snap)
+    snap := store.store_snapshot(a.docs, id)
+    defer pt.snapshot_release(snap)
     drawn := app.doc_styles(&a, id, nil, &snap.text, nil, 0, 1)
     if !testing.expect(t, len(drawn) > 0, "the publish reached nothing") {
         return
@@ -474,7 +463,8 @@ a_plugins_attribute_bits_are_the_renderers :: proc(t: ^testing.T) {
 // them: the `#assert`s in shape.odin pin the ODIN side, and oket.h's `_Static_assert`s pin
 // struct SIZES, so a value added or reordered on one side was a silent divergence.
 //
-// Every enum `shape` owns, read out of the header by name. Adding a member on the Odin side and
+// Every enum `shape` owns, read out of the header by name. Not Chan: lues.h spells those, and
+// store.odin and lues's own abi checks tie them. Adding a member on the Odin side and
 // forgetting the header fails here, which a hand-written pair list would not have caught.
 @(test)
 the_c_header_and_shape_agree_on_every_value :: proc(t: ^testing.T) {
@@ -494,7 +484,6 @@ the_c_header_and_shape_agree_on_every_value :: proc(t: ^testing.T) {
         {shape.Selection, "OKET_SELECT_", false},
         {shape.Style, "OKET_TOK_", false},
         {shape.Attr, "OKET_ATTR_", true},
-        {shape.Chan, "OKET_SET_", true},
     }
 
     path, _ := filepath.join({REPO, "src", "plug", "oket.h"}, context.temp_allocator)

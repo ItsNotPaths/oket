@@ -1,7 +1,7 @@
 package tests
 
 import "core:testing"
-import "../conf"
+import "lues:conf"
 
 // The one flat format (§4). One parser for both files the kernel writes, so a grammar change
 // cannot land in binds.conf and miss config.conf.

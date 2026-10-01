@@ -1,10 +1,11 @@
 package tests
 
+import "base:runtime"
 import "core:os"
 import "core:path/filepath"
 import "core:testing"
 import "core:time"
-import "../work"
+import "lues:work"
 
 // §9's I/O workers, driven straight: a subprocess and a watched path, both answered on the
 // caller's own thread at a drain it asks for. This is the kernel half of stage 12's gate — the
@@ -45,7 +46,7 @@ heard_destroy :: proc(h: ^Heard) {
 @(test)
 a_child_writes_and_exits :: proc(t: ^testing.T) {
     p: work.Pool
-    testing.expect(t, work.pool_start(&p))
+    testing.expect(t, work.pool_start(&p, runtime.default_allocator()))
     defer work.pool_stop(&p)
 
     _, ok := work.pool_spawn(&p, {"sh", "-c", "printf hello; exit 3"})
@@ -63,7 +64,7 @@ a_child_writes_and_exits :: proc(t: ^testing.T) {
 @(test)
 a_clean_exit_is_code_zero :: proc(t: ^testing.T) {
     p: work.Pool
-    testing.expect(t, work.pool_start(&p))
+    testing.expect(t, work.pool_start(&p, runtime.default_allocator()))
     defer work.pool_stop(&p)
 
     _, ok := work.pool_spawn(&p, {"sh", "-c", "exit 0"})
@@ -80,7 +81,7 @@ a_clean_exit_is_code_zero :: proc(t: ^testing.T) {
 @(test)
 a_child_answers_what_was_written :: proc(t: ^testing.T) {
     p: work.Pool
-    testing.expect(t, work.pool_start(&p))
+    testing.expect(t, work.pool_start(&p, runtime.default_allocator()))
     defer work.pool_stop(&p)
 
     id, ok := work.pool_spawn(&p, {"sh", "-c", "read line; printf 'got %s' \"$line\""})
@@ -98,7 +99,7 @@ a_child_answers_what_was_written :: proc(t: ^testing.T) {
 @(test)
 a_handle_past_its_job_is_refused :: proc(t: ^testing.T) {
     p: work.Pool
-    testing.expect(t, work.pool_start(&p))
+    testing.expect(t, work.pool_start(&p, runtime.default_allocator()))
     defer work.pool_stop(&p)
 
     id, _ := work.pool_spawn(&p, {"sh", "-c", "exit 0"})
@@ -115,7 +116,7 @@ a_handle_past_its_job_is_refused :: proc(t: ^testing.T) {
 @(test)
 a_closed_job_says_nothing :: proc(t: ^testing.T) {
     p: work.Pool
-    testing.expect(t, work.pool_start(&p))
+    testing.expect(t, work.pool_start(&p, runtime.default_allocator()))
     defer work.pool_stop(&p)
 
     id, ok := work.pool_spawn(&p, {"sh", "-c", "printf a; sleep 30"})
@@ -134,7 +135,7 @@ a_closed_job_says_nothing :: proc(t: ^testing.T) {
 @(test)
 a_command_nowhere_on_path_is_refused :: proc(t: ^testing.T) {
     p: work.Pool
-    testing.expect(t, work.pool_start(&p))
+    testing.expect(t, work.pool_start(&p, runtime.default_allocator()))
     defer work.pool_stop(&p)
 
     _, ok := work.pool_spawn(&p, {"oket-no-such-command"})
@@ -152,7 +153,7 @@ an_exec_that_fails_is_exit_127 :: proc(t: ^testing.T) {
     _ = os.write_entire_file(plain, transmute([]u8)string("not a program"))
 
     p: work.Pool
-    testing.expect(t, work.pool_start(&p))
+    testing.expect(t, work.pool_start(&p, runtime.default_allocator()))
     defer work.pool_stop(&p)
 
     _, ok := work.pool_spawn(&p, {plain})
@@ -175,7 +176,7 @@ a_watch_names_the_file_that_changed :: proc(t: ^testing.T) {
     path, _ := filepath.join({dir, "alpha.txt"}, context.temp_allocator)
 
     p: work.Pool
-    testing.expect(t, work.pool_start(&p))
+    testing.expect(t, work.pool_start(&p, runtime.default_allocator()))
     defer work.pool_stop(&p)
 
     _, ok := work.pool_watch(&p, path)
@@ -210,7 +211,7 @@ two_watches_on_one_directory_stay_apart :: proc(t: ^testing.T) {
     beta, _ := filepath.join({dir, "beta.txt"}, context.temp_allocator)
 
     p: work.Pool
-    testing.expect(t, work.pool_start(&p))
+    testing.expect(t, work.pool_start(&p, runtime.default_allocator()))
     defer work.pool_stop(&p)
 
     a_id, _ := work.pool_watch(&p, alpha)

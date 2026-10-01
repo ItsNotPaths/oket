@@ -4,7 +4,8 @@ import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
-import "../conf"
+import "lues:conf"
+import "lues:lues"
 import "../input"
 
 // binds.conf (§8). The kernel's defaults live in code and this file lays over them, so a release
@@ -30,64 +31,6 @@ BINDS_NAME :: "binds.conf"
 binds_path :: proc(a: ^App) -> string {
     path, _ := filepath.join({a.home.config, BINDS_NAME}, context.temp_allocator)
     return path
-}
-
-// A row something asked for, held until the writeback. A plugin never claims a chord (§8): it
-// asks, the row becomes text, and the file decides from then on.
-Bind_Request :: struct {
-    owner: string, // owned; also the section header it is written under
-    ctx:   string, // owned
-    chord: string, // owned
-    line:  string, // owned
-    // The plugin that asked has unloaded. The strings stay owned by this list — what goes is
-    // the ASKING, so a later writeback does not put the row back for a plugin that is gone.
-    dead:  bool,
-}
-
-// A requested chord that met something. `shadows` separates a note from a refusal: a narrower
-// row covering a wider one goes in live, a same-tier collision goes in commented out. Neither
-// is silent — loud beats last-loaded-wins.
-Bind_Clash :: struct {
-    owner:   string, // owned
-    chord:   string, // owned
-    held:    string, // owned; what the chord runs now
-    shadows: bool,
-}
-
-binds_requests_destroy :: proc(a: ^App) {
-    for r in a.reqs {
-        delete(r.owner)
-        delete(r.ctx)
-        delete(r.chord)
-        delete(r.line)
-    }
-    delete(a.reqs)
-    a.reqs = nil
-    for c in a.clashes {
-        delete(c.owner)
-        delete(c.chord)
-        delete(c.held)
-    }
-    delete(a.clashes)
-    a.clashes = nil
-}
-
-// Held, not applied: nothing here touches the live table, which is why two askers cannot race
-// and why load order does not decide who wins.
-binds_request :: proc(a: ^App, owner, ctx, chord, line: string) {
-    if owner == "" || chord == "" || line == "" {
-        return
-    }
-    append(
-        &a.reqs,
-        Bind_Request {
-            strings.clone(owner),
-            strings.clone(ctx == "" ? "global" : ctx),
-            strings.clone(chord),
-            strings.clone(line),
-            false,
-        },
-    )
 }
 
 // --- reading it in ---
@@ -205,7 +148,7 @@ Bind_Unmet :: struct {
 
 binds_unmet :: proc(a: ^App, allocator := context.temp_allocator) -> []Bind_Unmet {
     out := make([dynamic]Bind_Unmet, allocator)
-    for r in a.reqs {
+    for r in a.kernel.reqs {
         if r.dead {
             continue
         }
@@ -248,98 +191,10 @@ cut_word :: proc(s, word: string) -> (rest: string, ok: bool) {
     return strings.trim_space(s[len(word):]), true
 }
 
-// --- writing it back ---
-
-// The comment that says an owner has been through here. The header is the memory, not the rows
-// under it: a user who deletes a row must not have it written back on the next launch, and a
-// user who deletes the header is asking for the defaults again.
-binds_header :: proc(owner: string) -> string {
-    return fmt.tprintf("# --- %s ---", owner)
-}
-
-// Appends a section per owner that has none yet. Answers whether the file changed, so the caller
-// re-reads rather than guessing.
-binds_writeback :: proc(a: ^App, path: string) -> bool {
-    if len(a.reqs) == 0 {
-        return false
-    }
-    text := ""
-    if raw, err := os.read_entire_file(path, context.temp_allocator); err == nil {
-        text = string(raw)
-    }
-    b := strings.builder_make(context.temp_allocator)
-    strings.write_string(&b, text)
-    if text != "" && !strings.has_suffix(text, "\n") {
-        strings.write_byte(&b, '\n')
-    }
-
-    wrote := false
-    done := make(map[string]bool, 0, context.temp_allocator)
-    // "<ctx> <chord>" already written this run: the table holds neither of two owners asking in
-    // the same batch, so the file alone would let the second silently shadow the first.
-    seen := make(map[string]string, 0, context.temp_allocator)
-    for r in a.reqs {
-        if r.dead {
-            continue
-        }
-        if done[r.owner] || strings.contains(text, binds_header(r.owner)) {
-            done[r.owner] = true
-            continue
-        }
-        done[r.owner] = true
-        fmt.sbprintf(&b, "\n%s\n", binds_header(r.owner))
-        binds_write_rows(a, &b, r.owner, &seen)
-        wrote = true
-    }
-    if !wrote {
-        return false
-    }
-    return os.write_entire_file(path, transmute([]u8)strings.to_string(b)) == nil
-}
-
-// One owner's rows, grouped under their section headers, each checked against the table.
-@(private = "file")
-binds_write_rows :: proc(a: ^App, b: ^strings.Builder, owner: string, seen: ^map[string]string) {
-    section := ""
-    for row in a.reqs {
-        if row.dead || row.owner != owner {
-            continue
-        }
-        if section != row.ctx {
-            fmt.sbprintf(b, "[%s]\n", row.ctx)
-            section = row.ctx
-        }
-        key := fmt.tprintf("%s %s", row.ctx, row.chord)
-        held, taken := binds_held(a, row.ctx, row.chord)
-        if !taken {
-            held, taken = seen^[key]
-        }
-        // A chord held on THIS tier is written commented, never dropped and never stolen:
-        // the row is there to uncomment once the other one has moved.
-        if taken {
-            fmt.sbprintf(b, "# %s = %s   # taken by %s\n", row.chord, row.line, held)
-            append(&a.clashes, Bind_Clash{strings.clone(owner), strings.clone(row.chord),
-                                          strings.clone(held), false})
-            continue
-        }
-        seen^[key] = owner
-        // A wider row still answers this chord elsewhere. The narrow row wins where it
-        // applies, so it goes in live — with a note, because the shadow is otherwise
-        // invisible. The note gets its own line: a value is read whole, and a command line
-        // may contain `#`.
-        if over, wider := binds_shadowed(a, row.ctx, row.chord); wider {
-            fmt.sbprintf(b, "# shadows %s\n%s = %s\n", over, row.chord, row.line)
-            append(&a.clashes, Bind_Clash{strings.clone(owner), strings.clone(row.chord),
-                                          strings.clone(over), true})
-            continue
-        }
-        fmt.sbprintf(b, "%s = %s\n", row.chord, row.line)
-    }
-}
+// --- writing it back: lues.bind_writeback asks binds_held and binds_shadowed (hooks.bind_held) ---
 
 // What a chord runs on THIS tier, for the clash note. bind_at, not bind_lookup: a resolving
 // lookup reads a wider default as a collision and refuses the narrower row that wins at runtime.
-@(private = "file")
 binds_held :: proc(a: ^App, ctx_name, chord_text: string) -> (string, bool) {
     ctx, kind, ok := binds_ctx(a, ctx_name)
     prefix, chord, parsed := input.chord_pair_parse(chord_text, key_layout_code)
@@ -356,7 +211,6 @@ binds_held :: proc(a: ^App, ctx_name, chord_text: string) -> (string, bool) {
 
 // What a WIDER tier runs for the chord, once this tier is known to be free. The row is still
 // written; this only names what it will cover.
-@(private = "file")
 binds_shadowed :: proc(a: ^App, ctx_name, chord_text: string) -> (string, bool) {
     ctx, kind, ok := binds_ctx(a, ctx_name)
     prefix, chord, parsed := input.chord_pair_parse(chord_text, key_layout_code)
@@ -390,18 +244,7 @@ binds_sync :: proc(a: ^App) {
     if !home_writable(a.home.config) {
         return
     }
-    had := len(a.clashes)
-    if binds_writeback(a, path) {
+    if lues.bind_writeback(a.kernel, path) {
         binds_load(a, path)
-    }
-    refused := 0
-    for c in a.clashes[had:] {
-        if !c.shadows {
-            refused += 1
-        }
-    }
-    if refused > 0 {
-        message_set(a, fmt.tprintf("%d requested bind(s) were already taken; see %s",
-                                   refused, BINDS_NAME))
     }
 }

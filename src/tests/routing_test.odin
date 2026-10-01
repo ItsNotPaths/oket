@@ -78,8 +78,8 @@ a_field_a_line_would_act_on_is_drawn_as_a_link :: proc(t: ^testing.T) {
 // style run both reach the text). `path` is a field a line names; `tail` is one nothing does.
 @(private = "file")
 rows_doc :: proc(a: ^app.App) -> store.Id {
-    id := store.store_open(&a.docs, "alpha x\nbeta x")
-    gen, _ := store.store_gen(&a.docs, id)
+    id := store.store_open(a.docs, "alpha x\nbeta x")
+    gen, _ := store.store_gen(a.docs, id)
     fields := [?]desc.Field {
         {0, "path", 0, 5, "/tmp/alpha"},
         {0, "tail", 6, 7, ""},
@@ -88,9 +88,9 @@ rows_doc :: proc(a: ^app.App) -> store.Id {
     }
     d := desc.new_from({ctx = .Surface, kind = app.KIND_HOME, selection = .Line, tab_width = 4,
                         fields = fields[:]})
-    store.store_submit(&a.docs, id, gen, nil, d)
+    store.store_submit(a.docs, id, gen, nil, d)
     desc.release(d)
-    store.store_drain(&a.docs)
+    store.store_drain(a.docs)
     return id
 }
 
@@ -128,7 +128,7 @@ one_row_gives_a_listing_the_mouse :: proc(t: ^testing.T) {
 
     // What is underlined is the NAME, which is the visible tail of the path the line acts on.
     // The two are one span inside the other, and that containment is the whole rule.
-    d := store.store_descriptor(&a.docs, app.active(&a).doc)
+    d := store.store_descriptor(a.docs, app.active(&a).doc)
     defer desc.release(d)
     lo, hi, _ := desc.field_span(d, 1, "name")
     testing.expect_value(t, app.panel_focused(&a).hover.lo, lo)

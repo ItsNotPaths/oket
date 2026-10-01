@@ -5,12 +5,11 @@ import "core:path/filepath"
 import "core:strconv"
 import "core:strings"
 import "../gfx"
-import "../plug"
 import "../pty"
 import "../toml"
 
 // The theme loader (§4): helix TOML from `<data>/themes/<name>.toml`, read once per switch and
-// never written. The span store holds tokens and only the draw resolves (store/spans.odin), so
+// never written. The span store holds tokens and only the draw resolves (lues docs/spans.odin), so
 // applying a theme is a palette swap — the five UI slots, the scope table the token lookup
 // reads — and the next frame is the whole repaint. Nothing republishes.
 
@@ -139,11 +138,7 @@ theme_apply :: proc(a: ^App, name: string) {
     theme_forget(a)
     a.theme = gfx.DEFAULT_THEME
     theme_read(a, name)
-    for &def, i in a.tokens {
-        if i >= int(plug.TOKEN_BASE) {
-            def.color, def.themed = theme_lookup(a, def.name)
-        }
-    }
+    clear(&a.tokens) // token_color fills it again under this palette
     // What a shell with no SGR draws in, and what an OSC 10/11 query answers.
     for _, tm in a.terms {
         pty.terminal_set_default_colors(&tm.t, a.theme[.Fg], a.theme[.Bg])

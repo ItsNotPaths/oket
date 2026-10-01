@@ -24,6 +24,21 @@ odin_install() {
     fi
 }
 
+echo "==> lues (the kernel; Odin source, built with -collection:lues=vendor/lues/src)"
+# Pinned. To revendor, push lues, bump LUES_REV and re-run.
+LUES_REV="6ddf89c7f9016fc4209456cc0cf54d783f5f134e"
+LUES_SRC="$VENDOR/lues"
+if [ ! -d "$LUES_SRC/.git" ]; then
+    rm -rf "$LUES_SRC"
+    git clone -q "https://github.com/ItsNotPaths/lues.git" "$LUES_SRC"
+fi
+if [ "$(git -C "$LUES_SRC" rev-parse HEAD)" != "$LUES_REV" ]; then
+    git -C "$LUES_SRC" fetch -q origin
+    git -C "$LUES_SRC" checkout -q --detach "$LUES_REV"
+fi
+echo "  at $(git -C "$LUES_SRC" log --oneline -1)"
+
+echo ""
 echo "==> libvterm (VT state machine for the terminal document; static lib)"
 # leonerd's libvterm via the neovim mirror: a parser, no PTY and no I/O. We feed it bytes
 # and read out a cell grid, owning the PTY and the painting ourselves. Dependency-free .c

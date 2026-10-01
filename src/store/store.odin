@@ -1,384 +1,310 @@
 package store
 
+import "base:runtime"
 import "core:slice"
-import "core:strings"
+import "lues:docs"
+import "lues:pt"
 import "../desc"
 import "../txt"
 
-// The kernel's table of open documents, and the one place a write happens.
+// lues's document table, and oket's half of each document: its carets (txt.Doc), its descriptor
+// and a caret set waiting on the drain. That half hangs off docs.Doc.side; what an oket submit
+// carries for it hangs off Txn.side and lands in `land`.
 //
-// Reads do not come through here. A caller takes a txt.Snapshot and reads it directly — no
-// call back into the kernel, no copy of the text, no lock (§6). That is the asymmetry the
-// whole concurrency model rests on: many readers at whatever generation they took, one writer
-// at one point in the frame.
-//
-// Writes are transactions. They queue, and store_drain applies them, so the generation moves
-// at exactly one place and nobody ever reads a half-applied edit.
+// Reads do not come through here. A caller takes a snapshot and reads it directly (§6). Writes
+// queue, and store_drain applies them, so the generation moves at exactly one place.
 
-// A slot index plus the seq that slot carried when the document was opened. Closing bumps the
-// seq, so an Id kept across a close resolves to nothing instead of to whoever took the slot
-// next — the failure a bare index turns into silent corruption.
-Id :: struct {
-    slot: u32,
-    seq:  u32,
-}
+Store :: docs.Store
+Id :: docs.Id
+Producer :: docs.Producer
+Span :: docs.Span_Run
+Spans :: docs.Spans
+SPAN_MAX :: docs.SPAN_MAX
 
-Store :: struct {
-    slots:   [dynamic]Slot,
-    free:    [dynamic]u32, // slots whose document closed, ready to be taken again
-    pending: [dynamic]Txn,
-    // Tags of the transactions the last drain APPLIED, and the counter they come from. A
-    // submitter that has to know whether its own write landed cannot read it off the
-    // generation: a foreign write against the same generation moves it either way.
-    landed:  [dynamic]u64,
-    tag:     u64,
-}
+// A run's attrs and channels cross as shape's sets; the bits are the same.
+#assert(int(docs.Chan.Fg) == int(desc.Chan.Fg) && int(docs.Chan.Bg) == int(desc.Chan.Bg) &&
+        int(docs.Chan.Attrs) == int(desc.Chan.Attrs) && len(docs.Chan) == len(desc.Chan))
 
-// The Doc is heap-allocated so growing `slots` cannot move it: the drain and the kernel both
-// hold ^txt.Doc across calls.
+// docs.Doc.side, on the heap: the drain and the kernel hold ^txt.Doc across calls.
 @(private)
-Slot :: struct {
-    seq:   u32,
-    doc:   ^txt.Doc, // nil = closed
-    desc:  ^desc.Descriptor,
-    seen:  u64, // the highest generation store_check has seen; it may never go backwards
-    spans: [dynamic]Bucket, // one bucket per publisher (spans.odin)
-    // The cursor set the document's owner asked for, applied at the drain so it lands WITH
-    // the transaction it belongs to (store_cursors). Empty is nobody asking, and `curs_tag`
-    // is the transaction it rides on, or 0 for a bare move with no write behind it.
+Extra :: struct {
+    doc:          txt.Doc,
+    desc:         ^desc.Descriptor,
+    // The set the owner asked for, applied at the drain WITH the transaction it rides
+    // (store_cursors). Empty is nobody asking; `curs_tag` is that transaction, 0 for a bare move.
     curs:         [dynamic]txt.Cursor,
     curs_primary: int,
     curs_tag:     u64,
 }
 
-// One transaction against the generation its author read. Owns its edits and their text, the
-// descriptor it publishes and the spans it publishes, until the drain applies it.
-//
-// All three ride together on purpose: the runs and the text they cover land at ONE generation,
-// so nothing ever paints a colour against bytes it was not measured over.
-Txn :: struct {
-    id:    Id,
+// Txn.side. Owns its edits' text and a descriptor reference.
+@(private)
+Txn_Side :: struct {
+    edits: []txt.Edit, // doc_fuse's, against the doc at `gen`
     gen:   u64,
-    tag:   u64,
-    edits: []txt.Edit,
     desc:  ^desc.Descriptor, // nil = leave the descriptor as it stands
-    spans: Maybe(Spans),     // nil = leave every publisher's runs as they stand
-    // The carets here were put where they are by NAVIGATION, so leave them on their rows
-    // (cursor_policy). Said by the author, because the offsets cannot say it.
+    // The carets were put where they are by NAVIGATION, so they stay on their rows
+    // (cursor_policy), and there is nothing of the user's to undo.
     regen: bool,
 }
 
 store_destroy :: proc(s: ^Store) {
-    for &slot in s.slots {
+    for slot in s.slots {
         if slot.doc != nil {
-            txt.doc_destroy(slot.doc)
-            free(slot.doc)
-            desc.release(slot.desc)
+            extra_free((^Extra)(slot.doc.side))
         }
-        for &b in slot.spans {
-            delete(b.list)
-        }
-        delete(slot.spans)
-        delete(slot.curs)
     }
-    for t in s.pending {
-        txn_destroy(t)
-    }
-    delete(s.slots)
-    delete(s.free)
-    delete(s.pending)
-    delete(s.landed)
-    s^ = {}
+    caller := Caller{s, context}
+    docs.store_destroy(s, land_as_caller, &caller)
 }
 
 store_open :: proc(s: ^Store, text := "") -> Id {
-    slot: u32
-    if len(s.free) > 0 {
-        slot = pop(&s.free)
-    } else {
-        slot = u32(len(s.slots))
-        append(&s.slots, Slot{})
-    }
-    d := new(txt.Doc)
-    txt.doc_init(d)
+    id := docs.store_open(s)
+    core := docs.store_doc(s, id)
+    x := new(Extra)
+    txt.doc_init(&x.doc, core)
     if text != "" {
-        txt.doc_set_text(d, text)
+        txt.doc_set_text(&x.doc, text)
     }
-    s.slots[slot].doc = d
-    s.slots[slot].desc = desc.new_from(desc.DEFAULT)
-    s.slots[slot].seen = 0 // a new document, so store_check's high-water mark starts again
-    clear(&s.slots[slot].curs)
-    s.slots[slot].curs_tag = 0
-    for &b in s.slots[slot].spans {
-        clear(&b.list) // the slot may be a reused one, and its colours were somebody else's
-    }
-    return Id{slot, s.slots[slot].seq}
+    x.desc = desc.new_from(desc.DEFAULT)
+    core.side = x
+    return id
 }
 
 // Every Id handed out for this document stops resolving. A snapshot someone still holds is
-// unaffected: it owns its own reference to the bytes and outlives the document (§6).
+// unaffected (§6).
 store_close :: proc(s: ^Store, id: Id) -> bool {
-    slot := resolve(s, id) or_return
-    txt.doc_destroy(slot.doc)
-    free(slot.doc)
-    desc.release(slot.desc)
-    for &b in slot.spans {
-        clear(&b.list)
+    x := extra(s, id)
+    if x == nil {
+        return false
     }
-    slot.doc = nil
-    slot.desc = nil
-    slot.seq += 1
-    append(&s.free, id.slot)
-    return true
+    extra_free(x)
+    return docs.store_close(s, id)
 }
 
 store_is_open :: proc(s: ^Store, id: Id) -> bool {
-    _, ok := resolve(s, id)
+    _, ok := docs.store_resolve(s, id)
     return ok
 }
 
-// The kernel's own mutable handle, and nothing outside the kernel gets one (§12). A plugin
-// reads a snapshot and writes through store_submit.
+// The kernel's own mutable handle, and nothing outside the kernel gets one (§12).
 store_doc :: proc(s: ^Store, id: Id) -> ^txt.Doc {
-    slot, ok := resolve(s, id)
-    return ok ? slot.doc : nil
+    x := extra(s, id)
+    return &x.doc if x != nil else nil
 }
 
-// The same privilege for the style layers: the terminal writes its text through store_doc and
-// its colours through here, at one point in its own pump. A plugin has neither and publishes
-// through store_submit, where the drain lands the runs and the bytes at one generation.
+// The terminal's colours, at one point in its own pump. A plugin publishes through submit.
 store_spans_publish :: proc(s: ^Store, id: Id, pub: Spans) -> bool {
-    slot := resolve(s, id) or_return
-    return spans_apply(slot, pub)
+    slot := docs.store_resolve(s, id) or_return
+    return docs.spans_apply(slot, pub)
 }
 
-// A reference the caller owns and must release, taken at the same point as the snapshot it
-// pairs with. Immutable, so it stays readable however the document moves (§5).
-//
-// Every reader comes through here, which is what lets the spans be brought up to the text
-// LAZILY (fields.odin): no caller can be handed a field the document has moved out from under,
-// and a document nobody is reading pays nothing.
+store_spans :: proc(s: ^Store, id: Id, lo, hi: int, order: []Producer,
+                    alloc := context.temp_allocator) -> []Span {
+    return docs.spans_read(s, id, lo, hi, order, alloc)
+}
+
+store_spans_forget :: proc(s: ^Store, who: Producer) {
+    docs.spans_forget(s, who)
+}
+
+// A reference the caller owns and must release. Every reader comes through here, which is what
+// lets the fields follow the text LAZILY (fields.odin).
 store_descriptor :: proc(s: ^Store, id: Id) -> ^desc.Descriptor {
-    slot, ok := resolve(s, id)
-    if !ok {
+    x := extra(s, id)
+    if x == nil {
         return nil
     }
-    fields_follow(slot)
-    desc.retain(slot.desc)
-    return slot.desc
+    fields_follow(x)
+    desc.retain(x.desc)
+    return x.desc
 }
 
-// Every open document, in slot order. What a watcher is told about (§7): a plugin that draws
-// nothing has no instance of its own, so this is the only way it hears that work exists.
-store_ids :: proc(s: ^Store, alloc := context.temp_allocator) -> []Id {
-    out := make([dynamic]Id, 0, len(s.slots), alloc)
-    for slot, i in s.slots {
-        if slot.doc != nil {
-            append(&out, Id{u32(i), slot.seq})
-        }
+// A fresh document's baseline, with no transaction: nothing has read it yet.
+store_describe :: proc(s: ^Store, id: Id, d: ^desc.Descriptor) {
+    if x := extra(s, id); x != nil {
+        desc.retain(d)
+        desc.release(x.desc)
+        x.desc = d
     }
-    return out[:]
+}
+
+store_ids :: proc(s: ^Store, alloc := context.temp_allocator) -> []Id {
+    return docs.store_ids(s, alloc)
 }
 
 store_gen :: proc(s: ^Store, id: Id) -> (gen: u64, ok: bool) {
-    slot := resolve(s, id) or_return
-    return slot.doc.gen, true
+    return docs.store_gen(s, id)
 }
 
-// A reference the caller owns and must release. It stays readable however the document moves
-// afterwards, closing included; the generation it carries is what a later write rebases on.
-store_snapshot :: proc(s: ^Store, id: Id) -> ^txt.Snapshot {
-    slot, ok := resolve(s, id)
-    return ok ? txt.doc_snapshot(slot.doc) : nil
+store_snapshot :: proc(s: ^Store, id: Id) -> ^pt.Snapshot {
+    d := docs.store_doc(s, id)
+    return docs.doc_snapshot(d) if d != nil else nil
 }
 
-// Queue a transaction. The text is cloned, so the caller's buffer may die the moment this
-// returns. Applied at the next store_drain, or dropped there if the document moved first.
-//
-// The tag it answers names this transaction in store_landed, for a caller that has to tell its
-// own write from somebody else's. A caller that does not care ignores it.
+// Queue a transaction; applied at the next store_drain, or dropped there if the document moved
+// first. The tag names it in store_landed.
 store_submit :: proc(s: ^Store, id: Id, gen: u64, edits: []txt.Edit,
                      d: ^desc.Descriptor = nil, spans: Maybe(Spans) = nil,
                      regen := false) -> (tag: u64) {
-    owned := make([]txt.Edit, len(edits))
-    for e, i in edits {
-        owned[i] = e
-        owned[i].text = strings.clone(e.text)
+    side := store_side(s, id, gen, edits, d, regen)
+    if side == nil {
+        return docs.store_submit(s, id, gen, nil, spans) // dropped at the drain
+    }
+    t := (^Txn_Side)(side)
+    return docs.store_submit(s, id, gen, txt.doc_splices(t.edits), spans, side,
+                             .Forget if regen else .Step)
+}
+
+// What `store_land` needs of a submit, fused against the doc as it stands. nil for a closed doc.
+store_side :: proc(s: ^Store, id: Id, gen: u64, edits: []txt.Edit, d: ^desc.Descriptor,
+                   regen: bool) -> rawptr {
+    x := extra(s, id)
+    if x == nil {
+        return nil
+    }
+    t := new(Txn_Side)
+    t^ = {edits = slice.clone(txt.doc_fuse(&x.doc, edits)), gen = gen, desc = d, regen = regen}
+    for &e in t.edits {
+        e.text = string(slice.clone(transmute([]u8)e.text))
     }
     if d != nil {
         desc.retain(d)
     }
-    kept := spans
-    if pub, publishing := spans.?; publishing {
-        pub.list = slice.clone(pub.list)
-        kept = pub
-    }
-    s.tag += 1
-    append(&s.pending, Txn{id, gen, s.tag, owned, d, kept, regen})
-    return s.tag
+    return t
 }
 
-// Where the cursors go when this drain is done (§5, CURSORS.md §4). The set is copied, so the
-// caller's buffer may die the moment this returns.
+// Where the cursors go when this drain is done (CURSORS.md §4). Copied.
 //
 // TOGETHER MEANS BOTH WAYS. The set was measured against text a pending transaction is about
-// to write, so it rides that transaction's tag: if the write is dropped at the drain for having
-// lost the race, the carets measured for it are dropped with it rather than jumping into text
-// that never arrived. A set asked for with nothing pending is a bare move and always lands —
-// and never moves the generation, so no watcher wakes and nothing is journalled.
+// to write, so it rides that transaction's tag: if the write is dropped, the carets go with it.
+// A set with nothing pending is a bare move: it always lands and never moves the generation.
 store_cursors :: proc(s: ^Store, id: Id, curs: []txt.Cursor, primary: int) {
-    slot, ok := resolve(s, id)
-    if !ok || len(curs) == 0 {
+    x := extra(s, id)
+    if x == nil || len(curs) == 0 {
         return
     }
-    clear(&slot.curs)
-    append(&slot.curs, ..curs)
-    slot.curs_primary = clamp(primary, 0, len(curs) - 1)
-    slot.curs_tag = 0
+    clear(&x.curs)
+    append(&x.curs, ..curs)
+    x.curs_primary = clamp(primary, 0, len(curs) - 1)
+    x.curs_tag = 0
     #reverse for t in s.pending {
         if t.id == id {
-            slot.curs_tag = t.tag
+            x.curs_tag = t.tag
             break
         }
     }
 }
 
-// Which transactions the last drain applied. Valid until the next one.
 store_landed :: proc(s: ^Store) -> []u64 {
-    return s.landed[:]
+    return docs.store_landed(s)
 }
 
-// The one point in the frame writes land (§6). A transaction whose document has moved since it
-// was written is dropped whole rather than merged: its author re-reads and retries, and §7's
-// client library is where that loop lives so no plugin author writes one.
+// The one point in the frame writes land (§6).
 store_drain :: proc(s: ^Store) -> (applied, stale: int) {
-    clear(&s.landed)
-    for t in s.pending {
-        defer txn_destroy(t)
-        slot, ok := resolve(s, t.id)
-        if !ok || slot.doc.gen != t.gen {
-            stale += 1
+    caller := Caller{s, context}
+    applied, stale = docs.store_drain(s, land_as_caller, &caller)
+    applied += store_drained(s)
+    return
+}
+
+// After a drain's splices, the caret sets: one is written against the text they land. Each
+// counts as applied, so the caller re-reads the caret; the generation does not move.
+store_drained :: proc(s: ^Store) -> (applied: int) {
+    for slot in s.slots {
+        if slot.doc == nil {
             continue
         }
-        txt.doc_commit(slot.doc, t.edits, {policy = cursor_policy(slot, t)})
-        if t.regen {
-            // REGEN's other half (Submit_Flags): derived text holds nothing of the user's to
-            // take back, so the log goes — what was typed before it is still in the text.
-            txt.doc_forget_undo(slot.doc)
-        }
-        if pub, publishing := t.spans.?; publishing {
-            spans_apply(slot, pub)
-        }
-        if t.desc != nil {
-            // A published descriptor was written against the text this transaction just landed,
-            // so its spans are already true: acking is what stops fields.odin shifting them a
-            // second time for the same splice.
-            txt.doc_changes_ack(slot.doc, .Fields)
-            desc.release(slot.desc)
-            desc.retain(t.desc)
-            slot.desc = t.desc
-        }
-        append(&s.landed, t.tag)
-        applied += 1
-    }
-    clear(&s.pending)
-
-    // Every publisher's runs, brought up to the text the commits above landed. Here and not in
-    // store_spans, because only a DRAWN document is read: one nobody is looking at would let
-    // the change log run past its cap and lose its colour for no reason. With nothing to fold
-    // it is a compare.
-    for &slot in s.slots {
-        spans_follow(&slot)
-    }
-
-    // After the splices, because the set was written against the text they land: an owner
-    // that rewrites its rows and says where the carets go is describing the document it just
-    // made. It counts as APPLIED, which is what makes the caller re-read the caret and keep it
-    // on screen — a caret that moved with no splice behind it still moved. The generation does
-    // not: an empty edit list never bumps (doc_apply), so no watcher hears about a bare move.
-    for &slot in s.slots {
-        if slot.doc == nil || len(slot.curs) == 0 {
+        x := (^Extra)(slot.doc.side)
+        if len(x.curs) == 0 {
             continue
         }
-        tag := slot.curs_tag
-        slot.curs_tag = 0
+        tag := x.curs_tag
+        x.curs_tag = 0
         if tag == 0 || slice.contains(s.landed[:], tag) {
-            txt.doc_commit(slot.doc, nil, {policy = .Set, set = slot.curs[:],
-                                           primary = slot.curs_primary},
-                           slot.desc != nil ? slot.desc.tab_width : 4)
+            txt.doc_commit(&x.doc, nil, {policy = .Set, set = x.curs[:], primary = x.curs_primary},
+                           x.desc.tab_width)
             applied += 1
-        } // else its transaction was dropped, so the set describes text nobody wrote
-        clear(&slot.curs)
-    }
-
-    // Amortised housekeeping, off the edit path and after the generation has settled. Anyone
-    // holding a snapshot keeps the arena compaction leaves behind, so this is safe here and
-    // would not be mid-transaction.
-    for &slot in s.slots {
-        if slot.doc != nil {
-            txt.doc_maintain(slot.doc)
         }
+        clear(&x.curs)
     }
     return
 }
 
-// §10's invariant checks, run after each plugin dispatch. Every arm is O(1) per open
-// document, which is what makes it cheap enough to leave on in release: a document's magic
-// word, its piece list's running total, and a generation that only ever goes forwards. Who is
-// to blame is the caller's question: this only says that somebody is.
+// §10's invariant checks, run after each plugin dispatch. O(1) per open document.
 store_check :: proc(s: ^Store) -> bool {
-    for &slot in s.slots {
-        if slot.doc == nil {
-            continue
-        }
-        if !txt.doc_check(slot.doc) || slot.doc.gen < slot.seen {
+    if !docs.store_check(s) {
+        return false
+    }
+    for slot in s.slots {
+        if slot.doc != nil && !txt.doc_check(&(^Extra)(slot.doc.side).doc) {
             return false
         }
-        slot.seen = slot.doc.gen
     }
     return true
 }
 
 // --- internals ---
 
-// A REGENERATION, not an edit: a browser rewrites its rows to expand a directory, and the
-// carets there are navigation rather than the place a keystroke landed. .Pin leaves them on
-// their rows, instead of collapsing onto the splice the way .Follow must for the editor (§5,
-// §6).
-//
-// Two things answer it. A document that takes no typing has nothing in it a keystroke put
-// there, so every write to one is a regeneration. A document that takes typing AND rewrites
-// itself — a browser you rename in — is per TRANSACTION, and the transaction has to SAY so: the
-// offsets cannot, because replacing a whole document and replacing a whole selection are the
-// same two numbers.
+// lues's drain runs a Land on the store's allocator; a side is the caller's, so land runs in
+// the caller's context.
 @(private = "file")
-cursor_policy :: proc(slot: ^Slot, t: Txn) -> txt.Cursor_Policy {
-    if slot.desc != nil && slot.desc.editable && !t.regen {
-        return .Follow
-    }
-    return .Pin
+Caller :: struct {
+    s:   ^Store,
+    ctx: runtime.Context,
+}
+
+@(private = "file")
+land_as_caller :: proc(user: rawptr, id: docs.Id, side: rawptr, landed: bool) {
+    c := (^Caller)(user)
+    context = c.ctx
+    store_land(c.s, id, side, landed)
 }
 
 @(private)
-resolve :: proc(s: ^Store, id: Id) -> (^Slot, bool) {
-    if int(id.slot) >= len(s.slots) {
-        return nil, false
-    }
-    slot := &s.slots[id.slot]
-    if slot.doc == nil || slot.seq != id.seq {
-        return nil, false
-    }
-    return slot, true
+extra :: proc(s: ^Store, id: Id) -> ^Extra {
+    d := docs.store_doc(s, id)
+    return (^Extra)(d.side) if d != nil else nil
 }
 
 @(private = "file")
-txn_destroy :: proc(t: Txn) {
+extra_free :: proc(x: ^Extra) {
+    txt.doc_destroy(&x.doc)
+    desc.release(x.desc)
+    delete(x.curs)
+    free(x)
+}
+
+// Every Txn_Side ends here, landed or dropped.
+store_land :: proc(s: ^Store, id: docs.Id, side: rawptr, landed: bool) {
+    t := (^Txn_Side)(side)
+    // Not looked up when dropped: store_destroy frees the docs before the pending.
+    if x := extra(s, id) if landed else nil; x != nil {
+        txt.doc_landed(&x.doc, t.edits, t.gen, !t.regen, {policy = cursor_policy(x, t)})
+        if t.desc != nil {
+            // Written against the text this transaction just landed, so its spans are already
+            // true: the ack stops fields.odin shifting them a second time.
+            txt.doc_changes_ack(&x.doc, .Fields)
+            desc.release(x.desc)
+            desc.retain(t.desc)
+            x.desc = t.desc
+        }
+    }
     for e in t.edits {
         delete(e.text)
     }
     delete(t.edits)
     desc.release(t.desc)
-    if pub, publishing := t.spans.?; publishing {
-        delete(pub.list)
+    free(t)
+}
+
+// A REGENERATION, not an edit: a browser rewrites its rows to expand a directory, and the
+// carets there are navigation. .Pin leaves them on their rows; .Follow collapses them onto the
+// splice the way the editor must (§5, §6). A document that takes no typing only regenerates.
+@(private = "file")
+cursor_policy :: proc(x: ^Extra, t: ^Txn_Side) -> txt.Cursor_Policy {
+    if x.desc != nil && x.desc.editable && !t.regen {
+        return .Follow
     }
+    return .Pin
 }

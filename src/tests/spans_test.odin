@@ -1,5 +1,7 @@
 package tests
 
+import "lues:docs"
+import "lues:pt"
 import "core:os"
 import "core:path/filepath"
 import "core:testing"
@@ -7,7 +9,6 @@ import "../desc"
 import "../gfx"
 import "../input"
 import "../store"
-import "../txt"
 import "../view"
 import app "../oket"
 
@@ -31,7 +32,7 @@ RED :: gfx.COLOR_LIT | 0xFF0000
 BLUE :: gfx.COLOR_LIT | 0x0000FF
 
 @(private = "file")
-FG :: desc.Chans{.Fg}
+FG :: docs.Chans{.Fg}
 
 @(private = "file")
 spans_app :: proc(t: ^testing.T) -> (a: app.App, id: store.Id, ok: bool) {
@@ -43,13 +44,13 @@ spans_app :: proc(t: ^testing.T) -> (a: app.App, id: store.Id, ok: bool) {
 @(private = "file")
 publish :: proc(a: ^app.App, id: store.Id, who: string, lo, hi: int,
                 list: []store.Span) -> bool {
-    return store.store_spans_publish(&a.docs, id, {app.producer_intern(a, who), lo, hi, list})
+    return store.store_spans_publish(a.docs, id, {app.producer_intern(a, who), lo, hi, list})
 }
 
 // What the renderer would read: every publisher, in the order this document ranks them.
 @(private = "file")
 merged :: proc(a: ^app.App, id: store.Id, lo, hi: int) -> []store.Span {
-    return store.store_spans(&a.docs, id, lo, hi, app.spans_order(a, id))
+    return store.store_spans(a.docs, id, lo, hi, app.spans_order(a, id))
 }
 
 @(private = "file")
@@ -126,7 +127,7 @@ an_underline_over_a_colour_draws_as_both :: proc(t: ^testing.T) {
     defer close_spans_app(&a)
 
     color := [?]store.Span{fg(0, 9, RED)}
-    under := gfx.Attrs{.Underline}
+    under := transmute(u8)gfx.Attrs{.Underline}
     mark := [?]store.Span{{lo = 4, hi = 7, attrs = under, set = {.Attrs}}}
     testing.expect(t, publish(&a, id, "aaa", 0, 9, color[:]))
     testing.expect(t, publish(&a, id, "zzz", 4, 7, mark[:]))
@@ -137,11 +138,11 @@ an_underline_over_a_colour_draws_as_both :: proc(t: ^testing.T) {
     testing.expect_value(t, out[1].hi, 7)
     testing.expect_value(t, out[1].fg, RED) // the colour under it, kept
     testing.expect_value(t, out[1].attrs, under)
-    testing.expect_value(t, out[1].set, desc.Chans{.Fg, .Attrs})
+    testing.expect_value(t, out[1].set, docs.Chans{.Fg, .Attrs})
     // And the theme fills what nobody set, at the renderer and not in the store: a store that
     // filled a colour in would have made every publisher opaque again.
-    snap := store.store_snapshot(&a.docs, id)
-    defer txt.snapshot_release(snap)
+    snap := store.store_snapshot(a.docs, id)
+    defer pt.snapshot_release(snap)
     drawn := app.doc_styles(&a, id, nil, &snap.text, nil, 0, 4)
     testing.expect_value(t, drawn[1].fg, RED)
     testing.expect_value(t, drawn[1].bg, u32(gfx.Token.Bg))
@@ -188,8 +189,7 @@ a_config_line_is_the_z_order :: proc(t: ^testing.T) {
         return
     }
     defer close_spans_app(&a)
-    app.home_set(&a.home, dir)
-    defer app.home_destroy(&a.home)
+    app.app_home(&a, dir)
     id := kinded_doc(&a, app.KIND_HOME)
 
     path, _ := filepath.join({dir, app.CONFIG_NAME}, context.temp_allocator)
@@ -236,7 +236,7 @@ forgetting_a_publisher_leaves_the_rest :: proc(t: ^testing.T) {
     testing.expect_value(t, both[0], fg(0, 4, RED))
     testing.expect_value(t, both[1], fg(5, 9, BLUE))
 
-    store.store_spans_forget(&a.docs, app.producer_intern(&a, "aaa"))
+    store.store_spans_forget(a.docs, app.producer_intern(&a, "aaa"))
     out := merged(&a, id, 0, 9)
     testing.expect_value(t, len(out), 1)
     testing.expect_value(t, out[0], fg(5, 9, BLUE))
@@ -331,11 +331,11 @@ a_run_is_bytes_and_the_renderer_splits_it_by_line :: proc(t: ^testing.T) {
         return
     }
     defer close_spans_app(&a)
-    snap := store.store_snapshot(&a.docs, id)
-    defer txt.snapshot_release(snap)
+    snap := store.store_snapshot(a.docs, id)
+    defer pt.snapshot_release(snap)
 
     // From "a = 1" on line 0 through "let" on line 1: one publish, two drawn rows.
-    across := [?]store.Span{{lo = 4, hi = 13, fg = RED, attrs = {.Bold}, set = {.Fg, .Attrs}}}
+    across := [?]store.Span{{lo = 4, hi = 13, fg = RED, attrs = transmute(u8)gfx.Attrs{.Bold}, set = {.Fg, .Attrs}}}
     testing.expect(t, publish(&a, id, "syntax", 0, 20, across[:]))
 
     out := app.doc_styles(&a, id, nil, &snap.text, nil, 0, 4)
@@ -405,9 +405,9 @@ a_theme_switch_retints_with_no_republish :: proc(t: ^testing.T) {
     testing.expect(t, publish(&a, id, "syntax", 0, 9, alert[:]))
     app.surface_draw(&a)
 
-    snap := store.store_snapshot(&a.docs, id)
-    defer txt.snapshot_release(snap)
-    d := store.store_descriptor(&a.docs, id)
+    snap := store.store_snapshot(a.docs, id)
+    defer pt.snapshot_release(snap)
+    d := store.store_descriptor(a.docs, id)
     defer desc.release(d)
     gut := view.gutter_width(&snap.text, d)
     cell := gfx.grid_at(panel_grid(&a), gut, 0)
@@ -432,20 +432,20 @@ a_stale_span_publish_is_dropped_with_its_transaction :: proc(t: ^testing.T) {
     defer close_spans_app(&a)
 
     who := app.producer_intern(&a, "syntax")
-    gen, _ := store.store_gen(&a.docs, id)
+    gen, _ := store.store_gen(a.docs, id)
     list := [?]store.Span{fg(0, 3, RED)}
     // Both were written against `gen`, in one frame. The edit lands and moves it, so the
     // publish behind it is measured against bytes that are gone and goes whole.
-    store.store_submit(&a.docs, id, gen, {{0, 0, "x", 0, 0}})
-    store.store_submit(&a.docs, id, gen, nil, nil,
+    store.store_submit(a.docs, id, gen, {{0, 0, "x", 0, 0}})
+    store.store_submit(a.docs, id, gen, nil, nil,
                        store.Spans{who = who, lo = 0, hi = 9, list = list[:]})
-    store.store_drain(&a.docs)
+    store.store_drain(a.docs)
     testing.expect_value(t, len(merged(&a, id, 0, 20)), 0)
 
-    moved, _ := store.store_gen(&a.docs, id)
-    store.store_submit(&a.docs, id, moved, nil, nil,
+    moved, _ := store.store_gen(a.docs, id)
+    store.store_submit(a.docs, id, moved, nil, nil,
                        store.Spans{who = who, lo = 0, hi = 9, list = list[:]})
-    store.store_drain(&a.docs)
+    store.store_drain(a.docs)
     testing.expect_value(t, len(merged(&a, id, 0, 20)), 1)
 }
 
@@ -464,15 +464,15 @@ a_run_moves_with_the_text_under_it :: proc(t: ^testing.T) {
     who := app.producer_intern(&a, "syntax")
     // `let a = 1` — the keyword, and the name three bytes after it.
     list := [?]store.Span{fg(0, 3, RED), fg(4, 5, BLUE)}
-    gen, _ := store.store_gen(&a.docs, id)
-    store.store_submit(&a.docs, id, gen, nil, nil,
+    gen, _ := store.store_gen(a.docs, id)
+    store.store_submit(a.docs, id, gen, nil, nil,
                        store.Spans{who = who, lo = 0, hi = 9, list = list[:]})
-    store.store_drain(&a.docs)
+    store.store_drain(a.docs)
 
     // Two bytes in front of everything: both runs move by two and neither changes width.
-    gen, _ = store.store_gen(&a.docs, id)
-    store.store_submit(&a.docs, id, gen, {{0, 0, "//", 0, 0}})
-    store.store_drain(&a.docs)
+    gen, _ = store.store_gen(a.docs, id)
+    store.store_submit(a.docs, id, gen, {{0, 0, "//", 0, 0}})
+    store.store_drain(a.docs)
     out := merged(&a, id, 0, 40)
     if !testing.expect_value(t, len(out), 2) {
         return
@@ -482,9 +482,9 @@ a_run_moves_with_the_text_under_it :: proc(t: ^testing.T) {
 
     // Typed INSIDE the second run, which is what extending a name is: it grows rather than
     // splitting, and the one in front of it does not move at all.
-    gen, _ = store.store_gen(&a.docs, id)
-    store.store_submit(&a.docs, id, gen, {{7, 7, "bc", 0, 0}})
-    store.store_drain(&a.docs)
+    gen, _ = store.store_gen(a.docs, id)
+    store.store_submit(a.docs, id, gen, {{7, 7, "bc", 0, 0}})
+    store.store_drain(a.docs)
     out = merged(&a, id, 0, 40)
     if !testing.expect_value(t, len(out), 2) {
         return
@@ -494,9 +494,9 @@ a_run_moves_with_the_text_under_it :: proc(t: ^testing.T) {
 
     // Swallowed whole. A run over bytes that are gone is worse than no run, so it goes and the
     // other one is left where it was.
-    gen, _ = store.store_gen(&a.docs, id)
-    store.store_submit(&a.docs, id, gen, {{5, 10, "", 0, 0}})
-    store.store_drain(&a.docs)
+    gen, _ = store.store_gen(a.docs, id)
+    store.store_submit(a.docs, id, gen, {{5, 10, "", 0, 0}})
+    store.store_drain(a.docs)
     out = merged(&a, id, 0, 40)
     if !testing.expect_value(t, len(out), 1) {
         return
@@ -516,16 +516,16 @@ two_runs_that_touch_do_not_overlap_when_you_type_between_them :: proc(t: ^testin
 
     who := app.producer_intern(&a, "syntax")
     list := [?]store.Span{fg(0, 3, RED), fg(3, 9, BLUE)}
-    gen, _ := store.store_gen(&a.docs, id)
-    store.store_submit(&a.docs, id, gen, nil, nil,
+    gen, _ := store.store_gen(a.docs, id)
+    store.store_submit(a.docs, id, gen, nil, nil,
                        store.Spans{who = who, lo = 0, hi = 9, list = list[:]})
-    store.store_drain(&a.docs)
+    store.store_drain(a.docs)
 
     // Exactly on the seam: it goes to the run that ENDS there, and the one after it starts past
     // what was typed rather than under it.
-    gen, _ = store.store_gen(&a.docs, id)
-    store.store_submit(&a.docs, id, gen, {{3, 3, "XY", 0, 0}})
-    store.store_drain(&a.docs)
+    gen, _ = store.store_gen(a.docs, id)
+    store.store_submit(a.docs, id, gen, {{3, 3, "XY", 0, 0}})
+    store.store_drain(a.docs)
 
     out := merged(&a, id, 0, 40)
     if !testing.expect_value(t, len(out), 2) {
@@ -547,10 +547,10 @@ a_publish_in_the_same_transaction_as_an_edit_is_already_true :: proc(t: ^testing
 
     who := app.producer_intern(&a, "syntax")
     list := [?]store.Span{fg(2, 5, RED)}
-    gen, _ := store.store_gen(&a.docs, id)
-    store.store_submit(&a.docs, id, gen, {{0, 0, "//", 0, 0}}, nil,
+    gen, _ := store.store_gen(a.docs, id)
+    store.store_submit(a.docs, id, gen, {{0, 0, "//", 0, 0}}, nil,
                        store.Spans{who = who, lo = 0, hi = 11, list = list[:]})
-    store.store_drain(&a.docs)
+    store.store_drain(a.docs)
 
     out := merged(&a, id, 0, 40)
     if !testing.expect_value(t, len(out), 1) {
@@ -572,11 +572,11 @@ close_spans_app :: proc(a: ^app.App) {
 // A document in a KIND, which is the section a `spans` line is written under.
 @(private = "file")
 kinded_doc :: proc(a: ^app.App, kind: input.Kind) -> store.Id {
-    id := store.store_open(&a.docs, SOURCE)
-    gen, _ := store.store_gen(&a.docs, id)
+    id := store.store_open(a.docs, SOURCE)
+    gen, _ := store.store_gen(a.docs, id)
     d := desc.new_from({kind = kind, ctx = .Text, editable = true, tab_width = 4})
-    store.store_submit(&a.docs, id, gen, nil, d)
+    store.store_submit(a.docs, id, gen, nil, d)
     desc.release(d)
-    store.store_drain(&a.docs)
+    store.store_drain(a.docs)
     return id
 }

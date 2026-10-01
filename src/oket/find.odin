@@ -29,7 +29,7 @@ find_free :: proc(a: ^App) {
 @(private = "file")
 find_doc :: proc(a: ^App) -> ^txt.Doc {
     s := ring_focused(a)
-    return s != nil ? store.store_doc(&a.docs, s.doc) : nil
+    return s != nil ? store.store_doc(a.docs, s.doc) : nil
 }
 
 // `:find <pattern>` — every match at once, as selections. The primary is the first hit at or

@@ -1,10 +1,12 @@
 package tests
 
+import "lues:pt"
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 import "core:slice"
 import "core:strings"
+import "core:sync"
 import "core:testing"
 import "core:time"
 import "../desc"
@@ -48,7 +50,7 @@ home_dir :: proc(h: app.Home) -> string {
 // A kernel with nothing in the ring. `home` stays empty: syncing binds.conf would write beside
 // the test binary, which races the parallel runner and is not this App's file to write.
 bare_app :: proc(cols := 50, rows := 4) -> (a: app.App, ok: bool) {
-    a.theme = gfx.DEFAULT_THEME
+    a = app.app_make() or_return
     // The real defaults, less the two a test cannot have: a strip that animates makes every
     // geometry assertion a race, and a gap puts every panel width off its arithmetic.
     a.config = app.config_default()
@@ -83,45 +85,19 @@ listing_app :: proc(t: ^testing.T, name: string) -> (a: app.App, dir: string, ok
     return a, dir, true
 }
 
+// SDL is one per process: a test's Init and another's Quit unload each other's video driver.
+sdl_lock: sync.Mutex
+
 close_app :: proc(a: ^app.App) {
-    delete(a.dir)
-    app.tokens_destroy(a) // the kernel interns the two link tokens itself (routing.odin)
-    app.theme_destroy(a) // the applied name and any loaded scopes, the same as app_destroy
-    app.views_destroy(a) // a built view holds a snapshot, the same as app_destroy
-    app.config_requests_destroy(a)
-    app.config_destroy(&a.config)
-    app.gripes_destroy(a) // what a config file could not be read as, the same as app_destroy
-    app.producers_destroy(a) // a publisher's name is interned by publishing, plugin or kernel
-    app.journals_destroy(a) // a clean exit leaves nothing to recover, the same as app_destroy
-    app.quarantine_destroy(a)
-    app.fault_trace_close(a) // the fd is a process global: a leak here writes into another test
-    app.job_destroy(a)
-    app.io_destroy(a) // the worker thread, joined, the same way app_destroy ends one
-    app.chain_clear(a)
-    app.queue_destroy(a)
-    app.cl_destroy(a)
-    app.ring_destroy(a)
-    app.terms_destroy(a)
-    store.store_destroy(&a.docs)
-    input.binds_destroy(&a.binds)
-    app.binds_requests_destroy(a)
-    input.pending_set(&a.pending) // an armed picker owns its line, the same as app_destroy
-    app.message_set(a, "")
-    delete(a.preedit) // owned by preedit_set, the same as app_destroy
-    app.clips_free(a)
-    app.jumps_free(a)
-    app.find_free(a)
-    app.panels_destroy(a)
-    app.menubar_destroy(a) // the three menu grids, the same as app_destroy
-    gfx.grid_destroy(&a.bar_grid)
+    app.app_destroy(a)
 }
 
 // A document with a file and text in it, and no owner behind it. The kernel has no `text` kind
 // — a file in a buffer is the editor plugin's — so a test that only needs SOMETHING editable
 // in the ring builds one here rather than compiling a plugin for it.
 scratch_doc :: proc(a: ^app.App, file, text: string) -> store.Id {
-    id := store.store_open(&a.docs, text)
-    gen, _ := store.store_gen(&a.docs, id)
+    id := store.store_open(a.docs, text)
+    gen, _ := store.store_gen(a.docs, id)
     d := desc.new_from(
         {
             numbers = .Absolute,
@@ -132,9 +108,9 @@ scratch_doc :: proc(a: ^app.App, file, text: string) -> store.Id {
             tab_width = 4,
         },
     )
-    store.store_submit(&a.docs, id, gen, nil, d)
+    store.store_submit(a.docs, id, gen, nil, d)
     desc.release(d)
-    store.store_drain(&a.docs)
+    store.store_drain(a.docs)
     return id
 }
 
@@ -182,24 +158,22 @@ plug_app :: proc(t: ^testing.T, name: string, plugins: ..string) -> (a: app.App,
         }
     }
     a = bare_app() or_return
-    app.home_set(&a.home, home) // owned by the App, freed with it
+    app.app_home(&a, home) // owned by the App, freed with it
     return a, true
 }
 
 close_plug_app :: proc(a: ^app.App) {
-    app.plug_destroy(a)
-    app.home_destroy(&a.home)
-    close_app(a)
+    app.app_destroy(a)
 }
 
 // A document's whole text, for a test that reads what a plugin wrote.
 doc_text :: proc(a: ^app.App, id: store.Id) -> string {
-    doc := store.store_doc(&a.docs, id)
+    doc := store.store_doc(a.docs, id)
     if doc == nil {
         return ""
     }
-    last := txt.text_line_count(&doc.pt) - 1
-    return txt.doc_text(doc, {0, 0}, {last, txt.text_line_len(&doc.pt, last)},
+    last := pt.text_line_count(&doc.table) - 1
+    return txt.doc_text(doc, {0, 0}, {last, pt.text_line_len(&doc.table, last)},
                         context.temp_allocator)
 }
 
@@ -207,7 +181,7 @@ doc_text :: proc(a: ^app.App, id: store.Id) -> string {
 // is woken by the worker and idles otherwise; a test polls because it has no window.
 io_settle :: proc(a: ^app.App, of: proc(a: ^app.App) -> string, want: string, secs := 5) -> bool {
     for _ in 0 ..< secs * 200 {
-        app.io_pump(a)
+        app.plug_pump(a)
         if of(a) == want {
             return true
         }
@@ -261,7 +235,7 @@ LISTING_COLUMNS :: [?]desc.Column{{"name", 28, .Left}, {"kind", 4, .Left}, {"siz
 // is arbitrary: the descriptor says where the fields are, so nothing downstream parses this
 // text again.
 listing_doc :: proc(a: ^app.App, dir: string) -> store.Id {
-    s := &a.docs
+    s := a.docs
     columns := LISTING_COLUMNS
     text := strings.builder_make(context.temp_allocator)
     fields := make([dynamic]desc.Field, context.temp_allocator)

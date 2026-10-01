@@ -1,5 +1,6 @@
 package tests
 
+import "lues:lues"
 import "core:fmt"
 import "core:strings"
 import "core:testing"
@@ -21,13 +22,13 @@ run_line :: proc(a: ^app.App, line: string) {
     for i := 0; app.chain_busy(a) && i < 5000; i += 1 {
         app.term_pump(a) // N0 is a PTY: nothing reports until its bytes reach the parser
         app.sh_pump(a)
-        store.store_drain(&a.docs)
+        store.store_drain(a.docs)
         time.sleep(2 * time.Millisecond)
     }
     // A builtin-only line goes idle without a single pump, and what it printed into N0 is
     // still in the VT: one more pump lands it in the store for the assertions to read.
     app.term_pump(a)
-    store.store_drain(&a.docs)
+    store.store_drain(a.docs)
 }
 
 // The split is the shell's own reading of an operator: never inside quotes, after a backslash,
@@ -130,7 +131,7 @@ sel_pipes_a_selection_out_and_put_brings_it_back :: proc(t: ^testing.T) {
     testing.expect_value(t, doc_text(&a, id), "HELLO\nworld")
 
     // A whole-document selection round trips too, and `sort`'s trailing newline arrives as one.
-    doc := store.store_doc(&a.docs, id)
+    doc := store.store_doc(a.docs, id)
     txt.doc_set_text(doc, "b\na\nc")
     txt.doc_select_all(doc)
     run_line(&a, ":sel | sort | :put")
@@ -456,12 +457,13 @@ an_alias_is_a_named_line_that_composes :: proc(t: ^testing.T) {
 
     // A plugin's registered name wins the clash SILENTLY: the alias never expands, and the
     // step goes to the plugin unchanged.
-    append(&a.cmds, app.Plug_Cmd{name = "fake.cmd", owner = 0})
+    append(&a.kernel.cmds, lues.Plug_Cmd{name = "fake.cmd", owner = 0})
     app.config_set_line(&a.config, "alias", "fake.cmd", ":width 25")
     app.cl_parse(&a, ":fake.cmd")
     testing.expect_value(t, len(a.chain.steps), 1)
     testing.expect_value(t, a.chain.steps[0].text, "fake.cmd")
-    delete(a.cmds) // the fake row's strings are literals; close_app never walks a.cmds
+    delete(a.kernel.cmds) // the fake row's strings are literals: out before the kernel frees it
+    a.kernel.cmds = nil
 }
 
 // The shipped vocabulary: `:panel.equalize` walks the strip through `:get`, awk and `:do`,

@@ -24,7 +24,7 @@ copy_then_paste_round_trips :: proc(t: ^testing.T) {
 
     id := scratch_doc(&a, "note", "hello\nworld")
     app.ring_add(&a, id)
-    doc := store.store_doc(&a.docs, id)
+    doc := store.store_doc(a.docs, id)
 
     txt.doc_set_head(doc, {0, 0}, false)
     txt.doc_set_head(doc, {0, 5}, true)
@@ -48,7 +48,7 @@ cut_leaves_the_text_on_the_clipboard :: proc(t: ^testing.T) {
 
     id := scratch_doc(&a, "note", "hello world")
     app.ring_add(&a, id)
-    doc := store.store_doc(&a.docs, id)
+    doc := store.store_doc(a.docs, id)
 
     txt.doc_set_head(doc, {0, 6}, false)
     txt.doc_set_head(doc, {0, 11}, true)
@@ -69,7 +69,7 @@ copy_with_no_selection_takes_the_line :: proc(t: ^testing.T) {
 
     id := scratch_doc(&a, "note", "one\ntwo")
     app.ring_add(&a, id)
-    txt.doc_set_head(store.store_doc(&a.docs, id), {0, 1}, false)
+    txt.doc_set_head(store.store_doc(a.docs, id), {0, 1}, false)
 
     app.handle_chord(&a, chord("AB03", {.Ctrl}))
     testing.expect_value(t, app.clip_head(&a).text, "one\n")
@@ -124,7 +124,7 @@ a_mixed_set_cuts_only_what_it_copied :: proc(t: ^testing.T) {
 
     id := scratch_doc(&a, "note", "one\ntwo")
     app.ring_add(&a, id)
-    doc := store.store_doc(&a.docs, id)
+    doc := store.store_doc(a.docs, id)
 
     txt.doc_set_head(doc, {0, 0}, false)
     txt.doc_set_head(doc, {0, 3}, true)
@@ -149,7 +149,7 @@ kill_line_takes_the_rest_of_the_line :: proc(t: ^testing.T) {
 
     id := scratch_doc(&a, "note", "hello world\nnext")
     app.ring_add(&a, id)
-    txt.doc_set_head(store.store_doc(&a.docs, id), {0, 5}, false)
+    txt.doc_set_head(store.store_doc(a.docs, id), {0, 5}, false)
 
     app.handle_chord(&a, chord("AC08", {.Ctrl})) // ctrl+k
     testing.expect_value(t, doc_text(&a, id), "hello\nnext")
@@ -168,7 +168,7 @@ kill_line_at_the_end_joins_the_next :: proc(t: ^testing.T) {
 
     id := scratch_doc(&a, "note", "one\ntwo")
     app.ring_add(&a, id)
-    txt.doc_set_head(store.store_doc(&a.docs, id), {0, 3}, false)
+    txt.doc_set_head(store.store_doc(a.docs, id), {0, 3}, false)
 
     app.handle_chord(&a, chord("AC08", {.Ctrl}))
     testing.expect_value(t, doc_text(&a, id), "onetwo")
@@ -185,7 +185,7 @@ kill_whole_line_and_kill_to_line_start :: proc(t: ^testing.T) {
 
     id := scratch_doc(&a, "note", "one\ntwo\nthree")
     app.ring_add(&a, id)
-    doc := store.store_doc(&a.docs, id)
+    doc := store.store_doc(a.docs, id)
 
     txt.doc_set_head(doc, {1, 1}, false)
     app.handle_chord(&a, chord("AC08", {.Ctrl, .Shift})) // ctrl+shift+k
@@ -215,7 +215,7 @@ a_kill_of_nothing_leaves_the_line_alone :: proc(t: ^testing.T) {
 
     id := scratch_doc(&a, "note", "one\ntwo")
     app.ring_add(&a, id)
-    doc := store.store_doc(&a.docs, id)
+    doc := store.store_doc(a.docs, id)
     app.clip_set(&a, "kept")
 
     txt.doc_set_head(doc, {1, 0}, false)
@@ -244,7 +244,7 @@ a_multi_caret_copy_pastes_one_piece_per_caret :: proc(t: ^testing.T) {
 
     id := scratch_doc(&a, "note", "one\ntwo\n.\n.")
     app.ring_add(&a, id)
-    doc := store.store_doc(&a.docs, id)
+    doc := store.store_doc(a.docs, id)
 
     txt.doc_set_spans(doc, [][2]txt.Pos{{{0, 0}, {0, 3}}, {{1, 0}, {1, 3}}})
     app.handle_chord(&a, chord("AB03", {.Ctrl}))
@@ -267,7 +267,7 @@ pieces_that_do_not_fit_the_carets_paste_whole :: proc(t: ^testing.T) {
 
     id := scratch_doc(&a, "note", "one\ntwo\n.")
     app.ring_add(&a, id)
-    doc := store.store_doc(&a.docs, id)
+    doc := store.store_doc(a.docs, id)
 
     txt.doc_set_spans(doc, [][2]txt.Pos{{{0, 0}, {0, 3}}, {{1, 0}, {1, 3}}})
     app.handle_chord(&a, chord("AB03", {.Ctrl}))
@@ -288,7 +288,7 @@ a_foreign_copy_lands_whole_at_every_caret :: proc(t: ^testing.T) {
 
     id := scratch_doc(&a, "note", ".\n.")
     app.ring_add(&a, id)
-    doc := store.store_doc(&a.docs, id)
+    doc := store.store_doc(a.docs, id)
 
     app.clip_set(&a, "X")
     txt.doc_set_spans(doc, [][2]txt.Pos{{{0, 1}, {0, 1}}, {{1, 1}, {1, 1}}})
@@ -308,7 +308,7 @@ bare_carets_copy_a_line_each :: proc(t: ^testing.T) {
 
     id := scratch_doc(&a, "note", "one\ntwo")
     app.ring_add(&a, id)
-    doc := store.store_doc(&a.docs, id)
+    doc := store.store_doc(a.docs, id)
 
     txt.doc_set_spans(doc, [][2]txt.Pos{{{0, 0}, {0, 0}}, {{1, 0}, {1, 0}}})
     app.handle_chord(&a, chord("AB03", {.Ctrl}))
@@ -329,7 +329,7 @@ a_multi_caret_cut_pastes_one_piece_per_caret :: proc(t: ^testing.T) {
 
     id := scratch_doc(&a, "note", "one\ntwo\n.\n.")
     app.ring_add(&a, id)
-    doc := store.store_doc(&a.docs, id)
+    doc := store.store_doc(a.docs, id)
 
     txt.doc_set_spans(doc, [][2]txt.Pos{{{0, 0}, {0, 3}}, {{1, 0}, {1, 3}}})
     app.handle_chord(&a, chord("AB02", {.Ctrl}))
@@ -413,7 +413,7 @@ a_coalesced_paste_cannot_cycle :: proc(t: ^testing.T) {
     app.clip_set(&a, "older")
     app.clip_set(&a, "y")
 
-    txt.doc_insert_rune(store.store_doc(&a.docs, id), 'a') // an open typing step
+    txt.doc_insert_rune(store.store_doc(a.docs, id), 'a') // an open typing step
     app.handle_chord(&a, chord("AB04", {.Ctrl})) // "y" joins the 'a' as one undo step
     app.handle_chord(&a, chord("AB04", {.Ctrl, .Shift}))
     testing.expect_value(t, doc_text(&a, id), "ay")

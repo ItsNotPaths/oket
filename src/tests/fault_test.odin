@@ -1,5 +1,6 @@
 package tests
 
+import "lues:lues"
 import "core:dynlib"
 import "core:os"
 import "core:path/filepath"
@@ -19,8 +20,7 @@ import app "../oket"
 @(private = "file")
 boom_app :: proc(t: ^testing.T, name: string) -> (a: app.App, ok: bool) {
     a = plug_app(t, name, "src/tests/boom") or_return
-    app.plug_init(&a)
-    if !testing.expect(t, app.fault_install(), "the fault net did not install") {
+    if !testing.expect(t, lues.fault_ready(), "the fault net did not install") {
         close_plug_app(&a)
         return {}, false
     }
@@ -74,14 +74,14 @@ a_recovered_fault_leaves_a_trace_naming_the_plugin :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.fault_trace_open(&a) // main.odin does this at startup, beside the quarantine
+    lues.fault_trace_open(a.kernel) // main.odin does this at startup, beside the quarantine
 
     app.cl_exec(&a, ":boom")
 
     testing.expect(t, strings.contains(app.bar_text(&a), "trace in"), app.bar_text(&a))
     // The FIRST invocation is the plugin's own object, with an offset on it: a walk that starts
     // in the handler has the kernel's frames in front of the ones you want.
-    path, _ := filepath.join({home_dir(a.home), app.FAULTS_FILE}, context.temp_allocator)
+    path, _ := filepath.join({home_dir(a.home), lues.FAULTS_FILE}, context.temp_allocator)
     raw, err := os.read_entire_file(path, context.temp_allocator)
     if !testing.expectf(t, err == nil, "no trace at %s: %v", path, err) {
         return
@@ -127,8 +127,8 @@ a_hang_dies_the_same_way_as_a_fault :: proc(t: ^testing.T) {
     // Far below PLUG_HANG_MS so the test is a second rather than five. Stopped again on the way
     // out: the runner shares threads between tests, and a deadline this short left armed is one
     // somebody else's dispatch would eventually trip.
-    app.fault_watchdog_start(1000)
-    defer app.fault_watchdog_stop()
+    lues.fault_watchdog_start(1000)
+    defer lues.fault_watchdog_stop()
 
     app.cl_exec(&a, ":hang") // it sleeps for five seconds; the watchdog is what ends the call
 
@@ -150,16 +150,16 @@ a_fault_while_opening_leaves_no_half_made_document :: proc(t: ^testing.T) {
     testing.expect(t, named, "the kind it registered is not in the table")
 
     // A slot on the free list, so the doomed document is guaranteed to take THAT one.
-    spare := store.store_open(&a.docs)
-    store.store_close(&a.docs, spare)
+    spare := store.store_open(a.docs)
+    store.store_close(a.docs, spare)
 
     _, opened := app.kind_fresh(&a, kind)
     testing.expect(t, !opened, "an open that faulted reported a document")
 
     // Free again, which is only true if the half-made document was closed on the way out.
-    again := store.store_open(&a.docs)
+    again := store.store_open(a.docs)
     testing.expect_value(t, again.slot, spare.slot)
-    store.store_close(&a.docs, again)
+    store.store_close(a.docs, again)
     testing.expect(t, app.plug_find(&a, "boom") < 0, "the plugin outlived its own fault")
 }
 
@@ -175,14 +175,14 @@ the_guard_tells_a_plugins_code_from_the_kernels :: proc(t: ^testing.T) {
     defer close_plug_app(&a)
 
     i := app.plug_find(&a, "boom")
-    entry, found := dynlib.symbol_address(a.plugs[i].lib, "oket_main")
+    entry, found := dynlib.symbol_address(a.kernel.plugs[i].lib, lues.ENTRY)
     testing.expect(t, found, "the plugin exports no entry point")
-    testing.expect(t, a.plugs[i].base != 0, "the load recorded no base address")
-    testing.expect_value(t, app.fault_object_base(entry), a.plugs[i].base)
+    testing.expect(t, a.kernel.plugs[i].base != 0, "the load recorded no base address")
+    testing.expect_value(t, lues.fault_object_base(entry), a.kernel.plugs[i].base)
     // A kernel address answers with the kernel's own object, so a fault there falls through to
     // dying honestly however deep in a dispatch it happens.
-    kernel := app.fault_object_base(rawptr(app.plug_find))
-    testing.expect(t, kernel != 0 && kernel != a.plugs[i].base, "the kernel looks like a plugin")
+    kernel := lues.fault_object_base(rawptr(app.plug_find))
+    testing.expect(t, kernel != 0 && kernel != a.kernel.plugs[i].base, "the kernel looks like a plugin")
 }
 
 // The invariant checks (§10), which need no signal: a plugin that returns cleanly having
@@ -195,7 +195,6 @@ a_document_smashed_under_a_dispatch_is_caught :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.plug_init(&a)
     if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "example")), a.message) {
         return
     }
@@ -205,7 +204,7 @@ a_document_smashed_under_a_dispatch_is_caught :: proc(t: ^testing.T) {
     app.ring_add(&a, id)
 
     // A wild store, standing in for the one a plugin walking off a snapshot would make.
-    store.store_doc(&a.docs, id).magic = 0
+    store.store_doc(a.docs, id).magic = 0
     app.cl_exec(&a, ":example")
 
     testing.expect(t, app.plug_find(&a, "example") < 0, "corrupting a document cost nothing")
@@ -223,7 +222,6 @@ autoload_takes_every_so_in_the_plugin_directory :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.plug_init(&a)
 
     app.plug_autoload(&a)
 

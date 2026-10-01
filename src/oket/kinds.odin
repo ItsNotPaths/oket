@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import "core:strings"
+import "lues:lues"
 import "../desc"
 import "../input"
 import "../store"
@@ -13,7 +14,7 @@ import "../store"
 //
 // input.Kind(0) is no kind — a document in no lane, and the wide tier of the bind table. The
 // kernel's own two are written here in a fixed order so they are constants; a plugin's kind
-// appends past them into `a.kinds` (plug.odin) and nothing about this shape changes.
+// appends past them in lues (kind_base) and nothing about this shape changes.
 //
 // THE TWO LEFT HERE ARE THE ONES THE KERNEL IS. A terminal is a PTY the kernel owns and a home
 // page is what a start has to say for itself; both are the kernel's own state, and neither is a
@@ -47,12 +48,8 @@ kind_named :: proc(a: ^App, name: string) -> (input.Kind, bool) {
             return input.Kind(i + 1), true
         }
     }
-    for k, i in a.kinds {
-        if k.owner >= 0 && k.name == name {
-            return input.Kind(len(KINDS) + i + 1), true
-        }
-    }
-    return 0, false
+    kind, ok := lues.kind_named(a.kernel, name)
+    return input.Kind(kind), ok
 }
 
 // "" for no kind and for a kind nobody registered, which is what `:ls` prints for a document
@@ -72,7 +69,7 @@ kind_info :: proc(a: ^App, kind: input.Kind) -> Kind_Info {
         return KINDS[i]
     }
     if k, ok := plug_kind(a, kind); ok {
-        return {k.name, k.ctx}
+        return {k.name, input.Bind_Ctx(k.ctx)}
     }
     return {"", .Global}
 }
@@ -116,10 +113,11 @@ names :: proc(a: ^App) -> input.Names {
         slot = proc(user: rawptr, slot: input.Slot) -> (name, doc: string) {
             a := (^App)(user)
             i := int(slot)
-            if i < 0 || i >= len(a.cmds) || a.cmds[i].owner < 0 {
+            cmds := a.kernel.cmds[:]
+            if i < 0 || i >= len(cmds) || cmds[i].owner < 0 {
                 return "?", "a command whose plugin is not loaded"
             }
-            return a.cmds[i].name, a.cmds[i].doc
+            return cmds[i].name, cmds[i].doc
         },
         kind = proc(user: rawptr, kind: input.Kind) -> string {
             return kind_name((^App)(user), kind)
@@ -131,7 +129,7 @@ names :: proc(a: ^App) -> input.Names {
 
 // The lane a document belongs in, which is the kind its descriptor names (§5).
 doc_kind :: proc(a: ^App, id: store.Id) -> input.Kind {
-    d := store.store_descriptor(&a.docs, id)
+    d := store.store_descriptor(a.docs, id)
     if d == nil {
         return 0
     }
@@ -141,7 +139,7 @@ doc_kind :: proc(a: ^App, id: store.Id) -> input.Kind {
 
 // What the bar and `:ls` call a document: its file, else its kind. Temp-allocated.
 doc_title :: proc(a: ^App, id: store.Id) -> string {
-    d := store.store_descriptor(&a.docs, id)
+    d := store.store_descriptor(a.docs, id)
     if d == nil {
         return ""
     }
@@ -153,7 +151,7 @@ doc_title :: proc(a: ^App, id: store.Id) -> string {
 // a path at all — a terminal, a home page, a scratch buffer — and "" is never the same as
 // anything.
 doc_file :: proc(a: ^App, id: store.Id) -> string {
-    d := store.store_descriptor(&a.docs, id)
+    d := store.store_descriptor(a.docs, id)
     if d == nil {
         return ""
     }

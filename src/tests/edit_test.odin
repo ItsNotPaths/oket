@@ -25,7 +25,6 @@ import app "../oket"
 @(private = "file")
 edit_app :: proc(t: ^testing.T, name, text: string) -> (a: app.App, path: string, ok: bool) {
     a = plug_app(t, name, "plugins/edit") or_return
-    app.plug_init(&a)
     if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "edit")), a.message) {
         close_plug_app(&a)
         return {}, "", false
@@ -62,7 +61,7 @@ a_file_opens_into_the_editor_plugin :: proc(t: ^testing.T) {
     defer close_plug_app(&a)
 
     id := focused(&a)
-    d := store.store_descriptor(&a.docs, id)
+    d := store.store_descriptor(a.docs, id)
     defer desc.release(d)
     kind, _ := app.kind_named(&a, "edit")
     testing.expect_value(t, d.kind, kind)
@@ -80,7 +79,7 @@ a_file_opens_into_the_editor_plugin :: proc(t: ^testing.T) {
     app.cl_exec(&a, fmt.tprintf(":open %s", path))
     testing.expect(t, strings.contains(a.message, "nothing registers"), a.message)
     // Nothing new landed in the ring: the slot still holds the document the unload closed.
-    testing.expect(t, !store.store_is_open(&a.docs, focused(&a)),
+    testing.expect(t, !store.store_is_open(a.docs, focused(&a)),
                    "the kernel opened a file by itself")
 }
 
@@ -178,7 +177,7 @@ the_editor_plugin_owns_left_and_right :: proc(t: ^testing.T) {
     slot, is_slot := b.target.(input.Slot)
     testing.expect(t, found && is_slot && slot == want, "LEFT is not the editor's row")
 
-    gen, _ := store.store_gen(&a.docs, id)
+    gen, _ := store.store_gen(a.docs, id)
     app.handle_chord(&a, chord("END")) // still the kernel's: one verb at a time (§9)
     testing.expect_value(t, point(&a).head, txt.Pos{0, 6})
     for _ in 0 ..< 3 {
@@ -190,7 +189,7 @@ the_editor_plugin_owns_left_and_right :: proc(t: ^testing.T) {
     testing.expect_value(t, point(&a).head, txt.Pos{0, 1})
 
     // §3, and the reason `cursors` is not a submit: none of that was a transaction.
-    now, _ := store.store_gen(&a.docs, id)
+    now, _ := store.store_gen(a.docs, id)
     testing.expect_value(t, now, gen)
 
     // Shift is a row of its own, because the bind table's Shift retry hands `extend` to the
@@ -212,7 +211,7 @@ the_editor_plugin_owns_left_and_right :: proc(t: ^testing.T) {
     // wrapping its own line break here — with the primary still the caret that was added.
     app.handle_chord(&a, chord("DOWN", {.Ctrl, .Alt}))
     app.handle_chord(&a, chord("LEFT"))
-    doc := store.store_doc(&a.docs, id)
+    doc := store.store_doc(a.docs, id)
     testing.expect_value(t, len(doc.cursors), 2)
     testing.expect_value(t, doc.cursors[0].head, txt.Pos{0, 6})
     testing.expect_value(t, doc.cursors[1].head, txt.Pos{1, 4})
@@ -244,7 +243,7 @@ each_caret_takes_its_own_indent_in_one_step :: proc(t: ^testing.T) {
     defer close_plug_app(&a)
 
     id := focused(&a)
-    doc := store.store_doc(&a.docs, id)
+    doc := store.store_doc(a.docs, id)
     txt.doc_set_head(doc, {0, 5}, false) // end of "  two"
     txt.doc_add_cursor(doc, {1, 13}) // end of "        eight"
 
@@ -273,7 +272,7 @@ the_viewport_follows_the_caret_being_typed_at :: proc(t: ^testing.T) {
     defer close_plug_app(&a)
 
     id := focused(&a)
-    doc := store.store_doc(&a.docs, id)
+    doc := store.store_doc(a.docs, id)
     txt.doc_set_head(doc, {0, 0}, false)
     txt.doc_add_cursor(doc, {LINES - 1, 0}) // alt+click at the bottom, and it is the primary
     bottom := doc.cursors[doc.primary].id
@@ -382,7 +381,7 @@ an_edited_buffer_is_not_overwritten :: proc(t: ^testing.T) {
     mine := doc_text(&a, focused(&a))
     _ = os.write_entire_file(path, transmute([]u8)string("theirs\n"))
     for _ in 0 ..< 200 {
-        app.io_pump(&a)
+        app.plug_pump(&a)
         time.sleep(5 * time.Millisecond)
     }
     testing.expect_value(t, doc_text(&a, focused(&a)), mine)
@@ -406,7 +405,7 @@ reload_takes_the_file_over_our_own_edits :: proc(t: ^testing.T) {
     mine := doc_text(&a, focused(&a))
     _ = os.write_entire_file(path, transmute([]u8)string("theirs\n"))
     for _ in 0 ..< 200 {
-        app.io_pump(&a)
+        app.plug_pump(&a)
         time.sleep(5 * time.Millisecond)
     }
     testing.expect_value(t, doc_text(&a, focused(&a)), mine) // refused, as it should be
@@ -419,7 +418,7 @@ reload_takes_the_file_over_our_own_edits :: proc(t: ^testing.T) {
     // reload that only spliced the text would call its own work a foreign change.
     _ = os.write_entire_file(path, transmute([]u8)string("theirs\n"))
     for _ in 0 ..< 200 {
-        app.io_pump(&a)
+        app.plug_pump(&a)
         time.sleep(5 * time.Millisecond)
     }
     testing.expect(t, !strings.contains(a.message, "changed on disk"), a.message)
@@ -440,7 +439,7 @@ a_save_of_our_own_is_not_a_reload :: proc(t: ^testing.T) {
     testing.expect(t, strings.contains(a.message, "wrote"), a.message)
     before := doc_text(&a, focused(&a))
     for _ in 0 ..< 200 {
-        app.io_pump(&a)
+        app.plug_pump(&a)
         time.sleep(5 * time.Millisecond)
     }
     testing.expect_value(t, doc_text(&a, focused(&a)), before)

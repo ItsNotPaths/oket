@@ -6,7 +6,8 @@ import "core:path/filepath"
 import "core:slice"
 import "core:strconv"
 import "core:strings"
-import "../conf"
+import "lues:conf"
+import "lues:lues"
 import "../input"
 import "../txt"
 
@@ -358,39 +359,9 @@ config_order :: proc(c: ^Config, row: conf.Row) {
 
 // --- what a plugin asked for (§7) ---
 //
-// HELD, NOT APPLIED, the rule request_bind already follows one file over: nothing here touches
-// the live Config. A request becomes a ROW, once, and from then on the file decides — which is
-// what makes installing a view stage `cp` and nothing else, and uninstalling one an edit that
-// sticks.
-
-Config_Request :: struct {
-    owner:   string, // owned; the plugin's name, and the section marker it is written under
-    section: string, // owned; a kind, or a setting group
-    key:     string, // owned
-    value:   string, // owned
-    dead:    bool, // its plugin unloaded; the row it already wrote is the file's now
-}
-
-// Answers whether a request was held, so the caller's ledger only records ones that were.
-config_request :: proc(a: ^App, owner, section, key, value: string) -> bool {
-    if owner == "" || section == "" || key == "" || value == "" {
-        return false
-    }
-    append(&a.creqs, Config_Request{strings.clone(owner), strings.clone(section),
-                                    strings.clone(key), strings.clone(value), false})
-    return true
-}
-
-config_requests_destroy :: proc(a: ^App) {
-    for r in a.creqs {
-        delete(r.owner)
-        delete(r.section)
-        delete(r.key)
-        delete(r.value)
-    }
-    delete(a.creqs)
-    a.creqs = nil
-}
+// HELD, NOT APPLIED, the rule request_bind already follows one file over: lues keeps the
+// requests and writes each owner's block once (lues.config_writeback), and from then on the file
+// decides — which is what makes installing a view stage `cp` and nothing else.
 
 // The file first, then what was requested, then a re-read only if that changed anything. One
 // path in, so a requested row and a typed row are indistinguishable once they are in.
@@ -410,7 +381,7 @@ config_sync :: proc(a: ^App) {
     // The kernel's own block first, so a start with no plugins at all still leaves a file that
     // says what there is to set. Both writes are marker-keyed and asked once.
     wrote := config_defaults_write(a, path)
-    if config_writeback(a, path) || wrote {
+    if lues.config_writeback(a.kernel, path, ORDERED[:]) || wrote {
         config_load(a)
     }
 }
@@ -470,98 +441,7 @@ DEFAULTS_OWNER :: "oket"
 
 @(private = "file")
 config_marker :: proc(owner: string) -> string {
-    return fmt.tprintf("# --- %s ---", owner)
-}
-
-// Appends a marked block per owner that has none yet, and answers whether the file changed.
-//
-// ASKED ONCE. The marker being there is the record, so a name a user then deletes from a `view`
-// line stays deleted — the same reason binds.conf keys its writeback on an owner header and not
-// on the rows.
-@(private = "file")
-config_writeback :: proc(a: ^App, path: string) -> bool {
-    text := ""
-    if raw, err := os.read_entire_file(path, context.temp_allocator); err == nil {
-        text = string(raw)
-    }
-    rows, _ := conf.parse(text)
-    lines := strings.split_lines(text, context.temp_allocator)
-
-    add := strings.builder_make(context.temp_allocator)
-    done := make(map[string]bool, 0, context.temp_allocator)
-    wrote := false
-    for r in a.creqs {
-        if r.dead {
-            continue
-        }
-        if done[r.owner] || strings.contains(text, config_marker(r.owner)) {
-            done[r.owner] = true
-            continue
-        }
-        done[r.owner], wrote = true, true
-        fmt.sbprintf(&add, "\n%s\n", config_marker(r.owner))
-        config_owner_rows(a, rows, lines, &add, r.owner)
-    }
-    if !wrote {
-        return false
-    }
-    b := strings.builder_make(context.temp_allocator)
-    strings.write_string(&b, strings.join(lines, "\n", context.temp_allocator))
-    if text != "" && !strings.has_suffix(text, "\n") {
-        strings.write_byte(&b, '\n')
-    }
-    strings.write_string(&b, strings.to_string(add))
-    return os.write_entire_file(path, transmute([]u8)strings.to_string(b)) == nil
-}
-
-// One owner's live requests, under its marker. A row the file already has is the file's answer,
-// except for the ordered lists, where the answer is a SET and not a value: a second stage has to
-// be able to join one. It is joined in place, so the order the user wrote is kept.
-@(private = "file")
-config_owner_rows :: proc(a: ^App, rows: []conf.Row, lines: []string, add: ^strings.Builder,
-                          owner: string) {
-    section := ""
-    for q in a.creqs {
-        if q.dead || q.owner != owner {
-            continue
-        }
-        if at, held := config_row_at(rows, q.section, q.key); held {
-            if slice.contains(ORDERED[:], q.key) {
-                lines[at - 1] = config_join(lines[at - 1], q.value)
-            }
-            continue
-        }
-        if section != q.section {
-            fmt.sbprintf(add, "[%s]\n", q.section)
-            section = q.section
-        }
-        fmt.sbprintf(add, "%s = %s\n", q.key, q.value)
-    }
-}
-
-// Which LINE holds this section's key, if the file holds it at all.
-@(private = "file")
-config_row_at :: proc(rows: []conf.Row, section, key: string) -> (int, bool) {
-    for r in rows {
-        if r.section == section && r.key == key {
-            return r.line, true
-        }
-    }
-    return 0, false
-}
-
-// `key = a, b` plus `c`; the row unchanged when it already names it.
-@(private = "file")
-config_join :: proc(line, name: string) -> string {
-    _, _, value := strings.partition(line, "=")
-    rest := value
-    for part in strings.split_iterator(&rest, ",") {
-        if strings.trim_space(part) == name {
-            return line
-        }
-    }
-    return strings.concatenate({strings.trim_right_space(line), ", ", name},
-                               context.temp_allocator)
+    return lues.owner_marker(owner)
 }
 
 // The spellings a flat value file has to take, or a user reads `on` back as false with nothing

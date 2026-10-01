@@ -129,14 +129,14 @@ jump_view :: proc(a: ^App, v: view.View) {
     if s == nil {
         return
     }
-    doc := store.store_doc(&a.docs, s.doc)
+    doc := store.store_doc(a.docs, s.doc)
     if doc == nil {
         return
     }
     txt.doc_reset_cursor(doc, v.point.head)
     s.view.left = v.left
     s.view.top = v.top
-    view.scroll(&s.view, &doc.pt, 0)
+    view.scroll(&s.view, &doc.table, 0)
     point_sync(a)
 }
 

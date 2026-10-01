@@ -10,7 +10,7 @@ import "core:sys/posix"
 import "core:thread"
 import "core:time"
 import vt "../libvterm"
-import "../wake"
+import "lues:wake"
 
 // A terminal session: the libvterm VT state machine plus the PTY and child shell. A
 // per-session reader thread does the one blocking read() on the master fd; vterm_* stays

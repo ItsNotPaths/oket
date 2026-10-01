@@ -1,5 +1,6 @@
 package main
 
+import "lues:lues"
 import "core:fmt"
 import "../input"
 import "../store"
@@ -68,9 +69,9 @@ Ring :: struct {
 // here, so a slot cannot drop a PTY on the floor.
 doc_close :: proc(a: ^App, id: store.Id) {
     journal_end(a, id) // the work reached its file or was abandoned; either way it is not lost
-    plug_inst_close(a, id) // the instance ends where its document does, whoever ended it
+    lues.inst_close(a.kernel, id) // the instance ends where its document does, whoever ended it
     term_close(a, id)
-    store.store_close(&a.docs, id)
+    store.store_close(a.docs, id)
 }
 
 ring_destroy :: proc(a: ^App) {

@@ -33,7 +33,7 @@
 
 /* --- the surface --- */
 
-static oket_kind EXAMPLE;
+static lues_kind EXAMPLE;
 
 /* Per-document state. A kind that remembered nothing would not need this at all; this one is
  * here to prove close() gets it back. */
@@ -42,7 +42,7 @@ typedef struct {
     unsigned foreign; /* generations somebody ELSE moved */
 } example;
 
-static void render(const oket_api *api, oket_self self, oket_doc doc, example *e) {
+static void render(const lues_api *api, lues_self self, lues_doc doc, example *e) {
     static const char *const ROWS[][2] = {
         {"kind", "a document the kernel draws with its own renderer"},
         {"seam", "six messages, and reads are not one of them"},
@@ -78,7 +78,7 @@ static void render(const oket_api *api, oket_self self, oket_doc doc, example *e
     oket_build_free(&b);
 }
 
-static void *open_example(const oket_api *api, oket_self self, oket_doc doc,
+static void *open_example(const lues_api *api, lues_self self, lues_doc doc,
                           const char *args, size_t args_len) {
     example *e = calloc(1, sizeof *e);
     (void)args;
@@ -89,15 +89,15 @@ static void *open_example(const oket_api *api, oket_self self, oket_doc doc,
     return e;
 }
 
-static void close_example(const oket_api *api, oket_self self, oket_doc doc, void *inst) {
+static void close_example(const lues_api *api, lues_self self, lues_doc doc, void *inst) {
     (void)api;
     (void)self;
     (void)doc;
     free(inst);
 }
 
-static int32_t event(const oket_api *api, oket_self self, const oket_at *at,
-                     oket_event ev, const char *text, size_t len) {
+static int32_t event(const lues_api *api, lues_self self, const lues_at *at,
+                     lues_event ev, const char *text, size_t len) {
     example *e = at->inst;
 
     if (e == NULL) {
@@ -106,11 +106,11 @@ static int32_t event(const oket_api *api, oket_self self, const oket_at *at,
     /* Somebody else spliced our document — a formatter, a sort addon, `:put`. Nothing here
      * needs repairing, so it is only counted; a REPL would re-read its editable span here. The
      * kernel does not report our OWN writes, so counting one cannot start a loop. */
-    if (ev == OKET_EVENT_MOVED) {
+    if (ev == LUES_EVENT_MOVED) {
         e->foreign++;
         return 0;
     }
-    if (ev == OKET_EVENT_CHORD && oket_chord_is(text, len, "@ESC")) {
+    if (ev == LUES_EVENT_CHORD && oket_chord_is(text, len, "@ESC")) {
         return 0; /* declined, so the kernel reports it rather than swallowing it */
     }
     e->chords++;
@@ -120,7 +120,7 @@ static int32_t event(const oket_api *api, oket_self self, const oket_at *at,
 
 /* Reads the document under point through the snapshot it was handed — by pointer, with no call
  * back into the kernel — and echoes the line the caret is on. */
-static int32_t say(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t say(const lues_api *api, lues_self self, const lues_at *at,
                    const char *args, size_t args_len) {
     char line[256];
     size_t n;
@@ -129,11 +129,11 @@ static int32_t say(const oket_api *api, oket_self self, const oket_at *at,
         api->message(api, self, args, args_len);
         return 0;
     }
-    if (at->snap == NULL || at->snap->ncursors == 0) {
+    if (at->snap == NULL || oket_side_of(at->snap)->ncursors == 0) {
         api->message(api, self, LIT("example"));
         return 0;
     }
-    n = oket_line_copy(at->snap, (size_t)at->snap->cursors[at->snap->primary].head.line,
+    n = oket_line_copy(at->snap, (size_t)oket_side_of(at->snap)->cursors[oket_side_of(at->snap)->primary].head.line,
                        line, sizeof line);
     api->message(api, self, line, n);
     return 0;
@@ -149,7 +149,7 @@ static int32_t say(const oket_api *api, oket_self self, const oket_at *at,
 /* One popup, because one is what is on screen. It closes on the generation moving, so typing
  * ends it and the list is never read against a document it was not gathered from. */
 static struct {
-    oket_doc doc;
+    lues_doc doc;
     int      on;
     char     prefix[WORD_MAX];
     size_t   prefix_len;
@@ -157,7 +157,7 @@ static struct {
     size_t   ncands, pick;
 } POP;
 
-static oket_token BOX, PICKED;
+static lues_token BOX, PICKED;
 
 static void popup_close(void) {
     POP.on = 0;
@@ -166,7 +166,7 @@ static void popup_close(void) {
     POP.prefix_len = 0;
 }
 
-static int popup_showing(oket_doc doc) {
+static int popup_showing(lues_doc doc) {
     return POP.on && POP.doc == doc && POP.ncands > 0;
 }
 
@@ -182,13 +182,13 @@ static int word_byte(char c) {
 
 /* The word run point is inside, as a byte range of the document. A caret at the end of a word
  * is inside it, which is where completion is asked for. */
-static int caret_word(const oket_snapshot *s, size_t *lo, size_t *hi) {
+static int caret_word(const lues_snapshot *s, size_t *lo, size_t *hi) {
     size_t at, start, end;
 
-    if (s->ncursors == 0) {
+    if (oket_side_of(s)->ncursors == 0) {
         return 0;
     }
-    at = oket_pos_off(s, s->cursors[s->primary].head);
+    at = oket_pos_off(s, oket_side_of(s)->cursors[oket_side_of(s)->primary].head);
     for (start = at; start > 0 && word_byte(oket_byte(s, start - 1)); start--) {
     }
     for (end = at; end < s->size && word_byte(oket_byte(s, end)); end++) {
@@ -214,7 +214,7 @@ static int kept(const char *w, size_t len) {
 
 /* Every distinct word in the buffer that carries on from the prefix. One pass over the runs the
  * piece table already has, so nothing is copied that is not a candidate. */
-static void gather(const oket_snapshot *s) {
+static void gather(const lues_snapshot *s) {
     char        word[WORD_MAX];
     size_t      off = 0, len, i, n = 0;
     const char *run;
@@ -268,8 +268,8 @@ static int put(char *buf, size_t cap, size_t *n, const char *fmt, ...) {
 
 /* How wide the pane showing this document is, in cells. A stage that guessed would draw its box
  * off the edge of a narrow panel (§12). */
-static size_t pane_width(const oket_api *api, oket_self self, oket_doc doc) {
-    const oket_world *w = api->world(api, self);
+static size_t pane_width(const lues_api *api, lues_self self, lues_doc doc) {
+    const oket_world *w = oket(api)->world(api, self);
     size_t            i, out = BOX_MAX;
 
     if (w == NULL) {
@@ -281,7 +281,7 @@ static size_t pane_width(const oket_api *api, oket_self self, oket_doc doc) {
             break;
         }
     }
-    api->world_release(api, self, w);
+    oket(api)->world_release(api, self, w);
     return out;
 }
 
@@ -301,13 +301,13 @@ static size_t box_width(size_t room) {
 /* The box, into EDITS and MARKS: one row per candidate, hung under THE CARET IN THE SPACE WE
  * WERE HANDED. Not the document's: the stage before this one may have deleted the lines above,
  * and the row on screen is what a popup is positioned by. */
-static void popup_box(const oket_api *api, oket_self self, const oket_at *at) {
-    const oket_snapshot *s = at->snap;
+static void popup_box(const lues_api *api, lues_self self, const lues_at *at) {
+    const lues_snapshot *s = at->snap;
     char                 box[(CANDS_MAX + 1) * (BOX_MAX + WORD_MAX)];
     size_t               line, col, lo, hi, pad, width, room, i, n = 0, row;
 
-    line = (size_t)s->cursors[s->primary].head.line;
-    col = (size_t)s->cursors[s->primary].head.col;
+    line = (size_t)oket_side_of(s)->cursors[oket_side_of(s)->primary].head.line;
+    col = (size_t)oket_side_of(s)->cursors[oket_side_of(s)->primary].head.col;
     if (line >= s->lines) {
         return;
     }
@@ -318,7 +318,7 @@ static void popup_box(const oket_api *api, oket_self self, const oket_at *at) {
     }
     width = box_width(room);
     /* Under the caret's cell, pulled left when the box would hang off the edge. */
-    pad = oket_col_cells(s, line, col, s->desc != NULL ? (size_t)s->desc->tab_width : 4);
+    pad = oket_col_cells(s, line, col, oket_side_of(s)->desc != NULL ? (size_t)oket_side_of(s)->desc->tab_width : 4);
     if (pad + width > room) {
         pad = room - width; /* width <= room, so this never underflows */
     }
@@ -331,15 +331,15 @@ static void popup_box(const oket_api *api, oket_self self, const oket_at *at) {
         if (!put(box, sizeof box, &n, " %-*s", (int)(width - 1), POP.cands[i])) {
             break;
         }
-        oket_spans_add(&MARKS, row, hi + n, i == POP.pick ? PICKED : BOX, 0, OKET_SET_BG);
+        oket_spans_add(&MARKS, row, hi + n, i == POP.pick ? PICKED : BOX, 0, LUES_CHAN_BG);
     }
     oket_batch_edit(&EDITS, hi, hi, box, n);
 }
 
-static int32_t popup_view(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t popup_view(const lues_api *api, lues_self self, const lues_at *at,
                           oket_view_out *out) {
     oket_view_clear(&EDITS, &MARKS);
-    if (popup_showing(at->doc) && at->snap->ncursors > 0) {
+    if (popup_showing(at->doc) && oket_side_of(at->snap)->ncursors > 0) {
         popup_box(api, self, at);
     }
     oket_view_fill(out, &EDITS, &MARKS);
@@ -348,9 +348,9 @@ static int32_t popup_view(const oket_api *api, oket_self self, const oket_at *at
 
 /* --- the verbs --- */
 
-static int32_t complete_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t complete_cmd(const lues_api *api, lues_self self, const lues_at *at,
                             const char *args, size_t args_len) {
-    const oket_snapshot *s = at->snap;
+    const lues_snapshot *s = at->snap;
     oket_batch           b;
     size_t               lo, hi;
 
@@ -399,20 +399,21 @@ static int32_t complete_cmd(const oket_api *api, oket_self self, const oket_at *
 
 /* A generation that moved under the popup is a list gathered from a document that no longer
  * says that. Closing is the whole of the answer: nothing here is worth repairing. */
-static int32_t popup_moved(const oket_api *api, oket_self self, const oket_at *at,
-                           oket_event ev, const char *text, size_t len) {
+static int32_t popup_moved(const lues_api *api, lues_self self, const lues_at *at,
+                           lues_event ev, const char *text, size_t len) {
     (void)api;
     (void)self;
     (void)text;
     (void)len;
-    if (ev == OKET_EVENT_MOVED && POP.on && POP.doc == at->doc) {
+    if (ev == LUES_EVENT_MOVED && POP.on && POP.doc == at->doc) {
         popup_close();
     }
     return 0;
 }
 
-OKET_MAIN {
-    static const oket_kind_spec SPEC = {
+LUES_MAIN {
+    static const lues_kind_spec SPEC = {
+        sizeof(lues_kind_spec),
         LIT("example"),
         LIT("surface"), /* rows, not characters: a listing is not a text field */
         {open_example, close_example, event},
@@ -428,7 +429,7 @@ OKET_MAIN {
 
     BOX = api->register_token(api, self, LIT("punctuation"));
     PICKED = api->register_token(api, self, LIT("accent"));
-    api->register_view(api, self, popup_view);
+    oket(api)->register_view(api, self, popup_view);
     api->register_watch(api, self, popup_moved);
     api->register_command(api, self, LIT("complete"),
                           LIT("words that carry on from the one point is in; `accept`, `close`"),

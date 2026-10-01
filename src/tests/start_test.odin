@@ -1,5 +1,6 @@
 package tests
 
+import "lues:lues"
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
@@ -26,14 +27,13 @@ a_quarantined_plugin_is_not_autoloaded :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.plug_init(&a)
 
-    // What the fault handler leaves: one name, one `write`, no formatting (fault.odin).
-    quarantine, _ := filepath.join({a.home.state, app.QUARANTINE_FILE}, context.temp_allocator)
+    // What the fault handler leaves: one name, one `write`, no formatting (lues fault.odin).
+    quarantine, _ := filepath.join({a.home.state, lues.QUARANTINE_FILE}, context.temp_allocator)
     testing.expect_value(t, os.write_entire_file(quarantine, transmute([]u8)string("example\n")),
                          nil)
 
-    app.quarantine_open(&a)
+    lues.quarantine_open(a.kernel)
     testing.expect(t, app.quarantined(&a, "example"), "the sweep did not read the report")
     app.plug_autoload(&a)
     testing.expect_value(t, app.plug_find(&a, "example"), -1)
@@ -57,14 +57,14 @@ the_report_is_read_by_the_next_start :: proc(t: ^testing.T) {
     if !testing.expect(t, ok, "no App") {
         return
     }
-    app.home_set(&a.home, home)
-    app.quarantine_open(&a)
-    if !testing.expect(t, a.report != nil, "no fd for the handler to write to") {
+    app.app_home(&a, home)
+    lues.quarantine_open(a.kernel)
+    if !testing.expect(t, a.kernel.report != nil, "no fd for the handler to write to") {
         close_plug_app(&a)
         return
     }
     // What the handler does, minus the signal: one append of a name and a newline.
-    _, err := os.write(a.report, transmute([]u8)string("files\n"))
+    _, err := os.write(a.kernel.report, transmute([]u8)string("files\n"))
     testing.expect_value(t, err, nil)
     close_plug_app(&a)
 
@@ -73,8 +73,8 @@ the_report_is_read_by_the_next_start :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&b)
-    app.home_set(&b.home, home)
-    app.quarantine_open(&b)
+    app.app_home(&b, home)
+    lues.quarantine_open(b.kernel)
     testing.expect(t, app.quarantined(&b, "files"), "the next start read no report")
 }
 
@@ -93,13 +93,13 @@ the_home_page_offers_recovered_work :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.home_set(&a.home, home)
+    app.app_home(&a, home)
 
     file, _ := filepath.join({home, "alpha.txt"}, context.temp_allocator)
     id := scratch_doc(&a, file, "xyz")
     app.docs_settle(&a) // the journal opens, with the file's own bytes as its base
-    gen, _ := store.store_gen(&a.docs, id)
-    store.store_submit(&a.docs, id, gen, {txt.Edit{0, 0, "Q", 0, 0}}) // a write, as a plugin's is
+    gen, _ := store.store_gen(a.docs, id)
+    store.store_submit(a.docs, id, gen, {txt.Edit{0, 0, "Q", 0, 0}}) // a write, as a plugin's is
     app.docs_settle(&a)
     testing.expect(t, app.journal_detach(&a, id), "the document was not being journaled")
     app.doc_close(&a, id)
@@ -109,7 +109,7 @@ the_home_page_offers_recovered_work :: proc(t: ^testing.T) {
     app.ring_add(&a, page)
     testing.expect_value(t, app.doc_kind(&a, page), app.KIND_HOME)
 
-    d := store.store_descriptor(&a.docs, page)
+    d := store.store_descriptor(a.docs, page)
     defer desc.release(d)
     line := -1
     for f in d.fields {
@@ -161,7 +161,7 @@ a_quiet_start_still_opens_the_page :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.home_set(&a.home, home)
+    app.app_home(&a, home)
 
     testing.expect(t, !app.home_news(&a), "an untouched home had news")
     page := app.home_open(&a)
@@ -169,7 +169,7 @@ a_quiet_start_still_opens_the_page :: proc(t: ^testing.T) {
     testing.expect(t, strings.contains(doc_line_text(&a, page, 0), "oket"), "no version line")
 
     cwd, _ := os.get_working_directory(context.temp_allocator)
-    d := store.store_descriptor(&a.docs, page)
+    d := store.store_descriptor(a.docs, page)
     defer desc.release(d)
     at := -1
     for f in d.fields {
@@ -198,7 +198,7 @@ the_page_says_it_is_a_safe_start :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.home_set(&a.home, home)
+    app.app_home(&a, home)
 
     page := app.home_open(&a)
     testing.expect(t, !strings.contains(doc_line_text(&a, page, 1), "safe mode"),
@@ -223,11 +223,11 @@ the_page_lists_what_is_wrong_with_the_binds :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.home_set(&a.home, home)
+    app.app_home(&a, home)
 
     // A plugin asks; the file already answers that chord with something else, so the row it
     // asked for is not the row that fires (§8).
-    app.binds_request(&a, "hello", "global", "f9", "exec :note")
+    lues.bind_request(a.kernel, "hello", "global", "f9", "exec :note")
     unmet := app.binds_unmet(&a, context.temp_allocator)
     testing.expect_value(t, len(unmet), 0) // nothing holds f9 yet, so nothing is refused
 
@@ -265,7 +265,7 @@ the_page_shows_the_newest_notes :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.home_set(&a.home, home)
+    app.app_home(&a, home)
 
     notes, _ := filepath.join({home, app.NOTES_NAME}, context.temp_allocator)
     b := strings.builder_make(context.temp_allocator)
@@ -289,7 +289,7 @@ the_page_shows_the_newest_notes :: proc(t: ^testing.T) {
     testing.expect(t, !strings.contains(text, over), "the page showed past the cap")
 
     // The file itself is a row, so `enter` over it opens what the page could not fit.
-    d := store.store_descriptor(&a.docs, page)
+    d := store.store_descriptor(a.docs, page)
     defer desc.release(d)
     offered := false
     for f in d.fields {
@@ -314,13 +314,13 @@ recover_drop_throws_the_work_away :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.home_set(&a.home, home)
+    app.app_home(&a, home)
 
     file, _ := filepath.join({home, "alpha.txt"}, context.temp_allocator)
     id := scratch_doc(&a, file, "xyz")
     app.docs_settle(&a)
-    gen, _ := store.store_gen(&a.docs, id)
-    store.store_submit(&a.docs, id, gen, {txt.Edit{0, 0, "Q", 0, 0}})
+    gen, _ := store.store_gen(a.docs, id)
+    store.store_submit(a.docs, id, gen, {txt.Edit{0, 0, "Q", 0, 0}})
     app.docs_settle(&a)
     testing.expect(t, app.journal_detach(&a, id), "the document was not being journaled")
     app.doc_close(&a, id)
@@ -350,15 +350,15 @@ a_recover_rewrites_the_page_that_offered_it :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.home_set(&a.home, home)
+    app.app_home(&a, home)
 
     // Must not collide with baked notes.md fallback which contains "hello".
     tag := "qtest_hello_xyz"
-    append(&a.quarantined, strings.clone(tag))
+    append(&a.kernel.quarantined, strings.clone(tag, a.kernel.ctx.allocator)) // lues frees it
     page := app.home_open(&a)
     testing.expect(t, strings.contains(doc_text(&a, page), tag), doc_text(&a, page))
 
-    app.quarantine_clear(&a, tag)
+    lues.quarantine_clear(a.kernel, tag)
     app.home_refresh(&a)
     testing.expect(t, !strings.contains(doc_text(&a, page), tag),
                    "the page kept a plugin that had been taken back")
@@ -393,7 +393,6 @@ a_session_restores_the_ring :: proc(t: ^testing.T) {
                                               transmute([]u8)string("[session]\nrestore = on\n")),
                          nil)
 
-    app.plug_init(&a)
     testing.expect(t, app.plug_load(&a, app.plug_path(&a, "files")), a.message)
     app.config_load(&a)
     testing.expect(t, a.config.restore, "config.conf said on and the App read off")
@@ -408,8 +407,7 @@ a_session_restores_the_ring :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&b)
-    app.home_set(&b.home, home)
-    app.plug_init(&b)
+    app.app_home(&b, home)
     testing.expect(t, app.plug_load(&b, app.plug_path(&b, "files")), b.message)
     app.config_load(&b)
     testing.expect(t, app.session_restore(&b), "the session restored nothing")
@@ -444,7 +442,6 @@ a_session_restores_the_strip :: proc(t: ^testing.T) {
                          os.write_entire_file(config,
                                               transmute([]u8)string("[session]\nrestore = on\n")),
                          nil)
-    app.plug_init(&a)
     testing.expect(t, app.plug_load(&a, app.plug_path(&a, "files")), a.message)
     app.config_load(&a)
 
@@ -462,8 +459,7 @@ a_session_restores_the_strip :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&b)
-    app.home_set(&b.home, home)
-    app.plug_init(&b)
+    app.app_home(&b, home)
     testing.expect(t, app.plug_load(&b, app.plug_path(&b, "files")), b.message)
     app.config_load(&b)
     testing.expect(t, app.session_restore(&b), "the session restored nothing")
@@ -497,7 +493,7 @@ a_key_no_setting_owns_is_reported :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.home_set(&a.home, home)
+    app.app_home(&a, home)
 
     config, _ := filepath.join({home, app.CONFIG_NAME}, context.temp_allocator)
     text := "[session]\nrestor = on\nrestore = yes\n"
@@ -521,7 +517,7 @@ a_gap_that_does_not_parse_keeps_the_default :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.home_set(&a.home, home)
+    app.app_home(&a, home)
     config, _ := filepath.join({home, app.CONFIG_NAME}, context.temp_allocator)
 
     testing.expect_value(t,
@@ -550,7 +546,7 @@ a_session_is_not_written_unless_it_is_asked_for :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.home_set(&a.home, home)
+    app.app_home(&a, home)
     app.config_load(&a)
     testing.expect(t, !a.config.restore, "the session was on with no config.conf at all")
 
@@ -564,5 +560,5 @@ a_session_is_not_written_unless_it_is_asked_for :: proc(t: ^testing.T) {
 // One line of a document, by number.
 @(private = "file")
 doc_line_text :: proc(a: ^app.App, id: store.Id, line: int) -> string {
-    return string(txt.doc_line(store.store_doc(&a.docs, id), line))
+    return string(txt.doc_line(store.store_doc(a.docs, id), line))
 }

@@ -1,5 +1,6 @@
 package tests
 
+import "lues:pt"
 import "core:fmt"
 import "core:mem"
 import "core:strings"
@@ -17,13 +18,13 @@ import "../txt"
 // reader thread below needs that: the claim is that a snapshot reads with no lock, and a test
 // that took the allocator's would not be testing it.
 @(private = "file")
-snap_is :: proc(s: ^txt.Snapshot, want: string) -> bool {
+snap_is :: proc(s: ^pt.Snapshot, want: string) -> bool {
     if s.size != len(want) {
         return false
     }
     at := 0
     for at < s.size {
-        span := txt.text_span(s, at)
+        span := pt.text_span(s, at)
         if len(span) == 0 || string(span) != want[at:at + len(span)] {
             return false
         }
@@ -36,13 +37,13 @@ snap_is :: proc(s: ^txt.Snapshot, want: string) -> bool {
 // check: the starts live in a different arena buffer from the blocks, and they are the ones
 // that grow hardest under the stress below.
 @(private = "file")
-snap_lines_are :: proc(s: ^txt.Snapshot, want: string) -> bool {
-    if txt.text_line_count(s) != strings.count(want, "\n") + 1 {
+snap_lines_are :: proc(s: ^pt.Snapshot, want: string) -> bool {
+    if pt.text_line_count(s) != strings.count(want, "\n") + 1 {
         return false
     }
     line, at := 0, 0
     for {
-        if txt.text_line_start(s, line) != at {
+        if pt.text_line_start(s, line) != at {
             return false
         }
         nl := strings.index_byte(want[at:], '\n')
@@ -84,9 +85,9 @@ survive_10k :: proc(t: ^testing.T) {
     base := txt.doc_string(&d)
     defer delete(base)
     snap := txt.doc_snapshot(&d)
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     gen := snap.gen
-    lines := txt.text_line_count(snap)
+    lines := pt.text_line_count(snap)
 
     mirror := strings.builder_make()
     defer strings.builder_destroy(&mirror)
@@ -94,7 +95,7 @@ survive_10k :: proc(t: ^testing.T) {
     stress(&d, &mirror, 10_000)
 
     testing.expect(t, snap_is(snap, base), "10k edits moved the bytes under a live snapshot")
-    testing.expect_value(t, txt.text_line_count(snap), lines)
+    testing.expect_value(t, pt.text_line_count(snap), lines)
     testing.expect_value(t, snap.gen, gen)
     testing.expect(t, d.gen > gen, "the generation must have moved")
 
@@ -135,7 +136,7 @@ snapshot_holds_many_generations :: proc(t: ^testing.T) {
     defer strings.builder_destroy(&mirror)
     strings.write_string(&mirror, txt.doc_string(&d, context.temp_allocator))
 
-    snaps: [10]^txt.Snapshot
+    snaps: [10]^pt.Snapshot
     wants: [10]string
     for i in 0 ..< 10 {
         snaps[i] = txt.doc_snapshot(&d)
@@ -143,7 +144,7 @@ snapshot_holds_many_generations :: proc(t: ^testing.T) {
         stress(&d, &mirror, 500)
     }
     defer for i in 0 ..< 10 {
-        txt.snapshot_release(snaps[i])
+        pt.snapshot_release(snaps[i])
         delete(wants[i])
     }
 
@@ -170,11 +171,11 @@ snapshot_survives_compaction :: proc(t: ^testing.T) {
     want := strings.clone(strings.to_string(mirror))
     defer delete(want)
     snap := txt.doc_snapshot(&d)
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
 
-    txt.pt_compact(&d.pt)
+    pt.pt_compact(&d.table)
     testing.expect(t, snap_is(snap, want), "compaction pulled the blocks out from under a snapshot")
-    live := string(txt.text_read(&d.pt, 0, d.pt.size, context.temp_allocator))
+    live := string(pt.text_read(&d.table, 0, d.table.size, context.temp_allocator))
     testing.expect_value(t, live, want)
 
     // A second round with the snapshot still held: the fresh arena has to behave like any other.
@@ -193,12 +194,12 @@ snapshot_outlives_its_doc :: proc(t: ^testing.T) {
     defer delete(want)
 
     snap := txt.doc_snapshot(d)
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     txt.doc_destroy(d)
     free(d)
 
     testing.expect(t, snap_is(snap, want), "the document's death took the snapshot's bytes")
-    testing.expect_value(t, txt.text_line_count(snap), 3)
+    testing.expect_value(t, pt.text_line_count(snap), 3)
 }
 
 // Blocks bigger than PT_CHUNK each get one of their own, so this grows the block list far
@@ -214,7 +215,7 @@ grow_blocks :: proc(d: ^txt.Doc, mirror: ^strings.Builder, blocks: int) {
 
 @(private = "file")
 Reader :: struct {
-    snap:  ^txt.Snapshot,
+    snap:  ^pt.Snapshot,
     want:  string,
     reads: int,
     bad:   int,
@@ -252,7 +253,7 @@ snapshot_reads_off_thread :: proc(t: ^testing.T) {
         snap = txt.doc_snapshot(&d),
         want = want,
     }
-    defer txt.snapshot_release(r.snap)
+    defer pt.snapshot_release(r.snap)
 
     worker := thread.create_and_start_with_poly_data(&r, read_until_stopped)
     defer thread.destroy(worker)
@@ -271,8 +272,8 @@ snapshot_reads_off_thread :: proc(t: ^testing.T) {
 
     // The run only proves anything if the arena did outgrow its buffers while the reader held
     // slices into them. More than one buffer in either list is exactly that having happened.
-    testing.expect(t, len(d.pt.arena.starts) > 1, "the line pool never outgrew its first buffer")
-    testing.expect(t, len(d.pt.arena.spines) > 1, "the block list never outgrew its first buffer")
+    testing.expect(t, len(d.table.arena.starts) > 1, "the line pool never outgrew its first buffer")
+    testing.expect(t, len(d.table.arena.spines) > 1, "the block list never outgrew its first buffer")
 }
 
 
@@ -288,15 +289,15 @@ text_check_reads_a_snapshot_and_a_live_table_alike :: proc(t: ^testing.T) {
         txt.doc_apply(&d, {txt.Edit{lo = at, hi = at, text = "<>"}})
     }
     snap := txt.doc_snapshot(&d)
-    defer txt.snapshot_release(snap)
-    testing.expect(t, len(d.pt.pieces) > 1, "the edits did not splinter the table")
-    testing.expect(t, txt.text_check(&d.pt), "a healthy table failed")
-    testing.expect(t, txt.text_check(snap), "a healthy snapshot failed")
+    defer pt.snapshot_release(snap)
+    testing.expect(t, len(d.table.pieces) > 1, "the edits did not splinter the table")
+    testing.expect(t, pt.text_check(&d.table), "a healthy table failed")
+    testing.expect(t, pt.text_check(snap), "a healthy snapshot failed")
 
     // A splice that lost its way: the running total no longer lands on the size, which is what
     // a binary search would otherwise walk off the end of.
-    d.pt.pieces[len(d.pt.pieces) - 1].len -= 1
-    testing.expect(t, !txt.text_check(&d.pt), "a broken running total passed")
-    testing.expect(t, txt.text_check(snap), "the snapshot's own copy moved with it")
-    d.pt.pieces[len(d.pt.pieces) - 1].len += 1
+    d.table.pieces[len(d.table.pieces) - 1].len -= 1
+    testing.expect(t, !pt.text_check(&d.table), "a broken running total passed")
+    testing.expect(t, pt.text_check(snap), "the snapshot's own copy moved with it")
+    d.table.pieces[len(d.table.pieces) - 1].len += 1
 }

@@ -1,5 +1,6 @@
 package tests
 
+import "lues:pt"
 import "core:fmt"
 import "core:os"
 import "core:strings"
@@ -48,7 +49,7 @@ term_app :: proc(t: ^testing.T, cols := 50, rows := 5) -> (a: app.App, tm: ^app.
 // The session's document, as the renderer would read it.
 @(private = "file")
 term_text :: proc(a: ^app.App, tm: ^app.Term) -> string {
-    doc := store.store_doc(&a.docs, tm.doc)
+    doc := store.store_doc(a.docs, tm.doc)
     return doc == nil ? "" : txt.doc_string(doc, context.temp_allocator)
 }
 
@@ -64,7 +65,7 @@ term_prompts :: proc(a: ^app.App, tm: ^app.Term) -> int {
 term_wait_prompts :: proc(t: ^testing.T, a: ^app.App, tm: ^app.Term, over: int) -> bool {
     for _ in 0 ..< TERM_WAIT_TRIES {
         app.term_pump(a)
-        store.store_drain(&a.docs)
+        store.store_drain(a.docs)
         if term_prompts(a, tm) > over {
             return true
         }
@@ -80,7 +81,7 @@ term_wait_prompts :: proc(t: ^testing.T, a: ^app.App, tm: ^app.Term, over: int) 
 term_wait_for :: proc(t: ^testing.T, a: ^app.App, tm: ^app.Term, want: string) -> bool {
     for _ in 0 ..< TERM_WAIT_TRIES {
         app.term_pump(a)
-        store.store_drain(&a.docs)
+        store.store_drain(a.docs)
         if strings.contains(term_text(a, tm), want) {
             return true
         }
@@ -96,13 +97,13 @@ term_wait_for :: proc(t: ^testing.T, a: ^app.App, tm: ^app.Term, want: string) -
 term_show :: proc(a: ^app.App, tm: ^app.Term, bytes: string) {
     pty.terminal_feed(&tm.t, transmute([]u8)bytes)
     app.term_pump(a)
-    store.store_drain(&a.docs)
+    store.store_drain(a.docs)
 }
 
 // The document line holding `want`, and -1 for none.
 @(private = "file")
 term_line_of :: proc(a: ^app.App, tm: ^app.Term, want: string) -> int {
-    doc := store.store_doc(&a.docs, tm.doc)
+    doc := store.store_doc(a.docs, tm.doc)
     for line in 0 ..< txt.doc_line_count(doc) {
         if strings.contains(string(txt.doc_line(doc, line)), want) {
             return line
@@ -124,7 +125,7 @@ a_session_is_a_document :: proc(t: ^testing.T) {
     testing.expect(t, pty.terminal_alive(&tm.t))
     testing.expect_value(t, app.kind_name(&a, app.doc_kind(&a, tm.doc)), "term")
 
-    d := store.store_descriptor(&a.docs, tm.doc)
+    d := store.store_descriptor(a.docs, tm.doc)
     defer desc.release(d)
     testing.expect_value(t, d.render, desc.Render.Grid)
     testing.expect_value(t, d.follow, desc.Follow.Tail)
@@ -224,7 +225,7 @@ the_kernel_viewport_scrolls_a_session :: proc(t: ^testing.T) {
         term_show(&a, tm, "line\r\n")
     }
     s := app.ring_focused(&a)
-    doc := store.store_doc(&a.docs, tm.doc)
+    doc := store.store_doc(a.docs, tm.doc)
     bottom := max(txt.doc_line_count(doc) - app.panel_focused(&a).body.h, 0)
     testing.expect_value(t, s.view.top, bottom)
     testing.expect(t, tm.t.sb_total > 0, "nothing scrolled off into history")
@@ -240,7 +241,7 @@ the_kernel_viewport_scrolls_a_session :: proc(t: ^testing.T) {
     app.handle_chord(&a, chord("PGDN", {.Shift}))
     app.handle_chord(&a, chord("PGDN", {.Shift}))
     term_show(&a, tm, "more\r\n")
-    doc = store.store_doc(&a.docs, tm.doc)
+    doc = store.store_doc(a.docs, tm.doc)
     testing.expect_value(t, s.view.top, max(txt.doc_line_count(doc) - app.panel_focused(&a).body.h, 0))
 }
 
@@ -248,9 +249,9 @@ the_kernel_viewport_scrolls_a_session :: proc(t: ^testing.T) {
 // document's colours come through (§5). A session has no second path.
 @(private = "file")
 term_all_styles :: proc(a: ^app.App, tm: ^app.Term) -> []view.Style {
-    snap := store.store_snapshot(&a.docs, tm.doc)
-    defer txt.snapshot_release(snap)
-    return app.doc_styles(a, tm.doc, nil, &snap.text, nil, 0, txt.text_line_count(&snap.text))
+    snap := store.store_snapshot(a.docs, tm.doc)
+    defer pt.snapshot_release(snap)
+    return app.doc_styles(a, tm.doc, nil, &snap.text, nil, 0, pt.text_line_count(&snap.text))
 }
 
 // Colour is style runs (§5's span layer), not a second renderer. libvterm's colours are already
@@ -300,7 +301,7 @@ the_scrollback_cap_moves_lines_and_styles_together :: proc(t: ^testing.T) {
 
     testing.expect(t, tm.base > 0, "the cap never crossed")
     testing.expect_value(t, tm.base, pty.terminal_oldest(&tm.t))
-    doc := store.store_doc(&a.docs, tm.doc)
+    doc := store.store_doc(a.docs, tm.doc)
     testing.expect_value(t, txt.doc_line_count(doc), len(tm.t.scrollback) + tm.t.rows)
 
     line := term_line_of(&a, tm, "mark")
@@ -333,7 +334,7 @@ trailing_blanks_go_only_where_nothing_shows :: proc(t: ^testing.T) {
     }
     term_show(&a, tm, "\r\nplain\r\n\x1b[44mbar\x1b[K\r\ntail")
 
-    doc := store.store_doc(&a.docs, tm.doc)
+    doc := store.store_doc(a.docs, tm.doc)
     testing.expect_value(t, string(txt.doc_line(doc, term_line_of(&a, tm, "plain"))), "plain")
     // The same text with the rest of the row painted: there the blanks ARE the paint.
     testing.expect_value(t, len(txt.doc_line(doc, term_line_of(&a, tm, "bar"))), 20)
@@ -355,7 +356,7 @@ a_wrapped_line_copies_back_whole :: proc(t: ^testing.T) {
     if !testing.expect(t, line > 0, term_text(&a, tm)) {
         return
     }
-    doc := store.store_doc(&a.docs, tm.doc)
+    doc := store.store_doc(a.docs, tm.doc)
     txt.doc_set_head(doc, {line - 1, 0}, false)
     txt.doc_set_head(doc, {line, 3}, true)
     // Through the CHORD, not the proc: ctrl+c means copy in a session the same as anywhere
@@ -374,19 +375,19 @@ mouse_tracking_moves_to_the_descriptor :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    d := store.store_descriptor(&a.docs, tm.doc)
+    d := store.store_descriptor(a.docs, tm.doc)
     testing.expect_value(t, d.mouse, desc.Mouse.Bound)
     desc.release(d)
 
     term_show(&a, tm, "\x1b[?1002h\x1b[?1006h") // DECSET: motion tracking, SGR encoding
     testing.expect(t, tm.t.mouse_on, "libvterm did not take the mode")
-    d = store.store_descriptor(&a.docs, tm.doc)
+    d = store.store_descriptor(a.docs, tm.doc)
     testing.expect_value(t, d.mouse, desc.Mouse.Events)
     desc.release(d)
     testing.expect(t, app.mouse_events_target(&a) != nil, "the funnel would still move point")
 
     term_show(&a, tm, "\x1b[?1002l\x1b[?1006l")
-    d = store.store_descriptor(&a.docs, tm.doc)
+    d = store.store_descriptor(a.docs, tm.doc)
     testing.expect_value(t, d.mouse, desc.Mouse.Bound)
     desc.release(d)
 }
@@ -409,7 +410,7 @@ the_renderer_paints_a_style_run :: proc(t: ^testing.T) {
     th := gfx.DEFAULT_THEME
     red := [3]f32{1, 0, 0}
     snap := txt.doc_snapshot(&doc)
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     view.draw(&g, th, &snap.text, d, {}, 0, 0, 10, 1,
               {{line = 0, lo = 2, hi = 4, fg = gfx.color_pack(red)}})
     testing.expect_value(t, gfx.grid_at(&g, 1, 0).fg, th[.Fg])
@@ -581,7 +582,7 @@ a_session_keeps_the_combining_marks :: proc(t: ^testing.T) {
     if !testing.expect(t, line >= 0, term_text(&a, tm)) {
         return
     }
-    doc := store.store_doc(&a.docs, tm.doc)
+    doc := store.store_doc(a.docs, tm.doc)
     // The caret's own cell is kept, so the line ends in the blank it sits on.
     testing.expect_value(t, string(txt.doc_line(doc, line)), "e\u0301-mark ")
 

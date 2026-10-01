@@ -1,5 +1,6 @@
 package main
 
+import "lues:lues"
 import "core:encoding/endian"
 import "core:fmt"
 import "core:os"
@@ -68,7 +69,7 @@ journal_sync :: proc(a: ^App) {
     if dir == "" {
         return
     }
-    for id in store.store_ids(&a.docs) {
+    for id in store.store_ids(a.docs) {
         if id not_in a.journals && journal_startable(a, id) {
             journal_begin(a, id, dir)
         }
@@ -93,12 +94,12 @@ journal_end :: proc(a: ^App, id: store.Id) {
 // ours is a report nobody has made yet.
 @(private = "file")
 journal_retire :: proc(a: ^App, id: store.Id, j: ^Journal) {
-    doc := store.store_doc(&a.docs, id)
+    doc := store.store_doc(a.docs, id)
     if doc == nil || doc.sink.user != j {
         return
     }
     doc.sink = {}
-    d := store.store_descriptor(&a.docs, id)
+    d := store.store_descriptor(a.docs, id)
     defer desc.release(d)
     file := d != nil ? d.file : j.path
     message_set(a, fmt.tprintf("the journal for %s stopped taking records; edits from here on are not recoverable", file))
@@ -111,10 +112,10 @@ journal_detach :: proc(a: ^App, id: store.Id) -> bool {
     if !journaled {
         return false
     }
-    if doc := store.store_doc(&a.docs, id); doc != nil {
+    if doc := store.store_doc(a.docs, id); doc != nil {
         doc.sink = {}
     }
-    fault_journal_drop(os.fd(j.file))
+    lues.fault_sync_drop(os.fd(j.file))
     os.close(j.file)
     delete(j.path)
     free(j)
@@ -203,7 +204,7 @@ recover_apply :: proc(a: ^App, journal: string) -> bool {
         return false
     }
     ring_add(a, id)
-    doc := store.store_doc(&a.docs, id)
+    doc := store.store_doc(a.docs, id)
     if doc == nil {
         return false
     }
@@ -244,7 +245,7 @@ journal_dir :: proc(a: ^App) -> string {
 // A document with unsaved work on it: it is a file, and typing reaches it (§5).
 @(private = "file")
 journal_wanted :: proc(a: ^App, id: store.Id) -> bool {
-    d := store.store_descriptor(&a.docs, id)
+    d := store.store_descriptor(a.docs, id)
     if d == nil {
         return false
     }
@@ -263,7 +264,7 @@ journal_startable :: proc(a: ^App, id: store.Id) -> bool {
     if !journal_wanted(a, id) {
         return false
     }
-    d := store.store_descriptor(&a.docs, id)
+    d := store.store_descriptor(a.docs, id)
     defer desc.release(d)
     // A path with nothing at it is a buffer whose file is not written yet, and that is exactly
     // the work worth keeping.
@@ -302,14 +303,14 @@ journal_path :: proc(a: ^App, doc_path: string) -> string {
 // so nothing downstream has to trust what is on disk.
 @(private = "file")
 journal_begin :: proc(a: ^App, id: store.Id, dir: string) {
-    doc := store.store_doc(&a.docs, id)
+    doc := store.store_doc(a.docs, id)
     if doc == nil {
         return
     }
     if !os.exists(dir) && os.make_directory(dir) != nil {
         return
     }
-    d := store.store_descriptor(&a.docs, id)
+    d := store.store_descriptor(a.docs, id)
     defer desc.release(d)
     if d == nil {
         return
@@ -330,7 +331,7 @@ journal_begin :: proc(a: ^App, id: store.Id, dir: string) {
     j := new(Journal)
     j^ = Journal{file = f, path = path, synced = time.tick_now()}
     a.journals[id] = j
-    fault_journal_add(os.fd(f))
+    lues.fault_sync_add(os.fd(f))
     doc.sink = txt.Doc_Sink {
         user  = j,
         write = journal_write,

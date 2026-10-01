@@ -10,7 +10,7 @@
 #include "oket_helpers.h"
 
 static const oket_list_spec *LIST_SPEC;
-static oket_kind             LIST_KIND;
+static lues_kind             LIST_KIND;
 static oket_list            *LISTS;
 
 /* The verb names, built once from the prefix and alive for as long as the commands are. */
@@ -24,7 +24,7 @@ static size_t list_clamp(size_t v, size_t lo, size_t hi) {
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
-oket_list *oket_list_open(const oket_api *api, oket_self self, oket_doc doc, void *ctx) {
+oket_list *oket_list_open(const lues_api *api, lues_self self, lues_doc doc, void *ctx) {
     oket_list *l;
 
     (void)api;
@@ -59,7 +59,7 @@ void oket_list_close(oket_list *l) {
     free(l);
 }
 
-oket_list *oket_list_of(const oket_at *at) {
+oket_list *oket_list_of(const lues_at *at) {
     oket_list *l;
 
     for (l = LISTS; l != NULL; l = l->next) {
@@ -90,17 +90,17 @@ ptrdiff_t oket_list_row_line(const oket_list *l, int32_t idx) {
     return -1;
 }
 
-size_t oket_list_line(const oket_snapshot *s) {
+size_t oket_list_line(const lues_snapshot *s) {
     size_t lo, hi;
 
-    if (s == NULL || s->ncursors == 0) {
+    if (s == NULL || oket_side_of(s)->ncursors == 0) {
         return 0;
     }
-    oket_cursor_span(s, s->primary, &lo, &hi);
+    oket_cursor_span(s, oket_side_of(s)->primary, &lo, &hi);
     return oket_line_at(s, lo);
 }
 
-void oket_list_name_span(const oket_snapshot *s, const oket_list *l, size_t line,
+void oket_list_name_span(const lues_snapshot *s, const oket_list *l, size_t line,
                          size_t *lo, size_t *hi) {
     const oket_list_row *r = oket_list_at(l, line);
     size_t start, end;
@@ -123,7 +123,7 @@ void oket_list_name_span(const oket_snapshot *s, const oket_list *l, size_t line
     }
 }
 
-size_t oket_list_name(const oket_snapshot *s, const oket_list *l, size_t line,
+size_t oket_list_name(const lues_snapshot *s, const oket_list *l, size_t line,
                       char *dst, size_t cap) {
     size_t lo, hi;
 
@@ -131,7 +131,7 @@ size_t oket_list_name(const oket_snapshot *s, const oket_list *l, size_t line,
     return oket_copy(s, lo, hi, dst, cap);
 }
 
-void oket_list_publish(const oket_api *api, oket_self self, oket_list *l) {
+void oket_list_publish(const lues_api *api, lues_self self, oket_list *l) {
     const oket_list_spec *sp = LIST_SPEC;
     oket_descriptor d;
     oket_build out;
@@ -208,7 +208,7 @@ void oket_list_publish(const oket_api *api, oket_self self, oket_list *l) {
     oket_build_free(&out);
 }
 
-void oket_list_repaint(const oket_api *api, oket_self self) {
+void oket_list_repaint(const lues_api *api, lues_self self) {
     oket_list *l;
 
     for (l = LISTS; l != NULL; l = l->next) {
@@ -216,7 +216,7 @@ void oket_list_repaint(const oket_api *api, oket_self self) {
     }
 }
 
-void oket_list_point(const oket_api *api, oket_self self, oket_list *l, size_t line) {
+void oket_list_point(const lues_api *api, lues_self self, oket_list *l, size_t line) {
     size_t first = list_first();
     oket_cursor c;
 
@@ -234,10 +234,10 @@ void oket_list_point(const oket_api *api, oket_self self, oket_list *l, size_t l
     }
     c.anchor = c.head;
     c.goal = -1; /* the kernel computes the cell column */
-    api->cursors(api, self, l->doc, &c, 1, 0);
+    oket(api)->cursors(api, self, l->doc, &c, 1, 0);
 }
 
-void oket_list_refilter(const oket_api *api, oket_self self, oket_list *l) {
+void oket_list_refilter(const lues_api *api, lues_self self, oket_list *l) {
     size_t i, line;
 
     oket_list_publish(api, self, l);
@@ -254,13 +254,13 @@ void oket_list_refilter(const oket_api *api, oket_self self, oket_list *l) {
     oket_list_point(api, self, l, line);
 }
 
-static void list_feedback(const oket_api *api, oket_self self, oket_list *l) {
+static void list_feedback(const lues_api *api, lues_self self, oket_list *l) {
     (void)api;
     (void)self;
     (void)l;
 }
 
-static void list_filter_changed(const oket_api *api, oket_self self, oket_list *l) {
+static void list_filter_changed(const lues_api *api, lues_self self, oket_list *l) {
     if (LIST_SPEC->filtered != NULL) {
         LIST_SPEC->filtered(l->ctx);
     }
@@ -268,15 +268,15 @@ static void list_filter_changed(const oket_api *api, oket_self self, oket_list *
     list_feedback(api, self, l);
 }
 
-int32_t oket_list_event(const oket_api *api, oket_self self, const oket_at *at,
-                        oket_event ev, const char *text, size_t len) {
-    const oket_snapshot *s = at->snap;
+int32_t oket_list_event(const lues_api *api, lues_self self, const lues_at *at,
+                        lues_event ev, const char *text, size_t len) {
+    const lues_snapshot *s = at->snap;
     oket_list *l = oket_list_of(at);
     oket_batch batch;
     size_t i;
     int sent;
 
-    if (l == NULL || ev != OKET_EVENT_TEXT || s == NULL || len == 0) {
+    if (l == NULL || ev != LUES_EVENT_TEXT || s == NULL || len == 0) {
         return 0;
     }
     if (l->filtering) {
@@ -293,7 +293,7 @@ int32_t oket_list_event(const oket_api *api, oket_self self, const oket_at *at,
      * takes nothing at all. No REGEN flag: a typed rune is exactly the case whose caret must
      * follow the splice. */
     memset(&batch, 0, sizeof batch);
-    for (i = 0; i < s->ncursors; i++) {
+    for (i = 0; i < oket_side_of(s)->ncursors; i++) {
         size_t lo, hi, nlo, nhi, line;
         const oket_list_row *r;
 
@@ -315,15 +315,15 @@ int32_t oket_list_event(const oket_api *api, oket_self self, const oket_at *at,
 
 /* Backspace and Delete in a name, clamped like typing: a row cannot be spliced into the one
  * above, and the prefix left of the name cannot be eaten. */
-static int32_t list_erase(const oket_api *api, oket_self self, const oket_at *at, int forward) {
-    const oket_snapshot *s = at->snap;
+static int32_t list_erase(const lues_api *api, lues_self self, const lues_at *at, int forward) {
+    const lues_snapshot *s = at->snap;
     oket_list *l = at->inst;
     oket_batch batch;
     size_t i;
     int sent;
 
     memset(&batch, 0, sizeof batch);
-    for (i = 0; i < s->ncursors; i++) {
+    for (i = 0; i < oket_side_of(s)->ncursors; i++) {
         size_t lo, hi, nlo, nhi, line, col, step_len, len;
         char text[1024];
         uint32_t r;
@@ -369,7 +369,7 @@ static int32_t list_erase(const oket_api *api, oket_self self, const oket_at *at
     return sent ? 0 : 1;
 }
 
-static oket_list *list_mine(const oket_api *api, oket_self self, const oket_at *at,
+static oket_list *list_mine(const lues_api *api, lues_self self, const lues_at *at,
                             const char *verb) {
     oket_list *l = oket_list_of(at);
 
@@ -384,7 +384,7 @@ static oket_list *list_mine(const oket_api *api, oket_self self, const oket_at *
     return l;
 }
 
-static int32_t list_filter_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t list_filter_cmd(const lues_api *api, lues_self self, const lues_at *at,
                                const char *args, size_t args_len) {
     oket_list *l = list_mine(api, self, at, LIST_FILTER_CMD);
 
@@ -400,7 +400,7 @@ static int32_t list_filter_cmd(const oket_api *api, oket_self self, const oket_a
     return 0;
 }
 
-static int32_t list_erase_dir(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t list_erase_dir(const lues_api *api, lues_self self, const lues_at *at,
                               const char *verb, int forward) {
     oket_list *l = list_mine(api, self, at, verb);
     uint32_t r;
@@ -417,21 +417,21 @@ static int32_t list_erase_dir(const oket_api *api, oket_self self, const oket_at
     return list_erase(api, self, at, forward);
 }
 
-static int32_t list_erase_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t list_erase_cmd(const lues_api *api, lues_self self, const lues_at *at,
                               const char *args, size_t args_len) {
     (void)args;
     (void)args_len;
     return list_erase_dir(api, self, at, LIST_ERASE_CMD, 0);
 }
 
-static int32_t list_erase_fwd_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t list_erase_fwd_cmd(const lues_api *api, lues_self self, const lues_at *at,
                                   const char *args, size_t args_len) {
     (void)args;
     (void)args_len;
     return list_erase_dir(api, self, at, LIST_ERASE_FWD_CMD, 1);
 }
 
-static int32_t list_clear_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t list_clear_cmd(const lues_api *api, lues_self self, const lues_at *at,
                               const char *args, size_t args_len) {
     oket_list *l = list_mine(api, self, at, LIST_CLEAR_CMD);
 
@@ -447,8 +447,8 @@ static int32_t list_clear_cmd(const oket_api *api, oket_self self, const oket_at
     return 0;
 }
 
-void oket_list_register(const oket_api *api, oket_self self, const oket_list_spec *spec,
-                        oket_kind kind) {
+void oket_list_register(const lues_api *api, lues_self self, const oket_list_spec *spec,
+                        lues_kind kind) {
     LIST_SPEC = spec;
     LIST_KIND = kind;
     snprintf(LIST_FILTER_CMD, sizeof LIST_FILTER_CMD, "%s.filter", spec->prefix);

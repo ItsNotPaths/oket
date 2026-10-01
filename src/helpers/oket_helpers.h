@@ -27,18 +27,18 @@ extern "C" {
 
 /* --- what every plugin writes first ---
  *
- * Not about text. Each is one line over `oket_api`, `oket_at` or malloc that a plugin would
+ * Not about text. Each is one line over `lues_api`, `lues_at` or malloc that a plugin would
  * otherwise carry a private copy of. */
 
 /* A string literal as the (bytes, length) pair every seam call takes: LIT("files"). */
 #define LIT(s) s, sizeof(s) - 1
 
 /* The echo line, for a message you already have NUL-terminated. */
-void oket_say(const oket_api *api, oket_self self, const char *text);
+void oket_say(const lues_api *api, lues_self self, const char *text);
 
 /* Whether this call is aimed at a document YOU opened: `inst` is set only for your own (§5). A
  * command the user bound globally lands on whatever is focused, so this is what it asks first. */
-int oket_mine(const oket_at *at);
+int oket_mine(const lues_at *at);
 
 /* A NUL-terminated copy of a span. Seam strings carry no terminator and the C library wants
  * one. NULL when the allocation fails. */
@@ -129,14 +129,14 @@ uint32_t oket_pair_close(uint32_t open);
 
 /* The run of bytes the document has at `off`, and how many of them are contiguous. NULL at or
  * past the end. Advance by the length it wrote to `run_len` and call again. */
-const char *oket_run(const oket_snapshot *s, size_t off, size_t *run_len);
+const char *oket_run(const lues_snapshot *s, size_t off, size_t *run_len);
 
 /* Copies [lo, hi) into `dst`, up to `cap` bytes. Returns how many it wrote. */
-size_t oket_copy(const oket_snapshot *s, size_t lo, size_t hi, char *dst, size_t cap);
+size_t oket_copy(const lues_snapshot *s, size_t lo, size_t hi, char *dst, size_t cap);
 
 /* One byte, or 0 past the end. Convenient, not fast: it locates a piece per call, so a scan
  * wants oket_run. */
-char oket_byte(const oket_snapshot *s, size_t off);
+char oket_byte(const lues_snapshot *s, size_t off);
 
 /* --- lines ---
  *
@@ -144,16 +144,16 @@ char oket_byte(const oket_snapshot *s, size_t off);
  * binary search rather than a scan, and it stays that way however the document is edited. */
 
 /* Byte offset of the start of `line`. Clamped to the document. */
-size_t oket_line_start(const oket_snapshot *s, size_t line);
+size_t oket_line_start(const lues_snapshot *s, size_t line);
 
 /* [lo, hi) of `line`, the newline excluded. */
-void oket_line_range(const oket_snapshot *s, size_t line, size_t *lo, size_t *hi);
+void oket_line_range(const lues_snapshot *s, size_t line, size_t *lo, size_t *hi);
 
 /* The line `off` sits on. */
-size_t oket_line_at(const oket_snapshot *s, size_t off);
+size_t oket_line_at(const lues_snapshot *s, size_t off);
 
 /* Copies `line` into `dst`, the newline excluded. Returns how many bytes it wrote. */
-size_t oket_line_copy(const oket_snapshot *s, size_t line, char *dst, size_t cap);
+size_t oket_line_copy(const lues_snapshot *s, size_t line, char *dst, size_t cap);
 
 /* --- columns ---
  *
@@ -161,10 +161,10 @@ size_t oket_line_copy(const oket_snapshot *s, size_t line, char *dst, size_t cap
  * takes two. Getting this wrong is what makes a caret drift on a line with a CJK glyph in it. */
 
 /* Cells from the start of the line to byte `col` of it. */
-size_t oket_col_cells(const oket_snapshot *s, size_t line, size_t col, size_t tab_width);
+size_t oket_col_cells(const lues_snapshot *s, size_t line, size_t col, size_t tab_width);
 
 /* The byte offset into the line that lands at cell `cell`, clamped to the line's end. */
-size_t oket_col_bytes(const oket_snapshot *s, size_t line, size_t cell, size_t tab_width);
+size_t oket_col_bytes(const lues_snapshot *s, size_t line, size_t cell, size_t tab_width);
 
 /* --- cursors ---
  *
@@ -173,10 +173,10 @@ size_t oket_col_bytes(const oket_snapshot *s, size_t line, size_t cell, size_t t
  * a plugin that writes every cursor's range never places a caret itself. */
 
 /* Byte offset of a position, clamped to the line it names. */
-size_t oket_pos_off(const oket_snapshot *s, oket_pos p);
+size_t oket_pos_off(const lues_snapshot *s, oket_pos p);
 
 /* Cursor `i`'s range in bytes, low to high. lo == hi is a bare caret. */
-void oket_cursor_span(const oket_snapshot *s, size_t i, size_t *lo, size_t *hi);
+void oket_cursor_span(const lues_snapshot *s, size_t i, size_t *lo, size_t *hi);
 
 /* --- motion (CURSORS.md §8) ---
  *
@@ -200,20 +200,20 @@ typedef enum oket_motion {
  *
  * The set is merged at the drain like any other, so two carets moving into each other fuse, and
  * it carries no edits — the generation does not move and no watcher wakes. */
-void oket_move(const oket_api *api, oket_self self, const oket_snapshot *s,
+void oket_move(const lues_api *api, lues_self self, const lues_snapshot *s,
                oket_motion m, int select);
 
 /* What oket_move is built out of, for the verb it does not have. Each takes and returns a
  * document position, and each clamps rather than failing. */
 
 /* One rune left / right, wrapping across the line break. Either end of the document is itself. */
-oket_pos oket_pos_left(const oket_snapshot *s, oket_pos p);
-oket_pos oket_pos_right(const oket_snapshot *s, oket_pos p);
+oket_pos oket_pos_left(const lues_snapshot *s, oket_pos p);
+oket_pos oket_pos_right(const lues_snapshot *s, oket_pos p);
 
 /* The visible edge of the hidden run `p` fell into, or `p` when it fell into none. Both edges
  * draw at the same cell, so the direction of travel is what picks between them: `toward_lo` is
  * a caret arriving from the right. */
-oket_pos oket_visible(const oket_snapshot *s, oket_pos p, int toward_lo);
+oket_pos oket_visible(const lues_snapshot *s, oket_pos p, int toward_lo);
 
 /* Reading order over positions: line first, then byte column. */
 int oket_pos_less(oket_pos a, oket_pos b);
@@ -281,23 +281,23 @@ void oket_build_free(oket_build *b);
  * Neither of these takes a generation, and that is the point: the generation is read here,
  * against the newest snapshot there is, so no plugin author writes a rebase loop. A write that
  * still loses the race is dropped whole at the drain and the owner is told through an
- * OKET_EVENT_MOVED, which is where you re-read and try again. */
+ * LUES_EVENT_MOVED, which is where you re-read and try again. */
 
 /* Replaces [lo, hi) with `text`. */
-void oket_replace(const oket_api *api, oket_self self, oket_doc doc,
+void oket_replace(const lues_api *api, lues_self self, lues_doc doc,
                   size_t lo, size_t hi, const char *text, size_t len);
 
 /* Replaces the whole document, and publishes `d` with it. Either may be empty: a NULL `d`
  * leaves the descriptor as it stands, and a zero `len` empties the text. */
-void oket_set(const oket_api *api, oket_self self, oket_doc doc,
+void oket_set(const lues_api *api, lues_self self, lues_doc doc,
               const char *text, size_t len, const oket_descriptor *d);
 
 /* The same, as a REGENERATION: the carets in this document were put where they are by
  * NAVIGATION, so they stay on their rows instead of collapsing onto the splice
- * (OKET_SUBMIT_REGEN). A tree rewriting itself to expand a directory wants this one; the same
+ * (LUES_SUBMIT_FORGET). A tree rewriting itself to expand a directory wants this one; the same
  * tree taking a typed rune does not, and the difference is not in the offsets. A document that
  * takes no typing at all keeps its carets either way. */
-void oket_regen(const oket_api *api, oket_self self, oket_doc doc,
+void oket_regen(const lues_api *api, lues_self self, lues_doc doc,
                 const char *text, size_t len, const oket_descriptor *d);
 
 
@@ -311,7 +311,7 @@ void oket_regen(const oket_api *api, oket_self self, oket_doc doc,
  * under one caret is not the indent under the next. Free it with oket_batch_free. */
 
 typedef struct {
-    oket_edit *edits;
+    lues_edit *edits;
     size_t     n, cap;
     int        oom;
 } oket_batch;
@@ -327,7 +327,7 @@ void oket_batch_edit_for(oket_batch *b, uint32_t cur, size_t lo, size_t hi,
 
 /* Submits the whole batch against `gen`, and answers whether anything went. An empty batch,
  * or one that ran out of memory, submits nothing. */
-int oket_batch_submit(const oket_api *api, oket_self self, oket_doc doc, uint64_t gen,
+int oket_batch_submit(const lues_api *api, lues_self self, lues_doc doc, uint64_t gen,
                       oket_batch *b);
 
 void oket_batch_free(oket_batch *b);
@@ -343,22 +343,22 @@ void oket_batch_free(oket_batch *b);
  * where it draws. */
 
 typedef struct {
-    oket_span *spans;
+    lues_span *spans;
     size_t     n, cap;
     int        oom;
 } oket_spans;
 
 /* Appends one run. An empty or reversed range is dropped here rather than at the seam.
  *
- * `set` is OKET_SET_*: which channels this run has an opinion about. OKET_SET_FG is the usual
+ * `set` is LUES_CHAN_*: which channels this run has an opinion about. LUES_CHAN_FG is the usual
  * one — a colour, and no claim about the background or the attributes under it. */
-void oket_spans_add(oket_spans *b, size_t lo, size_t hi, oket_token tok, uint8_t attrs,
+void oket_spans_add(oket_spans *b, size_t lo, size_t hi, lues_token tok, uint8_t attrs,
                     uint8_t set);
 
 /* Publishes what has been added, against `gen`, and answers whether it went. An EMPTY set is a
  * real publish: it is how a publisher clears a range. The buffer is left as it is, so a caller
  * slicing a parse over frames adds and publishes again. */
-int oket_spans_publish(const oket_api *api, oket_self self, oket_doc doc, uint64_t gen,
+int oket_spans_publish(const lues_api *api, lues_self self, lues_doc doc, uint64_t gen,
                        size_t lo, size_t hi, oket_spans *b);
 
 void oket_spans_free(oket_spans *b);
@@ -428,7 +428,7 @@ typedef struct {
 } oket_list_spec;
 
 struct oket_list {
-    oket_doc    doc;
+    lues_doc    doc;
     void       *ctx;
     const char *file; /* the descriptor's file; the plugin sets it or leaves NULL */
     char        filter[OKET_LIST_FILTER_CAP]; /* NUL-terminated at nfilter */
@@ -441,31 +441,31 @@ struct oket_list {
 
 /* Stores the spec, registers the four shared verbs and asks for their binds (ctrl+f,
  * backspace, esc). Call once, after register_kind. */
-void oket_list_register(const oket_api *api, oket_self self, const oket_list_spec *spec,
-                        oket_kind kind);
+void oket_list_register(const lues_api *api, lues_self self, const oket_list_spec *spec,
+                        lues_kind kind);
 
 /* Allocates and remembers one open list. Publishes nothing: set `file` and call
  * oket_list_publish yourself. NULL when nothing was registered or memory ran out. */
-oket_list *oket_list_open(const oket_api *api, oket_self self, oket_doc doc, void *ctx);
+oket_list *oket_list_open(const lues_api *api, lues_self self, lues_doc doc, void *ctx);
 void oket_list_close(oket_list *l);
 
 /* The list behind a call, or NULL when the document is not one of this plugin's. */
-oket_list *oket_list_of(const oket_at *at);
+oket_list *oket_list_of(const lues_at *at);
 
 /* The scaffold: head, the rows the filter lets through, the descriptor, one regen. */
-void oket_list_publish(const oket_api *api, oket_self self, oket_list *l);
+void oket_list_publish(const lues_api *api, lues_self self, oket_list *l);
 
 /* Every open list, republished where it stands. What a change under all of them ends with. */
-void oket_list_repaint(const oket_api *api, oket_self self);
+void oket_list_repaint(const lues_api *api, lues_self self);
 
 /* Publish, and point on the first row: what every change to the filter ends with. */
-void oket_list_refilter(const oket_api *api, oket_self self, oket_list *l);
+void oket_list_refilter(const lues_api *api, lues_self self, oket_list *l);
 
 /* One collapsed caret at `line`, clamped to the rows; `pin` lands it at the end of the name. */
-void oket_list_point(const oket_api *api, oket_self self, oket_list *l, size_t line);
+void oket_list_point(const lues_api *api, lues_self self, oket_list *l, size_t line);
 
 /* The line point is on. */
-size_t oket_list_line(const oket_snapshot *s);
+size_t oket_list_line(const lues_snapshot *s);
 
 /* The row behind a line, or NULL for the head and anything outside. */
 const oket_list_row *oket_list_at(const oket_list *l, size_t line);
@@ -475,22 +475,22 @@ ptrdiff_t oket_list_row_line(const oket_list *l, int32_t idx);
 
 /* The name span of one row IN THE DOCUMENT — where an edit is allowed and nowhere else. The
  * end is wherever the line now ends, minus `tail`. */
-void oket_list_name_span(const oket_snapshot *s, const oket_list *l, size_t line,
+void oket_list_name_span(const lues_snapshot *s, const oket_list *l, size_t line,
                          size_t *lo, size_t *hi);
 
 /* The name as the document has it now, copied out. What a harvest reads. */
-size_t oket_list_name(const oket_snapshot *s, const oket_list *l, size_t line,
+size_t oket_list_name(const lues_snapshot *s, const oket_list *l, size_t line,
                       char *dst, size_t cap);
 
-/* An oket_event_fn. Filtering routes TEXT to the filter; otherwise it is spliced into the name
+/* An lues_event_fn. Filtering routes TEXT to the filter; otherwise it is spliced into the name
  * of each cursor's row, clamped, with fixed rows skipped. A plugin with nothing of its own to
  * handle puts this straight in the vt. */
-int32_t oket_list_event(const oket_api *api, oket_self self, const oket_at *at,
-                        oket_event ev, const char *text, size_t len);
+int32_t oket_list_event(const lues_api *api, lues_self self, const lues_at *at,
+                        lues_event ev, const char *text, size_t len);
 
 /* --- chords --- */
 
-/* Whether a chord handed to OKET_EVENT_CHORD is the one named. The spelling is the PHYSICAL one
+/* Whether a chord handed to LUES_EVENT_CHORD is the one named. The spelling is the PHYSICAL one
  * describe prints — a position on the keyboard, carrying an `@`: "@ESC", "ctrl+@AC01". A mouse
  * button has one spelling and no sigil: "click". Deliberately not the layout spelling, which
  * says what the key TYPES and is a different string on a different layout. */

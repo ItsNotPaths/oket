@@ -266,7 +266,6 @@ an_argument_opens_instead_of_the_page :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.plug_init(&a)
     app.plug_autoload(&a)
 
     note, _ := filepath.join({home_dir(a.home), "alpha.txt"}, context.temp_allocator)
@@ -275,7 +274,7 @@ an_argument_opens_instead_of_the_page :: proc(t: ^testing.T) {
     if !testing.expect(t, s != nil, "nothing was opened") {
         return
     }
-    d := store.store_descriptor(&a.docs, s.doc)
+    d := store.store_descriptor(a.docs, s.doc)
     defer desc.release(d)
     testing.expect_value(t, d.file, note)
 }
@@ -321,7 +320,7 @@ a_start_that_cannot_write_writes_nothing :: proc(t: ^testing.T) {
         return
     }
     defer close_app(&a)
-    app.home_set(&a.home, dir)
+    app.app_home(&a, dir)
     app.config_sync(&a)
     app.binds_sync(&a)
     testing.expect(t, !there(dir, app.CONFIG_NAME), "config.conf was written anyway")

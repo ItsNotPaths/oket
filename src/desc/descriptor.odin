@@ -3,7 +3,7 @@ package desc
 import "core:slice"
 import "core:strings"
 import "../input"
-import "../rc"
+import "lues:rc"
 import "../shape"
 
 // How the kernel renders and routes a document (§5). Immutable and refcounted: a write

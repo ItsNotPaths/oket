@@ -1,11 +1,13 @@
 package txt
 
+import "lues:docs"
+import "lues:pt"
 import "core:slice"
 import "core:strings"
 import "core:unicode/utf8"
 
-// The shared multi-cursor editing core under the command line and the editor buffer: a
-// Piece_Table plus a list of Cursors. Single-cursor is N == 1. Pure — no rendering, no GL.
+// The shared multi-cursor editing core under the command line and the editor buffer: a lues
+// docs.Doc plus a list of Cursors. Single-cursor is N == 1. Pure — no rendering, no GL.
 //
 // A Pos is a line and a BYTE column, matching the storage and tree-sitter's Point, so nothing on
 // the edit or parse path converts. The painter's cell grid is a different thing, and doc_cells /
@@ -17,105 +19,71 @@ import "core:unicode/utf8"
 // merge rebuilds the set, and the index is recovered from the name rather than falling back to
 // the topmost (VIEWS.md §12). What the SET guarantees is cursor.odin's.
 Doc :: struct {
-    // At the head, and checked after every plugin dispatch (§10). A wild store from a plugin
-    // walking a snapshot lands near a document's header more often than anywhere else, and a
-    // word that can only ever be one value is what turns that into a named plugin instead of a
-    // mystery four frames later. doc_check is the whole of what it costs.
-    magic:   u64,
-    pt:      Piece_Table,
-    cursors: [dynamic]Cursor,
-    primary: int,
+    // The bytes, gen, snapshot, undo and change log. A store doc's belongs to the store.
+    using core: ^docs.Doc,
+    owned:      bool,
+    cursors:    [dynamic]Cursor,
+    primary:    int,
     // Hands out cursor names (cursor.odin). Never reused inside a document, so a name that is
     // gone stays gone rather than coming back as somebody else's caret.
-    next_id: u32,
-    undo:    Undo, // patch journal (undo.odin)
-    // Bumped on every content change. A reader keeps the generation it read and a write
-    // carries it back, so a write against a document that has moved is caught rather than
-    // silently landing on text its author never saw (§6).
-    gen:     u64,
-    // The current generation frozen, built on demand and dropped by the next change. One
-    // reference is the Doc's; every caller of doc_snapshot gets its own on top.
-    snap:    ^Snapshot,
-    // The change log, in apply order. Several readers follow it (Doc_Reader), so it is not
-    // drained by the first: each keeps a sequence number and the log drops what all have passed.
-    changes:      [dynamic]Doc_Change,
-    changes_base: u64, // sequence number of changes[0]
-    changes_next: u64, // one past the last recorded
-    seen:         [Doc_Reader]u64, // how far each reader has got
-    sink:         Doc_Sink, // nil write = not journaled
+    next_id:    u32,
+    made:       int, // undo steps ever opened; the cap trims, so not len(undo)
+    readers:    [Doc_Reader]docs.Reader,
+    sink:       Doc_Sink, // nil write = not journaled
 }
 
-// An optional tap on the edit funnel, offered every splice at apply time with the text still
-// in hand (§10's recovery journal is the only user). txt stays pure: it hands over bytes and
-// does not know what becomes of them. The change log above cannot serve this, because its
-// offsets are pre-splice and carry no text.
+// An optional tap on the edit funnel, offered every splice with the text still in hand (§10's
+// recovery journal is the only user). Back to front, against the document before the batch.
 Doc_Sink :: struct {
     user:  rawptr,
     write: proc(user: rawptr, at, old_len: int, text: string),
 }
 
-// Fixed rather than a registration list: three of them, all living as long as the Doc.
 Doc_Reader :: enum {
     Highlight, // folds each change into the cached parse tree (highlight.odin)
     Folds,     // shifts collapsed ranges so an edit elsewhere does not drop them (src/edit)
     Fields,    // carries the descriptor's spans along with the text (src/store/fields.odin)
-    Spans,     // carries a publisher's colour runs along with it (src/store/spans.odin)
+    Carets,    // carries the set through a splice for .Shift
 }
 
-// Both byte offsets and points, because tree-sitter's Input_Edit wants both. Offsets are in the
-// document as it stood when the change was applied, so a reader must replay the list in order.
-Doc_Change :: struct {
-    start, old_end, new_end:          int,
-    start_pt, old_end_pt, new_end_pt: Pos,
-}
-
-// How far the log may run ahead of its slowest reader. Past it the log is dropped and everyone
-// behind is told they lost it — a rebuild costs less than an unbounded list. Measured between
-// commits: one commit is atomic in the log whatever its size (doc_record_changes).
-DOC_CHANGE_MAX :: 256
-
-Pos :: struct {
-    line: int,
-    col:  int, // BYTES into the line
-}
+Pos :: pt.Pos // col in BYTES
 
 // --- lifecycle ---
 
-DOC_MAGIC :: 0x6f6b_6574_646f_6300 // "oketdoc\0"
-
-doc_init :: proc(d: ^Doc) {
-    d.magic = DOC_MAGIC
-    pt_init(&d.pt)
+// A store doc passes its core; without one the Doc makes and owns its own.
+doc_init :: proc(d: ^Doc, core: ^docs.Doc = nil) {
+    d.core = core
+    if core == nil {
+        d.core = new(docs.Doc)
+        docs.doc_init(d.core)
+        d.owned = true
+    }
+    for &r in d.readers {
+        r = docs.reader_add(d.core)
+    }
     append(&d.cursors, new_cursor(d, {}, {}))
 }
 
-// The invariants worth checking after every plugin dispatch (§10). All O(1), so leaving them on
-// in release costs nothing measurable, and each arm names a corruption that is otherwise silent.
-// The storage answers for its own (text_check); this adds the ones a Doc has on top.
+// The invariants worth checking after every plugin dispatch (§10). All O(1).
 doc_check :: proc(d: ^Doc) -> bool {
-    if d.magic != DOC_MAGIC || d.primary < 0 || d.primary >= len(d.cursors) {
-        return false
-    }
-    return text_check(&d.pt)
+    return d.primary >= 0 && d.primary < len(d.cursors) && docs.doc_check(d.core)
 }
 
 doc_destroy :: proc(d: ^Doc) {
-    doc_drop_snap(d)
-    pt_destroy(&d.pt)
     delete(d.cursors)
-    delete(d.changes)
-    undo_destroy(d)
+    if d.owned {
+        docs.doc_destroy(d.core)
+        free(d.core)
+    }
+    d^ = {}
 }
 
 // Replaces all content, collapses to one cursor at the origin, and discards undo history. CRLF
 // collapses to LF and one trailing newline is dropped — Buffer puts it back on save.
 doc_set_text :: proc(d: ^Doc, text: string) {
-    undo_destroy(d)
-    pt_load(&d.pt, doc_normalize(text))
+    docs.doc_set(d.core, doc_normalize(text))
     doc_reset_cursor(d, {})
-    // Nothing can track a wholesale replacement, so every reader rebuilds from scratch.
-    doc_changes_reset(d)
-    doc_bump(d)
+    doc_changes_ack(d, .Carets) // the others rebuild; the carets were just placed
 }
 
 doc_clear :: proc(d: ^Doc) {
@@ -124,95 +92,44 @@ doc_clear :: proc(d: ^Doc) {
 
 // --- reading ---
 
-// The document as it stands, for anyone who reads off the edit path: a worker, or a plugin
-// between dispatches (§6). Cached per generation, so a frame that asks twice pays once. The
-// caller owns the returned reference and releases it.
-doc_snapshot :: proc(d: ^Doc) -> ^Snapshot {
-    if d.snap == nil {
-        d.snap = snapshot_take(&d.pt, d.gen)
-    }
-    snapshot_retain(d.snap)
-    return d.snap
+// The caller owns the returned reference and releases it.
+doc_snapshot :: proc(d: ^Doc) -> ^pt.Snapshot {
+    return docs.doc_snapshot(d.core)
 }
 
-// Flatten the table once scattered editing has splintered it. The save path and the frame
-// drain both call this; neither decides when, so the threshold lives in one place.
-//
-// Content and generation come through untouched, which is exactly why the cached snapshot has
-// to go: it points into the arena compaction just spent, and would pin that garbage for as
-// long as the document idles.
 doc_maintain :: proc(d: ^Doc) {
-    if !pt_should_compact(&d.pt) {
-        return
-    }
-    pt_compact(&d.pt)
-    doc_drop_snap(d)
+    docs.doc_maintain(d.core)
 }
 
 doc_len :: proc(d: ^Doc) -> int {
-    return d.pt.size
+    return d.table.size
 }
 
 doc_line_count :: proc(d: ^Doc) -> int {
-    return text_line_count(&d.pt)
+    return pt.text_line_count(&d.table)
 }
 
 doc_line_len :: proc(d: ^Doc, line: int) -> int {
-    return text_line_len(&d.pt, line)
+    return pt.text_line_len(&d.table, line)
 }
 
 // Without the newline. Borrowed from the piece table when the line is one piece, copied into
 // `alloc` when an edit split it. Read only, and dead after the next edit.
 doc_line :: proc(d: ^Doc, line: int, alloc := context.temp_allocator) -> []u8 {
-    return text_line(&d.pt, line, alloc)
+    return pt.text_line(&d.table, line, alloc)
 }
 
 // The pair every edit crosses. Both clamp.
 doc_off :: proc(d: ^Doc, p: Pos) -> int {
-    return text_off(&d.pt, p)
+    return pt.text_off(&d.table, p)
 }
 
 doc_pos :: proc(d: ^Doc, off: int) -> Pos {
-    return text_pos(&d.pt, off)
+    return pt.text_pos(&d.table, off)
 }
 
 doc_string :: proc(d: ^Doc, allocator := context.allocator) -> string {
-    return string(text_read(&d.pt, 0, d.pt.size, allocator))
-}
-
-// One position through one splice, which is the whole of the .Shift policy and of how a
-// descriptor's fields ride the text (store/fields.odin). Replay a change list in the order it
-// was recorded and a point comes out where the text under it went.
-//
-// `low` is the left edge of a span and the only asymmetry: text inserted exactly at it belongs
-// to the span, so a low edge stays put where a high edge moves. A caret is a high edge — typing
-// in front of it pushes it along.
-point_shift :: proc(p: Pos, ch: Doc_Change, low: bool) -> Pos {
-    s, o, n := ch.start_pt, ch.old_end_pt, ch.new_end_pt
-    if !pos_less(p, o) && (!low || pos_less(s, p)) {
-        // After the splice: on the last line it replaced, the column rebases on the new end.
-        if p.line == o.line {
-            return {n.line, n.col + p.col - o.col}
-        }
-        return {p.line + n.line - o.line, p.col}
-    }
-    if pos_less(s, p) {
-        return s // inside what the splice replaced, so it collapses onto the front of it
-    }
-    return p
-}
-
-// One BYTE OFFSET through one splice, the rule above with no lines in it: colour runs are
-// stored against bytes, so this is what carries them along (store/spans.odin). `low` is the
-// same asymmetry — text inserted exactly at a run's left edge belongs to the run.
-off_shift :: proc(off: int, ch: Doc_Change, low: bool) -> int {
-    if off >= ch.old_end && (!low || off > ch.start) {
-        return off + ch.new_end - ch.old_end
-    }
-    if off > ch.start {
-        return ch.start // inside what the splice replaced, so it collapses onto the front of it
-    }
-    return off
+    return string(pt.text_read(&d.table, 0, d.table.size, allocator))
 }
 
 // --- the cell grid --- The painter draws CELLS, one per CLUSTER (IME.md §4); the document
@@ -348,7 +265,7 @@ doc_goal_byte :: proc(d: ^Doc, line, goal, tab: int) -> int {
 // Onto a real line, a real column, and a rune boundary. The one gate every derived Pos passes
 // through: a column landing mid-rune would split a character on the next edit.
 doc_clamp_pos :: proc(d: ^Doc, p: Pos) -> Pos {
-    return text_clamp_pos(&d.pt, p)
+    return pt.text_clamp_pos(&d.table, p)
 }
 
 // --- editing --- Every edit funnels through doc_apply: non-overlapping replacements, one per
@@ -376,7 +293,7 @@ doc_newline :: proc(d: ^Doc) -> bool {
 
 // Newlines are stored bytes, so a span across lines carries them already.
 doc_text :: proc(d: ^Doc, lo, hi: Pos, alloc := context.allocator) -> string {
-    return string(text_read(&d.pt, doc_off(d, lo), doc_off(d, hi), alloc))
+    return string(pt.text_read(&d.table, doc_off(d, lo), doc_off(d, hi), alloc))
 }
 
 // Each cursor's selection, or with nothing selected each cursor's whole line plus a newline.
@@ -575,23 +492,6 @@ doc_delete_word_forward :: proc(d: ^Doc) -> bool {
 
 // --- internals ---
 
-// The one place the generation moves. Dropping the cached snapshot here is what keeps a
-// holder's copy honest: it goes on reading the generation it asked for, and the next asker
-// gets a fresh one.
-@(private = "file")
-doc_bump :: proc(d: ^Doc) {
-    d.gen += 1
-    doc_drop_snap(d)
-}
-
-@(private = "file")
-doc_drop_snap :: proc(d: ^Doc) {
-    if d.snap != nil {
-        snapshot_release(d.snap)
-        d.snap = nil
-    }
-}
-
 // The bytes in [lo, hi) become `text`. caret_delta nudges the resulting caret left of the
 // inserted text's end, in bytes and on that line only: 1 lands inside a fresh ASCII pair, -1
 // steps one past an existing close, 0 for ordinary edits.
@@ -604,34 +504,44 @@ Edit :: struct {
     id:          u32,
 }
 
-@(private = "file")
+@(private)
 edit_is_noop :: proc(e: Edit) -> bool {
     return e.lo == e.hi && len(e.text) == 0
 }
 
-// One pass for the whole batch, then `cur` says where the carets go. Every offset here is
-// stated against the document as it arrived, and the piece table takes them all together, so
-// nothing has to stay true while the bytes underneath it move. Non-nil `rec` collects
-// reversible patches for the undo journal. `edits_in` is read only.
-doc_apply :: proc(d: ^Doc, edits_in: []Edit, rec: ^Batch = nil, cur := Commit{},
-                  tab := 4) -> bool {
+// Raw: nothing to undo, and the history goes.
+doc_apply :: proc(d: ^Doc, edits: []Edit, cur := Commit{}, tab := 4) -> bool {
+    return doc_land(d, edits, .Forget, cur, tab)
+}
+
+// One pass for the whole batch, then `cur` says where the carets go. Every offset is stated
+// against the document as it arrived.
+@(private)
+doc_land :: proc(d: ^Doc, edits: []Edit, history: docs.History, cur: Commit, tab: int) -> bool {
+    fused := doc_fuse(d, edits)
+    gen := d.gen
+    docs.doc_apply(d.core, doc_splices(fused), history)
+    return doc_landed(d, fused, gen, history != .Forget, cur, tab)
+}
+
+// Clamped, sorted, and overlaps fused into their union, the rule lues's own fuse applies, so
+// both agree on what lands. Unlike lues's, no-ops stay for their carets, and two carets in one
+// word leave the primary's id. Temp-allocated.
+doc_fuse :: proc(d: ^Doc, edits_in: []Edit) -> []Edit {
     if len(edits_in) == 0 {
-        // A cursor-only commit (CURSORS.md §3): the set lands, the generation does not move.
-        if cur.policy == .Set {
-            doc_set_cursors(d, cur.set, cur.primary, tab)
-            doc_merge_cursors(d)
-        }
-        return false
+        return nil
     }
-    prim := d.cursors[d.primary].id // the name .Follow gives the set back, past the sort below
-    edits := slice.clone(edits_in, context.temp_allocator)
+    prim := d.cursors[d.primary].id
+    size := d.table.size
+    edits := make([]Edit, len(edits_in), context.temp_allocator)
+    for e, i in edits_in {
+        edits[i] = e
+        edits[i].lo = clamp(e.lo, 0, size)
+        edits[i].hi = clamp(e.hi, edits[i].lo, size)
+    }
     slice.sort_by(edits, proc(a, b: Edit) -> bool {
         return a.lo != b.lo ? a.lo < b.lo : a.hi < b.hi
     })
-
-    // Back-to-front only keeps the offsets valid while the ranges stay apart, and two carets
-    // inside one word reach the same word start, so overlaps fuse into the union: the region is
-    // replaced once, by both texts in document order. Insertions are points and never fuse.
     w := 0
     for r in 1 ..< len(edits) {
         acc, e := &edits[w], edits[r]
@@ -640,105 +550,75 @@ doc_apply :: proc(d: ^Doc, edits_in: []Edit, rec: ^Batch = nil, cur := Commit{},
             acc.text = strings.concatenate({acc.text, e.text}, context.temp_allocator)
             acc.caret_delta = e.caret_delta
             if e.id == prim {
-                acc.id = e.id // two carets in one word leave one, and it is the primary's
+                acc.id = e.id
             }
             continue
         }
         w += 1
         edits[w] = e
     }
-    edits = edits[:w + 1]
+    return edits[:w + 1]
+}
 
-    // Where each edit's text ends up once the batch is done: `lo` is where it was stated, and
-    // the edits before it grow or shrink the text ahead of it. The cursors and the journal's
-    // inverse both read the finished document, so both want this rather than `lo`.
-    landed := make([]int, len(edits), context.temp_allocator)
-    cum := 0
-    for e, i in edits {
-        landed[i] = e.lo + cum
-        cum += len(e.text) - (e.hi - e.lo)
+// The caret id rides as the tag. Temp-allocated.
+doc_splices :: proc(fused: []Edit) -> []docs.Splice {
+    out := make([]docs.Splice, len(fused), context.temp_allocator)
+    for e, i in fused {
+        out[i] = {e.lo, e.hi, transmute([]u8)e.text, e.id}
     }
+    return out
+}
 
-    // EVERYTHING BELOW READS THE DOCUMENT AS IT STANDS — the batch lands in one pass at the
-    // end, so the inserted text says where it ends rather than the document being asked after.
-    changed := false
-    removed := make([]string, len(edits), context.temp_allocator)
-    splices := make([]Splice, len(edits), context.temp_allocator)
-    for e, i in edits {
-        if !edit_is_noop(e) {
-            changed = true
-        }
-        removed[i] = string(text_read(&d.pt, e.lo, e.hi, context.temp_allocator))
-        splices[i] = Splice{lo = e.lo, hi = e.hi, text = transmute([]u8)e.text}
-    }
-
-    // Back to front, which is the order both readers replay in: each entry is stated against the
-    // document the ones before it have already landed on. .Shift replays `spliced` as well, and
-    // the Doc's own log cannot serve it — that one is bounded and drops.
-    spliced := make([dynamic]Doc_Change, 0, len(edits), context.temp_allocator)
-    for i := len(edits) - 1; i >= 0; i -= 1 {
-        e := edits[i]
-        if edit_is_noop(e) {
-            continue
-        }
-        start_pt := doc_pos(d, e.lo)
-        append(
-            &spliced,
-            Doc_Change {
-                start = e.lo,
-                old_end = e.hi,
-                new_end = e.lo + len(e.text),
-                start_pt = start_pt,
-                old_end_pt = doc_pos(d, e.hi),
-                new_end_pt = pos_after(start_pt, e.text),
-            },
-        )
-        if d.sink.write != nil {
-            d.sink.write(d.sink.user, e.lo, e.hi - e.lo, e.text)
-        }
-    }
-
-    pt_splice_many(&d.pt, splices)
-    doc_record_changes(d, spliced[:])
-
-    if rec != nil {
-        for e, i in edits {
-            if removed[i] == "" && e.text == "" {
-                continue // no-op, e.g. backspace at the document origin
+// After lues applied `fused` (doc_fuse's) to this doc at `gen`: the journal, where the carets
+// go, and the undo step's carets when `record`. True when the bytes moved.
+doc_landed :: proc(d: ^Doc, fused: []Edit, gen: u64, record: bool, cur := Commit{},
+                   tab := 4) -> bool {
+    moved := d.gen != gen
+    if moved && d.sink.write != nil {
+        #reverse for e in fused {
+            if !edit_is_noop(e) {
+                d.sink.write(d.sink.user, e.lo, e.hi - e.lo, e.text)
             }
-            append(
-                &rec.ops,
-                Op {
-                    at = e.lo,
-                    inv_at = landed[i],
-                    removed = strings.clone(removed[i]),
-                    inserted = strings.clone(e.text),
-                },
-            )
         }
     }
+    before := cursors_pack(d) if moved && record else nil
+    if len(fused) > 0 || cur.policy == .Set {
+        carets_land(d, fused, cur, tab)
+    }
+    doc_changes_ack(d, .Carets)
+    if moved && record {
+        undo_landed(d, fused, before)
+    }
+    return moved
+}
 
+@(private = "file")
+carets_land :: proc(d: ^Doc, fused: []Edit, cur: Commit, tab: int) {
     switch cur.policy {
     case .Follow:
+        prim := d.cursors[d.primary].id
         clear(&d.cursors)
-        for e, i in edits {
-            p := doc_pos(d, landed[i] + len(e.text))
+        cum := 0
+        for e in fused {
+            p := doc_pos(d, e.lo + cum + len(e.text))
+            cum += len(e.text) - (e.hi - e.lo)
             // same line, by contract
             p.col = clamp(p.col - e.caret_delta, 0, doc_line_len(d, p.line))
             q := doc_clamp_pos(d, p)
-            // The caret an edit leaves IS the caret that asked for it, so scroll-follow stays
-            // on the one the user is typing at instead of the topmost (VIEWS.md §12). An edit
-            // nobody asked for — an undo replay, a whole-buffer write — is named fresh.
+            // The caret an edit leaves IS the caret that asked for it (VIEWS.md §12); one nobody
+            // asked for is named fresh.
             append(&d.cursors, new_cursor(d, q, q, -1, e.id))
         }
         d.primary = cursor_index(d, prim)
         doc_merge_cursors(d)
     case .Shift:
-        // The splice loop never touches the cursors, so they still hold pre-edit positions.
+        changes, lost := doc_changes_since(d, .Carets)
         for &c in d.cursors {
-            for ch in spliced {
-                c.anchor = point_shift(c.anchor, ch, low = false)
-                c.head = point_shift(c.head, ch, low = false)
+            if !lost {
+                for ch in changes {
+                    c.anchor = docs.point_shift(c.anchor, ch, low = false)
+                    c.head = docs.point_shift(c.head, ch, low = false)
+                }
             }
             c.anchor, c.head = doc_clamp_pos(d, c.anchor), doc_clamp_pos(d, c.head)
         }
@@ -751,75 +631,18 @@ doc_apply :: proc(d: ^Doc, edits_in: []Edit, rec: ^Batch = nil, cur := Commit{},
         doc_set_cursors(d, cur.set, cur.primary, tab)
         doc_merge_cursors(d) // normalization, not policy: one rule for every placed caret
     }
-    if changed {
-        doc_bump(d)
-    }
-    return changed
 }
 
 // Oldest first. `lost` means the log no longer reaches back that far, so the reader rebuilds
-// from the document; the changes returned with it are valid but not the whole story.
-doc_changes_since :: proc(d: ^Doc, who: Doc_Reader) -> (changes: []Doc_Change, lost: bool) {
-    if d.seen[who] < d.changes_base {
-        return nil, true
-    }
-    return d.changes[d.seen[who] - d.changes_base:], false
+// from the document.
+doc_changes_since :: proc(d: ^Doc, who: Doc_Reader) -> (changes: []docs.Change, lost: bool) {
+    return docs.changes_since(d.core, d.readers[who])
 }
 
-// Trims the log to the slowest reader, which keeps it short while everyone keeps up.
 doc_changes_ack :: proc(d: ^Doc, who: Doc_Reader) {
-    d.seen[who] = d.changes_next
-    slowest := d.changes_next
-    for s in d.seen {
-        slowest = min(slowest, s)
-    }
-    if slowest > d.changes_base {
-        remove_range(&d.changes, 0, int(slowest - d.changes_base))
-        d.changes_base = slowest
-    }
+    docs.changes_ack(d.core, d.readers[who])
 }
 
-// Anyone behind is told they lost it; anyone caught up is untouched. That matters: a buffer with
-// no grammar has a highlighter that never acks, and the fold set must not lose its ranges for it.
-@(private = "file")
-doc_changes_drop :: proc(d: ^Doc) {
-    clear(&d.changes)
-    d.changes_base = d.changes_next
-}
-
-// A wholesale load: no edit to track through, so a current reader is as out of date as any.
-@(private = "file")
-doc_changes_reset :: proc(d: ^Doc) {
-    d.changes_next += 1 // past every reader's `seen`
-    doc_changes_drop(d)
-}
-
-// A COMMIT'S CHANGES GO IN TOGETHER. Half a transaction in the log is worse than none: a
-// reader would carry its spans through some of the splices under them and not the rest, and
-// nothing afterwards says so. So the drop is decided once, before the batch lands, and one
-// batch may run past DOC_CHANGE_MAX — the cap bounds the log BETWEEN commits (§11).
-@(private = "file")
-doc_record_changes :: proc(d: ^Doc, batch: []Doc_Change) {
-    if len(batch) == 0 {
-        return
-    }
-    if len(d.changes) + len(batch) > DOC_CHANGE_MAX {
-        doc_changes_drop(d) // everyone behind rebuilds; the log restarts AT this batch
-    }
-    append(&d.changes, ..batch)
-    d.changes_next += u64(len(batch))
-}
-
-// Where `text` inserted at `at` ends. The batch has not landed when this is asked, so it is
-// arithmetic rather than a read of the document.
-@(private = "file")
-pos_after :: proc(at: Pos, text: string) -> Pos {
-    nl := strings.last_index_byte(text, '\n')
-    if nl < 0 {
-        return {at.line, at.col + len(text)}
-    }
-    return {at.line + strings.count(text, "\n"), len(text) - nl - 1}
-}
 
 // CRLF collapsed to LF and one trailing newline dropped — both the load's business; Buffer puts
 // the newline back on save. Temp-allocated, and returns the input untouched when there is

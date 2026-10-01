@@ -59,11 +59,11 @@ if [ $DO_LOCAL -eq 1 ]; then
     # the whole point.
     if [ $DO_ASAN -eq 1 ]; then
         echo "==> AddressSanitizer build"
-        odin build "$PROJECT_DIR/src/oket" -out:"$RELEASE_DIR/$BIN_NAME" \
+        odin build "$PROJECT_DIR/src/oket" -out:"$RELEASE_DIR/$BIN_NAME" -collection:lues="$PROJECT_DIR/vendor/lues/src" \
             -sanitize:address -debug -extra-linker-flags:"-L$PROJECT_DIR/vendor/sdl3" \
             -define:OKET_VERSION='"dev-local-asan"'
     else
-        odin build "$PROJECT_DIR/src/oket" -out:"$RELEASE_DIR/$BIN_NAME" \
+        odin build "$PROJECT_DIR/src/oket" -out:"$RELEASE_DIR/$BIN_NAME" -collection:lues="$PROJECT_DIR/vendor/lues/src" \
             -o:speed -extra-linker-flags:"-L$PROJECT_DIR/vendor/sdl3" \
             -define:OKET_VERSION="\"${VERSION:-dev-local}\""
         # release.yml strips too, so a local build matches the download.
@@ -80,14 +80,16 @@ if [ $DO_LOCAL -eq 1 ]; then
     # the headers in either layout.
     echo "==> Plugin toolchain"
     mkdir -p "$RELEASE_DIR/helpers"
-    cp "$PROJECT_DIR"/src/plug/oket.h "$PROJECT_DIR"/src/helpers/*.h \
-       "$PROJECT_DIR"/src/helpers/*.c "$RELEASE_DIR/helpers/"
-    # The seam's Odin twin, laid out as a COLLECTION: `plug` imports `../shape` beside it, and
-    # stage.sh points `-collection:oket=` at the directory holding both. Two files, because
-    # `plug` imports nothing else.
-    mkdir -p "$RELEASE_DIR/helpers/odin/plug" "$RELEASE_DIR/helpers/odin/shape"
+    cp "$PROJECT_DIR"/src/plug/oket.h "$PROJECT_DIR"/vendor/lues/include/lues.h \
+       "$PROJECT_DIR"/src/helpers/*.h "$PROJECT_DIR"/src/helpers/*.c "$RELEASE_DIR/helpers/"
+    # The seam's Odin twin, laid out as two COLLECTIONS: `plug` imports `../shape` beside it and
+    # `lues:abi`, and stage.sh points `-collection:oket=` at helpers/odin and `-collection:lues=`
+    # at helpers/odin/lues.
+    mkdir -p "$RELEASE_DIR/helpers/odin/plug" "$RELEASE_DIR/helpers/odin/shape" \
+             "$RELEASE_DIR/helpers/odin/lues/abi"
     cp "$PROJECT_DIR/src/plug/abi.odin" "$RELEASE_DIR/helpers/odin/plug/"
     cp "$PROJECT_DIR/src/shape/shape.odin" "$RELEASE_DIR/helpers/odin/shape/"
+    cp "$PROJECT_DIR/vendor/lues/src/abi/abi.odin" "$RELEASE_DIR/helpers/odin/lues/abi/"
     cp "$PROJECT_DIR/plugins/stage.sh" "$RELEASE_DIR/stage.sh"
     # tree-sitter itself is NOT shipped. plugins/syntax/get-tree-sitter fetches and builds it
     # into $ROOT/vendor, stage.sh carries that script into the plugin's folder, and nothing at

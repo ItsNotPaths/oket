@@ -156,7 +156,7 @@ a_bare_harness_resolves_the_focused_file_to_the_sequence :: proc(t: ^testing.T) 
 seeded_app :: proc(t: ^testing.T, name, text: string) -> (a: app.App, dir: string, ok: bool) {
     dir = scratch(t, name) or_return
     a = bare_app() or_return
-    app.home_set(&a.home, dir) // owned by the App, freed with it
+    app.app_home(&a, dir) // owned by the App, freed with it
     path, _ := filepath.join({dir, "note.txt"}, context.temp_allocator)
     app.ring_add(&a, scratch_doc(&a, path, text))
     app.surface_draw(&a)
@@ -168,7 +168,6 @@ seeded_app :: proc(t: ^testing.T, name, text: string) -> (a: app.App, dir: strin
 @(private = "file")
 harness_app :: proc(t: ^testing.T, name, text: string) -> (a: app.App, path: string, ok: bool) {
     a = plug_app(t, name, "plugins/edit") or_return
-    app.plug_init(&a)
     if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "edit")), a.message) {
         close_plug_app(&a)
         return {}, "", false

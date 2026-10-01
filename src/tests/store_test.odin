@@ -1,5 +1,7 @@
 package tests
 
+import "lues:docs"
+import "lues:pt"
 import "core:fmt"
 import "core:strings"
 import "core:testing"
@@ -29,11 +31,11 @@ steps_made_keeps_counting_past_the_undo_cap :: proc(t: ^testing.T) {
     txt.doc_insert_rune(&d, 'c')
     testing.expect_value(t, txt.doc_steps_made(&d), one)
 
-    for _ in 0 ..< txt.UNDO_MAX + 4 {
+    for _ in 0 ..< docs.UNDO_MAX + 4 {
         txt.doc_insert_text(&d, "xy") // more than one rune, so each opens its own step
     }
-    testing.expect_value(t, len(d.undo.steps), txt.UNDO_MAX)
-    testing.expect_value(t, txt.doc_steps_made(&d), one + txt.UNDO_MAX + 4)
+    testing.expect_value(t, len(d.undo), docs.UNDO_MAX)
+    testing.expect_value(t, txt.doc_steps_made(&d), one + docs.UNDO_MAX + 4)
 }
 
 @(private = "file")
@@ -236,15 +238,15 @@ store_snapshot_outlives_the_document :: proc(t: ^testing.T) {
     id := store.store_open(&s, "alpha\nbeta\n")
 
     snap := store.store_snapshot(&s, id)
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     testing.expect(t, snap != nil)
 
     store.store_close(&s, id)
     testing.expect(t, store.store_snapshot(&s, id) == nil)
-    testing.expect_value(t, txt.text_line_count(snap), 2)
+    testing.expect_value(t, pt.text_line_count(snap), 2)
     testing.expect_value(
         t,
-        string(txt.text_read(snap, 0, snap.size, context.temp_allocator)),
+        string(pt.text_read(snap, 0, snap.size, context.temp_allocator)),
         "alpha\nbeta",
     )
 }
@@ -259,29 +261,29 @@ store_drain_compacts_a_splintered_table :: proc(t: ^testing.T) {
     d := store.store_doc(&s, id)
 
     for i in 0 ..< 3000 {
-        at := (i * 7919) % (d.pt.size + 1)
+        at := (i * 7919) % (d.table.size + 1)
         txt.doc_apply(d, {txt.Edit{lo = at, hi = at, text = fmt.tprintf("<%d>", i % 100)}})
     }
-    testing.expect(t, txt.pt_should_compact(&d.pt), "the stress did not splinter the table")
+    testing.expect(t, pt.pt_should_compact(&d.table), "the stress did not splinter the table")
 
     want := strings.clone(txt.doc_string(d, context.temp_allocator))
     defer delete(want)
     snap := store.store_snapshot(&s, id)
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
 
     store.store_drain(&s)
-    testing.expect(t, !txt.pt_should_compact(&d.pt), "the drain must flatten the table")
+    testing.expect(t, !pt.pt_should_compact(&d.table), "the drain must flatten the table")
     testing.expect_value(t, txt.doc_string(d, context.temp_allocator), want)
     testing.expect_value(
         t,
-        string(txt.text_read(snap, 0, snap.size, context.temp_allocator)),
+        string(pt.text_read(snap, 0, snap.size, context.temp_allocator)),
         want,
     )
 
     // A snapshot taken AFTER the drain must sit in the fresh arena. The cached one would pin
     // the old arena — and everything compaction just reclaimed — for as long as the doc idles.
     fresh := store.store_snapshot(&s, id)
-    defer txt.snapshot_release(fresh)
+    defer pt.snapshot_release(fresh)
     testing.expect(t, fresh.arena != snap.arena, "the snapshot cache pinned the spent arena")
 }
 
@@ -436,7 +438,7 @@ a_field_the_log_no_longer_reaches_is_dropped :: proc(t: ^testing.T) {
     desc.release(d)
     store.store_drain(&s)
 
-    for _ in 0 ..< txt.DOC_CHANGE_MAX + 1 {
+    for _ in 0 ..< docs.DOC_CHANGE_MAX + 1 {
         txt.doc_apply(store.store_doc(&s, id), {txt.Edit{lo = 0, hi = 0, text = "x"}})
     }
     read := store.store_descriptor(&s, id)
@@ -496,7 +498,7 @@ a_cursor_set_is_not_a_transaction :: proc(t: ^testing.T) {
     testing.expect_value(t, doc.primary, 1)
     testing.expect_value(t, doc.cursors[1].head, txt.Pos{2, 5})
     testing.expect_value(t, doc.cursors[1].goal, 5) // negative asked the kernel to compute it
-    testing.expect_value(t, len(doc.undo.steps), 0)
+    testing.expect_value(t, len(doc.undo), 0)
 
     // The set is normalized by the same rule as every other caret: overlap fuses.
     store.store_cursors(&s, id, {

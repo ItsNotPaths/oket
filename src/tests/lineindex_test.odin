@@ -5,7 +5,7 @@ import "core:testing"
 import "../txt"
 
 // The line index is segments over an append-only pool with a per-segment delta, so an edit
-// re-bases one add per SEGMENT rather than one per line (piecetable.odin, after RAD Debugger's
+// re-bases one add per SEGMENT rather than one per line (lues pt/piecetable.odin, after RAD Debugger's
 // TXT_LineMapRangeNode). That is a representation swap under the hottest code in the editor,
 // so it is checked against the obvious slow answer rather than against itself.
 

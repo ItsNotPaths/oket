@@ -30,7 +30,7 @@ find_selects_every_match_and_typing_replaces_them :: proc(t: ^testing.T) {
     defer close_app(&a)
 
     app.cl_exec(&a, ":find foo")
-    doc := store.store_doc(&a.docs, id)
+    doc := store.store_doc(a.docs, id)
     testing.expect_value(t, len(doc.cursors), 3)
     testing.expect(t, strings.contains(a.message, "3 matches"), a.message)
 
@@ -52,7 +52,7 @@ find_lands_on_the_hit_after_point :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    doc := store.store_doc(&a.docs, id)
+    doc := store.store_doc(a.docs, id)
     txt.doc_set_head(doc, {3, 0}, false)
     app.point_sync(&a)
 
@@ -71,7 +71,7 @@ f3_steps_through_the_matches :: proc(t: ^testing.T) {
     defer close_app(&a)
 
     f3, _ := input.key_code("FK03")
-    doc := store.store_doc(&a.docs, id)
+    doc := store.store_doc(a.docs, id)
     txt.doc_set_head(doc, {0, 0}, false)
     app.point_sync(&a)
     app.cl_exec(&a, ":find hit")
@@ -127,7 +127,7 @@ find_with_no_match_says_so_and_changes_nothing :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    doc := store.store_doc(&a.docs, id)
+    doc := store.store_doc(a.docs, id)
     before := len(doc.cursors)
     app.cl_exec(&a, ":find zzz")
     testing.expect(t, strings.contains(a.message, "no match"), a.message)
@@ -143,7 +143,7 @@ a_find_is_a_jump :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    doc := store.store_doc(&a.docs, id)
+    doc := store.store_doc(a.docs, id)
     txt.doc_set_head(doc, {0, 0}, false)
     app.point_sync(&a)
 

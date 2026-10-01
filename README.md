@@ -205,15 +205,19 @@ next.
 
 ## Plugins
 
-One `.so`, `dlopen`'d in-process. The seam is six messages: `register`, `submit`, `reveal`,
-`event`, `open`, `close`. Reads are not among them. A plugin walks a snapshot by pointer with no
-lock, and writes by submitting a batch against the generation it read.
+The kernel is [lues](https://github.com/ItsNotPaths/lues), and a plugin is a lues plugin: one
+`.so`, `dlopen`'d in-process, that exports `lues_main`. A plugin reads a snapshot by pointer with
+no lock. It writes by submitting a batch against the generation it read. lues gives the
+documents, the loader, the fault net and io. oket adds its own calls after lues's in the same
+api (`describe`, `cursors`, `reveal`, `register_view`, `world`), and its own view of each
+document behind `snap->app`: the descriptor, the carets and the folds.
 
 ```c
 #include "oket_helpers.h"
 
-OKET_MAIN {
-    static const oket_kind_spec SPEC = {"notes", 5, "text", 4, {open_note, close_note, event}};
+LUES_MAIN {
+    static const lues_kind_spec SPEC = {sizeof SPEC, "notes", 5, "text", 4,
+                                        {open_note, close_note, event}};
     NOTES = api->register_kind(api, self, &SPEC);
     api->register_command(api, self, "note", 4, "start one", 9, note_cmd);
     api->request_bind(api, self, "global", 6, "alt+n", 5, "exec :note", 10);
@@ -250,12 +254,12 @@ session.
 ## Build
 
 ```sh
-./download-deps.sh               # once: libvterm, sdl3, stb, tree-sitter into vendor/
+./download-deps.sh               # lues, libvterm, sdl3, stb, tree-sitter into vendor/; again after a LUES_REV bump
 ./release.sh --local             # into build/
 ./release.sh --local --asan      # kernel and plugins under AddressSanitizer
 ./release.sh --local --tarball   # and pack it into dist/
 
-odin test src/tests -extra-linker-flags:"-Lvendor/sdl3"
+odin test src/tests -collection:lues=vendor/lues/src -extra-linker-flags:"-Lvendor/sdl3"
 ```
 
 Needs Odin and Zig; `zig cc` builds the vendored C and the plugins. `build/oket` is portable, so

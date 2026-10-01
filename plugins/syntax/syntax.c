@@ -152,7 +152,7 @@ typedef struct {
     void *lib;
     const TSLanguage *language;
     TSQuery *query;
-    oket_token *caps; /* one style token per capture id, interned once */
+    lues_token *caps; /* one style token per capture id, interned once */
     uint32_t ncaps;
     int tried; /* a failed load is not retried every frame */
 } loaded;
@@ -183,7 +183,7 @@ static const TSLanguage *grammar_entry(void *lib, const char *name) {
 /* The capture names ARE the style vocabulary, and they are interned rather than mapped here:
  * the kernel hands back an id per name and the theme decides what `function.builtin` looks
  * like. This plugin never names a colour. */
-static void intern_captures(const oket_api *api, oket_self self, loaded *l) {
+static void intern_captures(const lues_api *api, lues_self self, loaded *l) {
     uint32_t i;
 
     l->ncaps = ts_query_capture_count(l->query);
@@ -201,7 +201,7 @@ static void intern_captures(const oket_api *api, oket_self self, loaded *l) {
 
 /* Loaded on demand and kept. A grammar with no query parses and does not colour, which is what
  * a grammar shipped without highlights.scm gets. */
-static loaded *grammar_load(const oket_api *api, oket_self self, const char *name) {
+static loaded *grammar_load(const lues_api *api, lues_self self, const char *name) {
     const char *dir = grammars_dir();
     char path[PATH_MAX_];
     char *src;
@@ -276,7 +276,7 @@ typedef struct {
     uint32_t n; /* emitted this slice, which is what bounds one frame */
     struct {
         uint32_t end;
-        oket_token tok;
+        lues_token tok;
     } open[64];
     uint32_t depth;
     uint32_t at; /* the byte everything before is already emitted */
@@ -285,7 +285,7 @@ typedef struct {
 /* --- one document --- */
 
 typedef struct {
-    oket_doc doc;
+    lues_doc doc;
     int live;
     char lang[64]; /* what its extension selects, installed or not */
     loaded *l;
@@ -298,7 +298,7 @@ typedef struct {
     painter paint;
     /* The read callback runs inside ts_parser_parse and gets only a payload, so the snapshot
      * it reads travels here for the length of the call. */
-    const oket_snapshot *snap;
+    const lues_snapshot *snap;
     struct timespec deadline;
     uint64_t stamp; /* when it was last told about, for the eviction below */
 } tracked;
@@ -356,7 +356,7 @@ void grammar_forget(void) {
 /* The slot for `doc`, else the one told about least recently. A close never reaches this
  * plugin — the kernel prunes its own watch table — so a document that stops being told about
  * ages out, and one evicted early is reparsed from cold if it comes back. */
-static tracked *doc_slot(oket_doc doc) {
+static tracked *doc_slot(lues_doc doc) {
     tracked *pick = &docs[0];
     int i;
 
@@ -412,13 +412,13 @@ static bool out_of_time(TSParseState *state) {
 
 /* --- painting --- */
 
-static void emit(painter *p, uint32_t lo, uint32_t hi, oket_token tok) {
+static void emit(painter *p, uint32_t lo, uint32_t hi, lues_token tok) {
     if (lo >= hi) {
         return;
     }
     /* A colour and nothing else: no claim on the background, and none on the attributes a
      * linter above may want to put on the same bytes. */
-    oket_spans_add(&p->out, lo, hi, tok, 0, OKET_SET_FG);
+    oket_spans_add(&p->out, lo, hi, tok, 0, LUES_CHAN_FG);
     p->n++;
 }
 
@@ -433,7 +433,7 @@ static void close_to(painter *p, uint32_t to) {
     }
 }
 
-static void push(painter *p, uint32_t lo, uint32_t hi, oket_token tok) {
+static void push(painter *p, uint32_t lo, uint32_t hi, lues_token tok) {
     close_to(p, lo);
     if (p->depth > 0 && p->open[p->depth - 1].end == hi && p->at == lo) {
         return; /* the same range, already claimed by an earlier pattern */
@@ -466,7 +466,7 @@ static void push(painter *p, uint32_t lo, uint32_t hi, oket_token tok) {
  *
  * The last slice runs to the END rather than to its frontier, so a document that shrank leaves
  * no runs behind past what it now has. */
-static int paint_slice(const oket_api *api, oket_self self, tracked *d, uint64_t gen) {
+static int paint_slice(const lues_api *api, lues_self self, tracked *d, uint64_t gen) {
     painter *p = &d->paint;
     TSQueryMatch match;
     uint32_t index = 0, from = p->at;
@@ -518,7 +518,7 @@ static void paint_start(tracked *d) {
  * text, and a watcher carries a generation rather than a delta; feeding it an unedited tree
  * would parse against ranges that have moved. A full re-parse under a per-frame budget is
  * correct and bounded, and the incremental path opens if applied edits ever cross the seam. */
-static int reparse(const oket_api *api, oket_self self, tracked *d, const oket_snapshot *snap) {
+static int reparse(const lues_api *api, lues_self self, tracked *d, const lues_snapshot *snap) {
     TSParseOptions opts;
     TSInput input;
     TSTree *tree;
@@ -580,14 +580,14 @@ static int reparse(const oket_api *api, oket_self self, tracked *d, const oket_s
 /* Every open document, whenever this plugin has not seen it at the generation it is at now.
  * That is the open notice and the moved notice in one message (§9), and the return is the
  * latch: non-zero means the parse is unfinished and the kernel calls again next frame. */
-static int32_t on_moved(const oket_api *api, oket_self self, const oket_at *at, oket_event ev,
+static int32_t on_moved(const lues_api *api, lues_self self, const lues_at *at, lues_event ev,
                         const char *text, size_t len) {
     tracked *d;
     const oket_descriptor *desc;
 
     (void)text;
     (void)len;
-    if (ev != OKET_EVENT_MOVED || !at->snap) {
+    if (ev != LUES_EVENT_MOVED || !at->snap) {
         return 0;
     }
     /* A grammar list with a build out. The latch is the only thing that keeps frames coming
@@ -595,7 +595,7 @@ static int32_t on_moved(const oket_api *api, oket_self self, const oket_at *at, 
     if (grammars_tick(api, self, at)) {
         return 1;
     }
-    desc = at->snap->desc;
+    desc = oket_side_of(at->snap)->desc;
     if (!desc || !desc->file || desc->file_len == 0) {
         return 0; /* a terminal, a listing, the command line: nothing with a language */
     }
@@ -618,7 +618,7 @@ static int32_t on_moved(const oket_api *api, oket_self self, const oket_at *at, 
 /* Re-registering REPLACES the handler and forgets its record, so every document is unseen again
  * next frame. Cheap where it lands: a document already painted has no cursor left, so its extra
  * `moved` is one call that answers zero. */
-void grammar_relatch(const oket_api *api, oket_self self) {
+void grammar_relatch(const lues_api *api, lues_self self) {
     api->register_watch(api, self, on_moved);
 }
 
@@ -643,7 +643,7 @@ static int word_is(const char *s, size_t len, const char *name) {
     return strlen(name) == len && memcmp(s, name, len) == 0;
 }
 
-static int cmd_dir(const oket_api *api, oket_self self, const char *name, size_t nlen) {
+static int cmd_dir(const lues_api *api, lues_self self, const char *name, size_t nlen) {
     char msg[PATH_MAX_ + 32];
 
     if (nlen && nlen < sizeof dir_override) {
@@ -657,7 +657,7 @@ static int cmd_dir(const oket_api *api, oket_self self, const char *name, size_t
     return 0;
 }
 
-static int cmd_status(const oket_api *api, oket_self self) {
+static int cmd_status(const lues_api *api, lues_self self) {
     char msg[256];
     int i, n = 0;
 
@@ -680,7 +680,7 @@ static int cmd_status(const oket_api *api, oket_self self) {
  *
  * A build is not something the kernel can see: no generation moved, so nothing would tell this
  * plugin to look again. grammar_relatch is that ask. */
-static int cmd_ready(const oket_api *api, oket_self self, const char *name, size_t nlen) {
+static int cmd_ready(const lues_api *api, lues_self self, const char *name, size_t nlen) {
     char lang[64], msg[128];
     int installed;
 
@@ -706,7 +706,7 @@ static int cmd_ready(const oket_api *api, oket_self self, const char *name, size
     return installed ? 0 : 1;
 }
 
-static int32_t grammar_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t grammar_cmd(const lues_api *api, lues_self self, const lues_at *at,
                            const char *args, size_t args_len) {
     size_t vlen = 0, nlen = 0;
     size_t vat = word(args, args_len, 0, &vlen);
@@ -727,7 +727,7 @@ static int32_t grammar_cmd(const oket_api *api, oket_self self, const oket_at *a
     return 1;
 }
 
-OKET_MAIN {
+LUES_MAIN {
     api->register_watch(api, self, on_moved);
     api->register_command(api, self, "grammar", 7,
                           "syntax: status | ready <lang> | dir <path>", 42, grammar_cmd);

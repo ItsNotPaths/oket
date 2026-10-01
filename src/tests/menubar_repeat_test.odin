@@ -1,5 +1,6 @@
 package tests
 
+import "core:sync"
 import "core:testing"
 import sdl "vendor:sdl3"
 import "../input"
@@ -52,6 +53,7 @@ holding_arrow_does_not_jump_on_release :: proc(t: ^testing.T) {
 // drops itself, so the batch moves nothing.
 @(test)
 repeats_queued_before_the_up_move_nothing :: proc(t: ^testing.T) {
+    sync.guard(&sdl_lock)
     // Headless CI: skip the queue path when SDL cannot start.
     inited := sdl.Init({.VIDEO})
     if !inited {
@@ -121,6 +123,7 @@ repeats_queued_before_the_up_move_nothing :: proc(t: ^testing.T) {
 // A repeat with no up behind it is a live hold: it moves.
 @(test)
 live_repeats_still_move :: proc(t: ^testing.T) {
+    sync.guard(&sdl_lock)
     inited := sdl.Init({.VIDEO})
     if !inited {
         inited = sdl.Init({})

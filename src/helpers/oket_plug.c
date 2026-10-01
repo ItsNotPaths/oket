@@ -1,4 +1,4 @@
-/* What every plugin writes first: one-liners over `oket_api`, `oket_at` and malloc that a
+/* What every plugin writes first: one-liners over `lues_api`, `lues_at` and malloc that a
  * plugin would otherwise carry a private copy of. */
 #include <stdio.h>
 #include <stdlib.h>
@@ -6,11 +6,11 @@
 
 #include "oket_helpers.h"
 
-void oket_say(const oket_api *api, oket_self self, const char *text) {
+void oket_say(const lues_api *api, lues_self self, const char *text) {
     api->message(api, self, text, strlen(text));
 }
 
-int oket_mine(const oket_at *at) {
+int oket_mine(const lues_at *at) {
     return at->inst != NULL && at->snap != NULL;
 }
 

@@ -130,50 +130,55 @@ void oket_build_free(oket_build *b) {
 
 /* --- writing (§6) --- */
 
-void oket_replace(const oket_api *api, oket_self self, oket_doc doc,
+void oket_replace(const lues_api *api, lues_self self, lues_doc doc,
                   size_t lo, size_t hi, const char *text, size_t len) {
-    const oket_snapshot *s = api->snapshot(api, self, doc);
-    oket_edit e;
+    const lues_snapshot *s = api->snapshot(api, self, doc);
+    lues_edit e;
 
     if (s == NULL) {
         return;
     }
     memset(&e, 0, sizeof e);
+    e.size = sizeof e;
     e.lo = lo;
     e.hi = hi;
     e.text = text;
     e.text_len = len;
-    api->submit(api, self, doc, s->gen, &e, 1, NULL, NULL, 0);
+    api->submit(api, self, doc, s->gen, &e, 1, NULL, 0);
     api->release(api, self, s);
 }
 
-static void set(const oket_api *api, oket_self self, oket_doc doc,
+static void set(const lues_api *api, lues_self self, lues_doc doc,
                 const char *text, size_t len, const oket_descriptor *d, uint32_t flags);
 
-void oket_set(const oket_api *api, oket_self self, oket_doc doc,
+void oket_set(const lues_api *api, lues_self self, lues_doc doc,
               const char *text, size_t len, const oket_descriptor *d) {
     set(api, self, doc, text, len, d, 0);
 }
 
-void oket_regen(const oket_api *api, oket_self self, oket_doc doc,
+void oket_regen(const lues_api *api, lues_self self, lues_doc doc,
                 const char *text, size_t len, const oket_descriptor *d) {
-    set(api, self, doc, text, len, d, OKET_SUBMIT_REGEN);
+    set(api, self, doc, text, len, d, LUES_SUBMIT_FORGET);
 }
 
-static void set(const oket_api *api, oket_self self, oket_doc doc,
+static void set(const lues_api *api, lues_self self, lues_doc doc,
                 const char *text, size_t len, const oket_descriptor *d, uint32_t flags) {
-    const oket_snapshot *s = api->snapshot(api, self, doc);
-    oket_edit e;
+    const lues_snapshot *s = api->snapshot(api, self, doc);
+    lues_edit e;
 
     if (s == NULL) {
         return;
     }
     memset(&e, 0, sizeof e);
+    e.size = sizeof e;
     e.lo = 0;
     e.hi = s->size;
     e.text = text;
     e.text_len = len;
-    api->submit(api, self, doc, s->gen, &e, 1, d, NULL, flags);
+    if (d != NULL) {
+        oket(api)->describe(api, self, doc, d);
+    }
+    api->submit(api, self, doc, s->gen, &e, 1, NULL, flags);
     api->release(api, self, s);
 }
 
@@ -185,7 +190,7 @@ void oket_batch_edit(oket_batch *b, size_t lo, size_t hi, const char *text, size
 
 void oket_batch_edit_for(oket_batch *b, uint32_t cur, size_t lo, size_t hi,
                          const char *text, size_t len) {
-    oket_edit *e;
+    lues_edit *e;
     char *own = NULL;
 
     if (!grow(&b->oom, (void **)&b->edits, &b->cap, b->n + 1, sizeof *b->edits)) {
@@ -203,19 +208,20 @@ void oket_batch_edit_for(oket_batch *b, uint32_t cur, size_t lo, size_t hi,
     }
     e = &b->edits[b->n++];
     memset(e, 0, sizeof *e);
+    e->size = sizeof *e;
     e->lo = lo;
     e->hi = hi;
     e->text = own;
     e->text_len = len;
-    e->id = cur;
+    e->tag = cur;
 }
 
-int oket_batch_submit(const oket_api *api, oket_self self, oket_doc doc, uint64_t gen,
+int oket_batch_submit(const lues_api *api, lues_self self, lues_doc doc, uint64_t gen,
                       oket_batch *b) {
     if (b->oom || b->n == 0) {
         return 0;
     }
-    api->submit(api, self, doc, gen, b->edits, b->n, NULL, NULL, 0);
+    api->submit(api, self, doc, gen, b->edits, b->n, NULL, 0);
     return 1;
 }
 
@@ -231,15 +237,16 @@ void oket_batch_free(oket_batch *b) {
 
 /* --- publishing spans (§9) --- */
 
-void oket_spans_add(oket_spans *b, size_t lo, size_t hi, oket_token tok, uint8_t attrs,
+void oket_spans_add(oket_spans *b, size_t lo, size_t hi, lues_token tok, uint8_t attrs,
                     uint8_t set) {
-    oket_span *sp;
+    lues_span *sp;
 
     if (hi <= lo || !grow(&b->oom, (void **)&b->spans, &b->cap, b->n + 1, sizeof *b->spans)) {
         return;
     }
     sp = &b->spans[b->n++];
     memset(sp, 0, sizeof *sp);
+    sp->size = sizeof *sp;
     sp->lo = lo;
     sp->hi = hi;
     sp->tok = tok;
@@ -247,21 +254,22 @@ void oket_spans_add(oket_spans *b, size_t lo, size_t hi, oket_token tok, uint8_t
     sp->set = set;
 }
 
-int oket_spans_publish(const oket_api *api, oket_self self, oket_doc doc, uint64_t gen,
+int oket_spans_publish(const lues_api *api, lues_self self, lues_doc doc, uint64_t gen,
                        size_t lo, size_t hi, oket_spans *b) {
-    oket_span_pub pub;
+    lues_span_pub pub;
 
     if (b->oom) {
         return 0;
     }
     memset(&pub, 0, sizeof pub);
+    pub.size = sizeof pub;
     pub.lo = lo;
     pub.hi = hi;
     pub.spans = b->spans;
     pub.nspans = b->n;
     /* An EMPTY list still goes: a range-scoped replace with nothing in it is how a publisher
      * says "no colours here any more", and refusing it would leave the last parse's on screen. */
-    api->submit(api, self, doc, gen, NULL, 0, NULL, &pub, 0);
+    api->submit(api, self, doc, gen, NULL, 0, &pub, 0);
     return 1;
 }
 

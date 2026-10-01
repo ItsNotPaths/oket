@@ -86,7 +86,7 @@ session_restore :: proc(a: ^App) -> bool {
 // axis it is on (§4).
 @(private = "file")
 session_line :: proc(a: ^App, b: ^strings.Builder, id: store.Id, slot, panel: int) {
-    d := store.store_descriptor(&a.docs, id)
+    d := store.store_descriptor(a.docs, id)
     if d == nil {
         return
     }

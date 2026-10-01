@@ -1,5 +1,7 @@
 package main
 
+import "lues:pt"
+import "lues:docs"
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
@@ -438,7 +440,7 @@ builtin_sel :: proc(a: ^App, _: string, _: CL_Step) -> bool {
         message_set(a, ":sel: nothing is focused")
         return false
     }
-    doc := store.store_doc(&a.docs, s.doc)
+    doc := store.store_doc(a.docs, s.doc)
     if doc == nil {
         return false
     }
@@ -467,13 +469,13 @@ builtin_put :: proc(a: ^App, _: string, step: CL_Step) -> bool {
         message_set(a, ":put: nothing is focused")
         return false
     }
-    d := store.store_descriptor(&a.docs, s.doc)
+    d := store.store_descriptor(a.docs, s.doc)
     defer desc.release(d)
     if d == nil || !d.editable || s.locked {
         message_set(a, ":put: this document does not take typing")
         return false
     }
-    doc := store.store_doc(&a.docs, s.doc)
+    doc := store.store_doc(a.docs, s.doc)
     txt.doc_insert_text(doc, a.chain.feed) // one edit per cursor, replacing its range
     s.view.point = doc.cursors[doc.primary]
     return true
@@ -540,7 +542,7 @@ get_value :: proc(a: ^App, what: string) -> (string, bool) {
         fmt.sbprintf(&b, "%s\n", a.message)
     case "lines":
         if doc := focused_doc(a); doc != nil {
-            fmt.sbprintf(&b, "%d\n", txt.text_line_count(&doc.pt))
+            fmt.sbprintf(&b, "%d\n", pt.text_line_count(&doc.table))
         }
     case "text":
         if doc := focused_doc(a); doc != nil {
@@ -561,7 +563,7 @@ USAGE_GET :: ":get panel|panels|slot|slots|kind|file|message|lines|text|desc|spa
 @(private = "file")
 focused_doc :: proc(a: ^App) -> ^txt.Doc {
     s := ring_focused(a)
-    return s == nil ? nil : store.store_doc(&a.docs, s.doc)
+    return s == nil ? nil : store.store_doc(a.docs, s.doc)
 }
 
 // The descriptor, one field one line. Everything the kernel routes and renders by, which is
@@ -572,7 +574,7 @@ get_desc :: proc(a: ^App, b: ^strings.Builder) {
     if s == nil {
         return
     }
-    d := store.store_descriptor(&a.docs, s.doc)
+    d := store.store_descriptor(a.docs, s.doc)
     if d == nil {
         return
     }
@@ -596,14 +598,14 @@ get_desc :: proc(a: ^App, b: ^strings.Builder) {
 
 // One run's three channels, in the order `Chan` declares them.
 @(private = "file")
-span_chan :: proc(sp: store.Span, chan: desc.Chan) -> string {
+span_chan :: proc(sp: store.Span, chan: docs.Chan) -> string {
     switch chan {
     case .Fg:
         return fmt.tprintf("%d", sp.fg)
     case .Bg:
         return fmt.tprintf("%d", sp.bg)
     case .Attrs:
-        return span_attrs(sp.attrs)
+        return span_attrs(transmute(shape.Attrs)sp.attrs)
     }
     return ""
 }
@@ -627,13 +629,13 @@ get_spans :: proc(a: ^App, b: ^strings.Builder) {
     if s == nil || doc == nil {
         return
     }
-    for _, i in a.producers {
+    for _, i in a.kernel.producers {
         who := store.Producer(i)
-        for sp in store.store_spans(&a.docs, s.doc, 0, txt.doc_len(doc), []store.Producer{who}) {
+        for sp in store.store_spans(a.docs, s.doc, 0, txt.doc_len(doc), []store.Producer{who}) {
             fmt.sbprintf(b, "%s %d %d", producer_name(a, who), sp.lo, sp.hi)
             // A channel the run has no opinion about is `-` and not a zero: what is under it
-            // shows through, and a 0 there would read as a token id (store/spans.odin).
-            for chan in desc.Chan {
+            // shows through, and a 0 there would read as a token id (lues docs/spans.odin).
+            for chan in docs.Chan {
                 fmt.sbprintf(b, " %s", chan not_in sp.set ? "-" : span_chan(sp, chan))
             }
             strings.write_byte(b, '\n')
@@ -762,21 +764,20 @@ USAGE_PLUG :: ":plug [load|unload|reload] <name>"
 @(private = "file")
 plug_list :: proc(a: ^App) -> bool {
     n := 0
-    for p in a.plugs {
-        if !p.live {
+    for p, i in a.kernel.plugs {
+        if p.state != .Live {
             continue
         }
         kinds, cmds := 0, 0
         for r in p.ledger {
-            switch r.what {
+            #partial switch r.what {
             case .Kind:
                 kinds += 1
             case .Command:
                 cmds += 1
-            case .Bind, .Watch, .View, .Config:
             }
         }
-        stage := p.viewer != nil ? ", a view stage" : ""
+        stage := ", a view stage" if i in a.viewers else ""
         sys_println(a, fmt.tprintf("%s  %d kind(s), %d command(s)%s  %s", p.name, kinds, cmds,
                                    stage, p.path))
         n += 1

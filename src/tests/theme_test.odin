@@ -22,7 +22,7 @@ hex :: proc(n: u32) -> [3]f32 {
 theme_home :: proc(t: ^testing.T, name: string) -> (a: app.App, dir: string, ok: bool) {
     dir = scratch(t, name) or_return
     a = bare_app() or_return
-    app.home_set(&a.home, dir)
+    app.app_home(&a, dir)
     themes, _ := filepath.join({dir, "themes"}, context.temp_allocator)
     os.make_directory(themes)
     return a, dir, true
@@ -44,7 +44,6 @@ the_shipped_theme_reads_and_retints :: proc(t: ^testing.T) {
         return
     }
     defer os.remove_all(dir)
-    defer app.home_destroy(&a.home)
     defer close_app(&a)
 
     raw, err := os.read_entire_file("themes/gruvbox.toml", context.temp_allocator)
@@ -74,7 +73,6 @@ a_missing_theme_is_a_message_and_the_baked_five :: proc(t: ^testing.T) {
         return
     }
     defer os.remove_all(dir)
-    defer app.home_destroy(&a.home)
     defer close_app(&a)
 
     app.theme_sync(&a)
@@ -96,7 +94,6 @@ inherits_merges_parent_rows_and_palettes :: proc(t: ^testing.T) {
         return
     }
     defer os.remove_all(dir)
-    defer app.home_destroy(&a.home)
     defer close_app(&a)
 
     theme_write(dir, "parent", `
@@ -130,7 +127,6 @@ a_switch_back_restores_the_baked_palette :: proc(t: ^testing.T) {
         return
     }
     defer os.remove_all(dir)
-    defer app.home_destroy(&a.home)
     defer close_app(&a)
 
     theme_write(dir, "loud", `
@@ -160,7 +156,6 @@ a_table_header_spells_the_same_scope :: proc(t: ^testing.T) {
         return
     }
     defer os.remove_all(dir)
-    defer app.home_destroy(&a.home)
     defer close_app(&a)
 
     theme_write(dir, "nested", `
@@ -180,7 +175,6 @@ an_unparseable_theme_is_a_message_and_the_baked_five :: proc(t: ^testing.T) {
         return
     }
     defer os.remove_all(dir)
-    defer app.home_destroy(&a.home)
     defer close_app(&a)
 
     theme_write(dir, "broke", "[unclosed\n")
@@ -199,7 +193,6 @@ a_partial_theme_keeps_the_shipped_fallback :: proc(t: ^testing.T) {
         return
     }
     defer os.remove_all(dir)
-    defer app.home_destroy(&a.home)
     defer close_app(&a)
 
     theme_write(dir, "tiny", `

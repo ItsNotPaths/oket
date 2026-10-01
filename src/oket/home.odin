@@ -1,5 +1,6 @@
 package main
 
+import "lues:lues"
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
@@ -36,7 +37,7 @@ NOTES_BAKED :: string(#load("../../notes.md"))
 NOTES_LINES :: 8
 
 home_open :: proc(a: ^App) -> store.Id {
-    id := store.store_open(&a.docs)
+    id := store.store_open(a.docs)
     home_fill(a, id)
     return id
 }
@@ -45,7 +46,7 @@ home_open :: proc(a: ^App) -> store.Id {
 // table, so a recover, a `:plug load` or an edit to binds.conf has to be visible without
 // closing the page that offered it.
 home_refresh :: proc(a: ^App) {
-    for id in store.store_ids(&a.docs) {
+    for id in store.store_ids(a.docs) {
         if doc_kind(a, id) == KIND_HOME {
             home_fill(a, id)
         }
@@ -56,7 +57,7 @@ home_refresh :: proc(a: ^App) {
 // start that restored a session instead, where the news would otherwise never be seen.
 home_news :: proc(a: ^App) -> bool {
     return len(recover_scan(a)) > 0 ||
-           len(a.quarantined) > 0 ||
+           len(a.kernel.quarantined) > 0 ||
            len(binds_unmet(a, context.temp_allocator)) > 0 ||
            len(a.gripes) > 0
 }
@@ -78,7 +79,7 @@ HOME_VERBS := [?]struct {
 
 home_enter :: proc(a: ^App) -> bool {
     s := active(a)
-    d := s != nil ? store.store_descriptor(&a.docs, s.doc) : nil
+    d := s != nil ? store.store_descriptor(a.docs, s.doc) : nil
     if d == nil {
         message_set(a, ":home enter: nothing is focused")
         return false
@@ -177,9 +178,9 @@ home_fill :: proc(a: ^App, id: store.Id) {
     // `plug` is named for the same reason `size` is named in a tree the browser never draws it
     // in: no kernel row reads it, and a `[home] delete = exec :plug load <plug>` in binds.conf
     // would, without this file learning a second verb.
-    if len(a.quarantined) > 0 {
+    if len(a.kernel.quarantined) > 0 {
         head(&p, "plugins that took a start down, and are not loaded:")
-        for name in a.quarantined {
+        for name in a.kernel.quarantined {
             row(&p, "plug", name, "")
         }
         say(&p, "  (:plug load <name> takes one again, once it is fixed)")
@@ -197,7 +198,7 @@ home_fill :: proc(a: ^App, id: store.Id) {
     say(&p, "alt+space the menu   alt+f files   alt+t term   " +
              "alt+c command line   f1 describes a chord")
 
-    doc := store.store_doc(&a.docs, id)
+    doc := store.store_doc(a.docs, id)
     if doc == nil {
         return
     }
@@ -212,9 +213,9 @@ home_fill :: proc(a: ^App, id: store.Id) {
         },
     )
     whole := txt.Edit{0, txt.doc_len(doc), strings.to_string(p.text), 0, 0}
-    store.store_submit(&a.docs, id, gen, {whole}, d)
+    store.store_submit(a.docs, id, gen, {whole}, d)
     desc.release(d)
-    store.store_drain(&a.docs)
+    lues.kernel_settle(a.kernel)
 }
 
 // The three ways a chord goes wrong, and each is a different fix, so each is its own list.

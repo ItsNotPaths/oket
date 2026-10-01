@@ -1,5 +1,7 @@
 package tests
 
+import "lues:lues"
+import "lues:pt"
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
@@ -56,7 +58,6 @@ views_app :: proc(
             return {}, "", false
         }
     }
-    app.plug_init(&a)
     app.config_sync(&a)
     for plugin in ([?]string{"edit", "fold", "example"}) {
         if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, plugin)), a.message) {
@@ -88,11 +89,11 @@ drawn :: proc(a: ^app.App, id: store.Id) -> string {
         return doc_text(a, id) // no stage had anything to say, so it is the document itself
     }
     b := strings.builder_make(context.temp_allocator)
-    for line in 0 ..< txt.text_line_count(t) {
+    for line in 0 ..< pt.text_line_count(t) {
         if line > 0 {
             strings.write_byte(&b, '\n')
         }
-        strings.write_bytes(&b, txt.text_line(t, line, context.temp_allocator))
+        strings.write_bytes(&b, pt.text_line(t, line, context.temp_allocator))
     }
     return strings.to_string(b)
 }
@@ -276,7 +277,7 @@ what_a_stage_inserted_is_not_in_the_document :: proc(t: ^testing.T) {
     }
     // The first byte of the box, mapped back: no original byte stands for it, and the answer is
     // where the original resumes — the end of the line the box was hung under.
-    box := txt.text_line_start(tx, 6)
+    box := pt.text_line_start(tx, 6)
     src, on := view.src_off(dv, box)
     testing.expect(t, !on, "a byte the stage inserted claimed to be in the document")
     testing.expect_value(t, src, len(WORDS) - 1)
@@ -354,19 +355,18 @@ sliced_app :: proc(t: ^testing.T, name: string) -> (a: app.App, id: store.Id, ok
         close_plug_app(&a)
         return {}, {}, false
     }
-    app.plug_init(&a)
     app.config_sync(&a)
-    if !testing.expect(t, app.fault_install(), "the fault net did not install") ||
+    if !testing.expect(t, lues.fault_ready(), "the fault net did not install") ||
        !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "boom")), a.message) {
         close_plug_app(&a)
         return {}, {}, false
     }
-    id = store.store_open(&a.docs, "alpha\n")
-    gen, _ := store.store_gen(&a.docs, id)
+    id = store.store_open(a.docs, "alpha\n")
+    gen, _ := store.store_gen(a.docs, id)
     d := desc.new_from({kind = app.KIND_HOME, ctx = .Text, editable = true, tab_width = 4})
-    store.store_submit(&a.docs, id, gen, nil, d)
+    store.store_submit(a.docs, id, gen, nil, d)
     desc.release(d)
-    store.store_drain(&a.docs)
+    store.store_drain(a.docs)
     app.ring_add(&a, id)
     app.surface_draw(&a)
     return a, id, true
@@ -496,9 +496,11 @@ both_stages_get_the_chords_they_asked_for :: proc(t: ^testing.T) {
     // SHADOWS a wider row is worse, because it goes in live and quietly takes that key away
     // inside text documents. The editor's three shadows are deliberate — it is replacing those
     // verbs for its own kind — and a fold or a popup has no business replacing anything.
-    for c in a.clashes {
-        testing.expectf(t, c.owner != "fold" && c.owner != "example",
-                        "%s asked for %s, which is already %s", c.owner, c.chord, c.held)
+    for owner in ([?]string{"fold", "example"}) {
+        _, _, block := strings.partition(rows, lues.owner_marker(owner))
+        block, _, _ = strings.partition(block, "\n# --- ")
+        testing.expectf(t, !strings.contains(block, "# shadows") && !strings.contains(block, "taken by"),
+                        "%s asked for a chord that is already bound:%s", owner, block)
     }
 }
 

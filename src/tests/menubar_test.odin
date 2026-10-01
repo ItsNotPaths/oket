@@ -1,5 +1,6 @@
 package tests
 
+import "lues:lues"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
@@ -19,16 +20,16 @@ import app "../oket"
 @(private = "file")
 fixture :: proc(t: ^testing.T) -> (a: app.App, ok: bool) {
     a = bare_app() or_return
+    // Rows in lues's tables with no .so behind them; `close` takes them out again before the
+    // kernel goes, which would otherwise unload them.
     for name in ([?]string{"alpha", "beta"}) {
-        append(&a.plugs, app.Plugin{name = strings.clone(name), live = true})
+        append(&a.kernel.plugs, lues.Plugin{name = name, state = .Live})
     }
-    append(&a.cmds, app.Plug_Cmd{name = strings.clone("alpha.grep"),
-                                 doc = strings.clone("search the tree"), owner = 0})
-    append(&a.cmds, app.Plug_Cmd{name = strings.clone("beta.tail"),
-                                 doc = strings.clone("follow a file"), owner = 1})
+    append(&a.kernel.cmds, lues.Plug_Cmd{name = "alpha.grep", doc = "search the tree", owner = 0})
+    append(&a.kernel.cmds, lues.Plug_Cmd{name = "beta.tail", doc = "follow a file", owner = 1})
 
-    app.binds_request(&a, "alpha", "global", "ctrl+@AB05 ctrl+@AC01", "exec :ls")
-    app.binds_request(&a, "beta", "global", "ctrl+@AB05 ctrl+@AC04", "exec :ring")
+    lues.bind_request(a.kernel, "alpha", "global", "ctrl+@AB05 ctrl+@AC01", "exec :ls")
+    lues.bind_request(a.kernel, "beta", "global", "ctrl+@AB05 ctrl+@AC04", "exec :ring")
     app.binds_parse(&a, "[global]\nctrl+@AB05 ctrl+@AC01 = exec :ls\n" +
                         "ctrl+@AB05 ctrl+@AC04 = exec :ring\n" +
                         "ctrl+@AB05 ctrl+@AC02 = exec :sel\n", "binds.conf")
@@ -37,16 +38,9 @@ fixture :: proc(t: ^testing.T) -> (a: app.App, ok: bool) {
 
 @(private = "file")
 close :: proc(a: ^app.App) {
-    for p in a.plugs {
-        delete(p.name)
-    }
-    delete(a.plugs)
-    for c in a.cmds {
-        delete(c.name)
-        delete(c.doc)
-    }
-    delete(a.cmds)
-    app.home_destroy(&a.home)
+    delete(a.kernel.plugs)
+    delete(a.kernel.cmds)
+    a.kernel.plugs, a.kernel.cmds = nil, nil
     close_app(a)
 }
 
@@ -253,7 +247,7 @@ the_bar_is_the_lists_the_config_names :: proc(t: ^testing.T) {
     path, _ := filepath.join({dir, app.CONFIG_NAME}, context.temp_allocator)
     text := "[menu]\nbar = shell, file, extra\nshell = ring\n"
     testing.expect(t, os.write_entire_file(path, transmute([]u8)text) == nil)
-    app.home_set(&a.home, dir)
+    app.app_home(&a, dir)
     app.config_load(&a)
 
     b := app.menubar_build(&a)

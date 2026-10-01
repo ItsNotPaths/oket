@@ -1,5 +1,6 @@
 package view
 
+import "lues:pt"
 import "../txt"
 
 // The position map (VIEWS.md §6). A view stage is handed a document and returns EDITS against
@@ -25,12 +26,12 @@ Derived_Piece :: struct {
 }
 
 Derived :: struct {
-    src:  ^txt.Text, // the original the runs are measured against
+    src:  ^pt.Text, // the original the runs are measured against
     runs: []Derived_Piece,
 }
 
 // One stage's output (§5): bytes [lo, hi) of the stage's input become `text`. Sorted by `lo`
-// and disjoint, the rule txt.Splice already carries.
+// and disjoint, the rule pt.Splice already carries.
 Edit :: struct {
     lo, hi: int,
     text:   []u8,
@@ -42,11 +43,11 @@ Edit :: struct {
 // The result borrows `t`'s blocks and lives in `alloc`, which is the frame's: a derived document
 // is rebuilt when the generation moves, never freed run by run.
 derive :: proc(
-    t: ^txt.Text,
+    t: ^pt.Text,
     edits: []Edit,
     alloc := context.temp_allocator,
 ) -> (
-    txt.Text,
+    pt.Text,
     Derived,
 ) {
     n := 0
@@ -58,7 +59,7 @@ derive :: proc(
     copy(blocks, t.blocks)
     blocks[len(t.blocks)] = ins
 
-    pieces := make([dynamic]txt.Piece, 0, len(t.pieces) + 2 * len(edits) + 1, alloc)
+    pieces := make([dynamic]pt.Piece, 0, len(t.pieces) + 2 * len(edits) + 1, alloc)
     runs := make([dynamic]Derived_Piece, 0, 2 * len(edits) + 1, alloc)
     at, cur, used, pi := 0, 0, 0, 0
     for e in edits {
@@ -67,14 +68,14 @@ derive :: proc(
         carry(t, &pieces, &runs, &at, &pi, cur, lo)
         if len(e.text) > 0 {
             copy(ins[used:], e.text)
-            append(&pieces, txt.Piece{block = len(t.blocks), off = used, len = len(e.text)})
+            append(&pieces, pt.Piece{block = len(t.blocks), off = used, len = len(e.text)})
             append(&runs, Derived_Piece{at = at, len = len(e.text), src = hi, inserted = true})
             at, used = at + len(e.text), used + len(e.text)
         }
         cur = hi
     }
     carry(t, &pieces, &runs, &at, &pi, cur, t.size)
-    return txt.text_build(blocks, pieces[:], alloc), {t, runs[:]}
+    return pt.text_build(blocks, pieces[:], alloc), {t, runs[:]}
 }
 
 // The original's [a, b) as derived pieces, plus the one run naming where they came from. `pi`
@@ -82,8 +83,8 @@ derive :: proc(
 // go forward — O(pieces + edits), the discipline pt_splice_many already holds.
 @(private = "file")
 carry :: proc(
-    t: ^txt.Text,
-    pieces: ^[dynamic]txt.Piece,
+    t: ^pt.Text,
+    pieces: ^[dynamic]pt.Piece,
     runs: ^[dynamic]Derived_Piece,
     at, pi: ^int,
     a, b: int,
@@ -98,7 +99,7 @@ carry :: proc(
             break
         }
         if lo, hi := max(p.doc_off, a), min(p.doc_off + p.len, b); lo < hi {
-            append(pieces, txt.Piece{block = p.block, off = p.off + lo - p.doc_off, len = hi - lo})
+            append(pieces, pt.Piece{block = p.block, off = p.off + lo - p.doc_off, len = hi - lo})
         }
         if p.doc_off + p.len > b {
             break // it runs past this carry, and the next one starts inside it
@@ -183,35 +184,35 @@ view_off :: proc(dv: ^Derived, off: int) -> (int, bool) {
 
 // The same pair over positions, which is what every consumer of §6 actually holds. A nil map is
 // the identity, so no consumer branches on whether anybody derived the document.
-src_pos :: proc(dv: ^Derived, t: ^txt.Text, p: txt.Pos) -> (txt.Pos, bool) {
+src_pos :: proc(dv: ^Derived, t: ^pt.Text, p: txt.Pos) -> (txt.Pos, bool) {
     if dv == nil {
         return p, true
     }
-    o, ok := src_off(dv, txt.text_off(t, p))
-    return txt.text_pos(dv.src, o), ok
+    o, ok := src_off(dv, pt.text_off(t, p))
+    return pt.text_pos(dv.src, o), ok
 }
 
-view_pos :: proc(dv: ^Derived, t: ^txt.Text, p: txt.Pos) -> (txt.Pos, bool) {
+view_pos :: proc(dv: ^Derived, t: ^pt.Text, p: txt.Pos) -> (txt.Pos, bool) {
     if dv == nil {
         return p, true
     }
-    o, ok := view_off(dv, txt.text_off(dv.src, p))
-    return txt.text_pos(t, o), ok
+    o, ok := view_off(dv, pt.text_off(dv.src, p))
+    return pt.text_pos(t, o), ok
 }
 
 // The document being edited: the map's source, or the text itself when nobody derived it.
-original :: proc(dv: ^Derived, t: ^txt.Text) -> ^txt.Text {
+original :: proc(dv: ^Derived, t: ^pt.Text) -> ^pt.Text {
     return dv == nil ? t : dv.src
 }
 
 // The ORIGINAL line a drawn line shows, or -1 when every byte of it was inserted. The first real
 // byte decides, so an inlay at the head of a line does not cost the line its number. Identity
 // under a nil map.
-src_line :: proc(dv: ^Derived, t: ^txt.Text, line: int) -> int {
+src_line :: proc(dv: ^Derived, t: ^pt.Text, line: int) -> int {
     if dv == nil {
         return line
     }
-    lo, hi := txt.text_line_range(t, line)
+    lo, hi := pt.text_line_range(t, line)
     for i := max(run_at(dv.runs, lo), 0); i < len(dv.runs); i += 1 {
         r := dv.runs[i]
         // [lo, hi) is the line WITHOUT its newline, so a run starting at `hi` starts on the
@@ -221,7 +222,7 @@ src_line :: proc(dv: ^Derived, t: ^txt.Text, line: int) -> int {
             break
         }
         if !r.inserted {
-            return txt.text_line_at_off(dv.src, r.src + clamp(lo - r.at, 0, r.len))
+            return pt.text_line_at_off(dv.src, r.src + clamp(lo - r.at, 0, r.len))
         }
     }
     return -1
@@ -261,9 +262,9 @@ join :: proc(out: ^[dynamic]Derived_Piece, r: Derived_Piece) {
 }
 
 @(private = "file")
-cut :: proc(out: ^[dynamic]txt.Range, t: ^txt.Text, a, b: int) {
+cut :: proc(out: ^[dynamic]txt.Range, t: ^pt.Text, a, b: int) {
     if b > a {
-        append(out, txt.Range{txt.text_pos(t, a), txt.text_pos(t, b)})
+        append(out, txt.Range{pt.text_pos(t, a), pt.text_pos(t, b)})
     }
 }
 

@@ -124,7 +124,6 @@ exec_runs_a_bind_line_and_stage_aims_it :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.plug_init(&a)
     if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "files")), a.message) {
         return
     }
@@ -142,7 +141,7 @@ exec_runs_a_bind_line_and_stage_aims_it :: proc(t: ^testing.T) {
     // and a test has no window to set it from.
     app.binds_parse(&a, "[files]\nenter = stage :open <path>\n", "binds.conf")
     // Row 3 after filter: 0 filter, 1 .., 2 plugins, 3 sub
-    txt.doc_set_head(store.store_doc(&a.docs, id), {3, 0}, false)
+    txt.doc_set_head(store.store_doc(a.docs, id), {3, 0}, false)
     app.point_sync(&a)
 
     // stage: the expanded line is sitting in the command line, unrun and editable.

@@ -6,7 +6,7 @@
 static const char NAME[] = "ownplug";
 static const char DOC[] = "built by a recipe stage.sh does not know";
 
-static int32_t said(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t said(const lues_api *api, lues_self self, const lues_at *at,
                     const char *args, size_t args_len) {
     (void)at;
     (void)args;
@@ -16,7 +16,7 @@ static int32_t said(const oket_api *api, oket_self self, const oket_at *at,
     return 0;
 }
 
-extern "C" OKET_EXPORT int32_t oket_main(const oket_api *api, oket_self self) {
+extern "C" LUES_EXPORT int32_t lues_main(const lues_api *api, lues_self self) {
     api->register_command(api, self, NAME, sizeof NAME - 1, DOC, sizeof DOC - 1, said);
     return 0;
 }

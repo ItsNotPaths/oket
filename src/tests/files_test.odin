@@ -1,5 +1,6 @@
 package tests
 
+import "lues:pt"
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
@@ -36,7 +37,6 @@ NESTED :: PREFIX + 2
 @(private = "file")
 tree_app :: proc(t: ^testing.T, name: string) -> (a: app.App, root: string, ok: bool) {
     a = plug_app(t, name, "plugins/files", "plugins/edit") or_return
-    app.plug_init(&a)
     for plugin in ([?]string{"files", "edit"}) {
         if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, plugin)), a.message) {
             close_plug_app(&a)
@@ -65,19 +65,19 @@ tree_app :: proc(t: ^testing.T, name: string) -> (a: app.App, root: string, ok: 
 }
 
 @(private = "file")
-reading :: proc(a: ^app.App) -> (^txt.Snapshot, ^desc.Descriptor) {
+reading :: proc(a: ^app.App) -> (^pt.Snapshot, ^desc.Descriptor) {
     id := app.ring_focused(a).doc
-    return store.store_snapshot(&a.docs, id), store.store_descriptor(&a.docs, id)
+    return store.store_snapshot(a.docs, id), store.store_descriptor(a.docs, id)
 }
 
 @(private = "file")
 doc_of :: proc(a: ^app.App) -> ^txt.Doc {
-    return store.store_doc(&a.docs, app.ring_focused(a).doc)
+    return store.store_doc(a.docs, app.ring_focused(a).doc)
 }
 
 @(private = "file")
-line_text :: proc(s: ^txt.Snapshot, line: int, alloc := context.temp_allocator) -> string {
-    return string(txt.text_line(&s.text, line, alloc))
+line_text :: proc(s: ^pt.Snapshot, line: int, alloc := context.temp_allocator) -> string {
+    return string(pt.text_line(&s.text, line, alloc))
 }
 
 // The name one row draws, which is the only part of it anything here asserts by value: the
@@ -85,7 +85,7 @@ line_text :: proc(s: ^txt.Snapshot, line: int, alloc := context.temp_allocator) 
 @(private = "file")
 name_of :: proc(a: ^app.App, line: int) -> string {
     snap, d := reading(a)
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     defer desc.release(d)
     out, _ := view.field_text(&snap.text, d, line, "name", alloc = context.temp_allocator)
     return strings.clone(out, context.temp_allocator)
@@ -111,7 +111,7 @@ a_row_is_ls_la_with_a_link_on_the_name :: proc(t: ^testing.T) {
     defer close_plug_app(&a)
 
     snap, d := reading(&a)
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     defer desc.release(d)
 
     kind, _ := app.kind_named(&a, "files")
@@ -126,7 +126,7 @@ a_row_is_ls_la_with_a_link_on_the_name :: proc(t: ^testing.T) {
     // `..` first, whatever the directory holds and wherever it is, then the entries with
     // directories before files. A directory draws a trailing slash and its NAME does not carry
     // one: the slash is punctuation, and a caret at the end of a name lands before it.
-    testing.expect_value(t, txt.text_line_count(snap), 4)
+    testing.expect_value(t, pt.text_line_count(snap), 4)
     for want, line in ([?]string{"..", "sub", "top.txt"}) {
         testing.expect_value(t, name_of(&a, line+1), want)
     }
@@ -186,10 +186,10 @@ enter_is_a_row_and_the_chain_is_the_navigation :: proc(t: ^testing.T) {
     app.handle_chord(&a, chord("RTRN"))
 
     snap, d := reading(&a)
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     defer desc.release(d)
     testing.expect_value(t, line_text(snap, 0), "")
-    testing.expect_value(t, txt.text_line_count(snap), 3)
+    testing.expect_value(t, pt.text_line_count(snap), 3)
     testing.expect_value(t, name_of(&a, 1), "..")
     testing.expect_value(t, name_of(&a, 2), "deep.txt")
     testing.expect_value(t, d.file, fmt.tprintf("%s/sub", root))
@@ -200,10 +200,10 @@ enter_is_a_row_and_the_chain_is_the_navigation :: proc(t: ^testing.T) {
     // And back out: `ctrl+backspace` goes up a directory and lands on the row you came from.
     app.handle_chord(&a, chord("BKSP", {.Ctrl}))
     after, ad := reading(&a)
-    defer txt.snapshot_release(after)
+    defer pt.snapshot_release(after)
     defer desc.release(ad)
     testing.expect_value(t, ad.file, root)
-    testing.expect_value(t, txt.text_line_count(after), 4)
+    testing.expect_value(t, pt.text_line_count(after), 4)
     testing.expect_value(t, point(&a).head.line, 2)
     testing.expect_value(t, name_of(&a, 2), "sub")
 }
@@ -226,7 +226,7 @@ enter_over_a_file_falls_through_to_the_editor :: proc(t: ^testing.T) {
     edit, _ := app.kind_named(&a, "edit")
     testing.expect_value(t, app.doc_kind(&a, id), edit)
     testing.expect_value(t, doc_text(&a, id), "xyz")
-    d := store.store_descriptor(&a.docs, id)
+    d := store.store_descriptor(a.docs, id)
     defer desc.release(d)
     testing.expect_value(t, d.file, fmt.tprintf("%s/top.txt", root))
 }
@@ -279,7 +279,7 @@ the_side_arrows_move_the_caret_in_the_row :: proc(t: ^testing.T) {
     testing.expect_value(t, point(&a).head.line, was.line)
 
     snap, d := reading(&a)
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     defer desc.release(d)
     testing.expect_value(t, d.file, root) // the listing did not go anywhere
 
@@ -290,7 +290,7 @@ the_side_arrows_move_the_caret_in_the_row :: proc(t: ^testing.T) {
     app.handle_chord(&a, chord("RTRN")) // into `sub`
     app.handle_chord(&a, chord("BKSP", {.Ctrl}))
     after, ad := reading(&a)
-    defer txt.snapshot_release(after)
+    defer pt.snapshot_release(after)
     defer desc.release(ad)
     testing.expect_value(t, ad.file, root)
     testing.expect_value(t, point(&a).head.line, 2)
@@ -343,7 +343,7 @@ hover_underlines_the_link_it_would_follow :: proc(t: ^testing.T) {
     app.hover_update(&a, 0, PREFIX + 2, 2) // inside the name
     testing.expect(t, app.panel_focused(&a).hover.on, "the name a bound click acts on is not underlined")
     snap, d := reading(&a)
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     defer desc.release(d)
     lo, hi, _ := desc.field_span(d, 2, "path")
     testing.expect_value(t, app.panel_focused(&a).hover.lo, lo)
@@ -386,7 +386,7 @@ a_value_that_is_not_what_it_draws :: proc(t: ^testing.T) {
     defer close_plug_app(&a)
 
     snap, d := reading(&a)
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     defer desc.release(d)
     name, hi, _ := desc.field_span(d, 3, "name")
     path_lo, path_hi, _ := desc.field_span(d, 3, "path")
@@ -442,7 +442,7 @@ typing_renames_and_the_link_still_names_the_file :: proc(t: ^testing.T) {
     app.point_sync(&a)
     app.text_input(&a, 'z')
     snap, d := reading(&a)
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     defer desc.release(d)
     testing.expect_value(t, name_of(&a, 3), "ztop.txt_v2")
     testing.expect(t, strings.has_prefix(line_text(snap, 3), "-rw-"), line_text(snap, 3))
@@ -475,7 +475,7 @@ commit_renames_every_row_that_was_typed_over :: proc(t: ^testing.T) {
 
     // And the listing came back from the platter, so the link names what the file is called now.
     snap, d := reading(&a)
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     defer desc.release(d)
     path, _ := view.field_text(&snap.text, d, 3, "path")
     testing.expect_value(t, path, fmt.tprintf("%s/top.txt_v2", root))
@@ -529,9 +529,9 @@ backspace_stops_at_the_head_of_the_name :: proc(t: ^testing.T) {
         app.handle_chord(&a, chord("BKSP"))
     }
     snap, d := reading(&a)
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     defer desc.release(d)
-    testing.expect_value(t, txt.text_line_count(snap), 4) // no row was joined to the one above
+    testing.expect_value(t, pt.text_line_count(snap), 4) // no row was joined to the one above
     testing.expect_value(t, name_of(&a, 3), "")
     testing.expect(t, strings.has_prefix(line_text(snap, 3), "-rw-"), line_text(snap, 3))
     testing.expect_value(t, len(line_text(snap, 3)), PREFIX) // the prefix, and nothing after it
@@ -555,10 +555,10 @@ the_filter_hides_rows_and_keeps_the_way_out :: proc(t: ^testing.T) {
     }
     {
         snap, d := reading(&a)
-        defer txt.snapshot_release(snap)
+        defer pt.snapshot_release(snap)
         defer desc.release(d)
         testing.expect_value(t, line_text(snap, 0), "/top")
-        testing.expect_value(t, txt.text_line_count(snap), 3) // filter + `..` and the match
+        testing.expect_value(t, pt.text_line_count(snap), 3) // filter + `..` and the match
     }
     testing.expect_value(t, name_of(&a, 1), "..")
     testing.expect_value(t, name_of(&a, 2), "top.txt") // the runes went to the filter
@@ -566,10 +566,10 @@ the_filter_hides_rows_and_keeps_the_way_out :: proc(t: ^testing.T) {
 
     app.handle_chord(&a, chord("ESC")) // clears the filter; shadowed, so it does not quit
     snap, d := reading(&a)
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     defer desc.release(d)
     testing.expect_value(t, line_text(snap, 0), "")
-    testing.expect_value(t, txt.text_line_count(snap), 4)
+    testing.expect_value(t, pt.text_line_count(snap), 4)
 }
 
 // A hole fills QUOTED when its value would re-parse (§8), so the step that reaches a plugin
@@ -594,7 +594,7 @@ a_path_with_a_space_is_visited_like_any_other :: proc(t: ^testing.T) {
     app.handle_chord(&a, chord("RTRN"))
 
     snap, d := reading(&a)
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     defer desc.release(d)
     testing.expect_value(t, d.file, fmt.tprintf("%s/two words", root))
     testing.expect_value(t, name_of(&a, 2), "in.txt")
@@ -614,7 +614,7 @@ a_directory_with_no_files_reports :: proc(t: ^testing.T) {
     _, opened := app.files_open(&a, ".")
     testing.expect(t, !opened, "a directory opened with nothing registered to open one")
     testing.expect(t, strings.contains(a.message, "nothing registers the files kind"), a.message)
-    testing.expect_value(t, len(store.store_ids(&a.docs)), 0)
+    testing.expect_value(t, len(store.store_ids(a.docs)), 0)
 }
 
 // `..` is a way OUT and not an entry, so it renames to nothing: typing and backspace pass over
@@ -643,7 +643,7 @@ the_way_out_is_not_a_name :: proc(t: ^testing.T) {
 
     // And it is still a link: enter over it goes up, which is the whole reason it is a row.
     app.handle_chord(&a, chord("RTRN"))
-    d := store.store_descriptor(&a.docs, app.ring_focused(&a).doc)
+    d := store.store_descriptor(a.docs, app.ring_focused(&a).doc)
     defer desc.release(d)
     testing.expect_value(t, d.file, filepath.dir(root))
 }

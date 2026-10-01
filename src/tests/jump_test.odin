@@ -123,7 +123,7 @@ a_jump_restores_the_viewport :: proc(t: ^testing.T) {
 
     app.handle_chord(&a, chord("AE01", {.Alt}))
     s := app.ring_focused(&a)
-    doc := store.store_doc(&a.docs, s.doc)
+    doc := store.store_doc(a.docs, s.doc)
     txt.doc_set_head(doc, {6, 1}, false)
     app.point_sync(&a)
     s.view.top = 4
@@ -149,12 +149,12 @@ a_jump_into_shrunk_text_is_clamped :: proc(t: ^testing.T) {
 
     app.handle_chord(&a, chord("AE01", {.Alt}))
     s := app.ring_focused(&a)
-    doc := store.store_doc(&a.docs, s.doc)
+    doc := store.store_doc(a.docs, s.doc)
     txt.doc_set_head(doc, {7, 0}, false)
     app.point_sync(&a)
 
     app.handle_chord(&a, chord("AE02", {.Alt}))
-    txt.doc_set_text(store.store_doc(&a.docs, s.doc), "a\nb")
+    txt.doc_set_text(store.store_doc(a.docs, s.doc), "a\nb")
     app.handle_chord(&a, ctrl_alt("LEFT"))
 
     back := app.ring_focused(&a)

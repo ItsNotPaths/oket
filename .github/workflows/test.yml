@@ -21,10 +21,10 @@ jobs:
       # Same -L as the release step below: the bindings say `system:SDL3`, and the vendored
       # libSDL3.a is the only SDL3 the runner has.
       - name: Test
-        run: odin test src/tests -extra-linker-flags:"-Lvendor/sdl3"
+        run: odin test src/tests -collection:lues=vendor/lues/src -extra-linker-flags:"-Lvendor/sdl3"
 
       # -o:speed changes what the optimiser folds; a clean debug compile does not prove
       # the release build.
       - name: Build (release settings)
         run: |
-          odin build src/oket -out:oket -o:speed -extra-linker-flags:"-Lvendor/sdl3"
+          odin build src/oket -out:oket -o:speed -collection:lues=vendor/lues/src -extra-linker-flags:"-Lvendor/sdl3"

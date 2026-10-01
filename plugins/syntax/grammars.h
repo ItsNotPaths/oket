@@ -21,7 +21,7 @@ void grammar_forget(void);
 /* The watcher, told to forget what it has been told: every open document arrives again on the
  * next frame. The one way to be called about something no generation records — a build
  * starting, and a build ending. */
-void grammar_relatch(const oket_api *api, oket_self self);
+void grammar_relatch(const lues_api *api, lues_self self);
 
 /* --- grammars.c --- */
 
@@ -33,17 +33,17 @@ int grammars_installed(void); /* how many of it were on the platter, as last cou
 
 /* The chain's last step, whichever way the build went. `installed` is what the platter says,
  * not what the tool claimed: the row stops on `done` or on `failed` by that alone. */
-void grammars_done(const oket_api *api, oket_self self, const char *lang, int installed);
+void grammars_done(const lues_api *api, lues_self self, const char *lang, int installed);
 
 /* One frame of the bar on a building row. Non-zero asks the watcher to latch, which is the only
  * thing that keeps frames coming while a shell step is out. */
-int grammars_tick(const oket_api *api, oket_self self, const oket_at *at);
+int grammars_tick(const lues_api *api, lues_self self, const lues_at *at);
 
 /* The `grammars` kind, its verbs and the rows that reach them. Zero if the kind is refused,
  * which is what fails the load. */
-oket_kind grammars_register(const oket_api *api, oket_self self);
+lues_kind grammars_register(const lues_api *api, lues_self self);
 
 /* The platter changed: count again, and rewrite every list that is open. */
-void grammars_refresh(const oket_api *api, oket_self self);
+void grammars_refresh(const lues_api *api, lues_self self);
 
 #endif

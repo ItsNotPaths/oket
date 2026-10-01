@@ -53,7 +53,7 @@
 #define BAR_TRAVEL (BAR_W + BAR_LIT - 1)
 #define BAR_MS 45
 
-static oket_kind GRAMMARS;
+static lues_kind GRAMMARS;
 
 /* --- the registry, and what of it is on the platter --- */
 
@@ -281,12 +281,12 @@ static const oket_list_spec LSPEC = {
     g_count, g_match, g_row, g_head, g_filtered,
 };
 
-void grammars_refresh(const oket_api *api, oket_self self) {
+void grammars_refresh(const lues_api *api, lues_self self) {
     count_installed();
     oket_list_repaint(api, self);
 }
 
-void grammars_done(const oket_api *api, oket_self self, const char *lang, int installed) {
+void grammars_done(const lues_api *api, lues_self self, const char *lang, int installed) {
     if (build.state == BUILD_RUNNING && strcmp(OKET_GRAMMARS[build.at].name, lang) == 0) {
         build.state = installed ? BUILD_DONE : BUILD_FAILED;
     }
@@ -296,7 +296,7 @@ void grammars_done(const oket_api *api, oket_self self, const char *lang, int in
 /* A frame of the bar, and the ask for the next one. The kernel waits on events when nothing is
  * latched, so without this the row would sit still for the whole of a build: a shell step
  * finishing is the only other thing that would wake it, and that is the end, not the middle. */
-int grammars_tick(const oket_api *api, oket_self self, const oket_at *at) {
+int grammars_tick(const lues_api *api, lues_self self, const lues_at *at) {
     oket_list *l = oket_list_of(at);
     list_ui *ui;
     unsigned step;
@@ -317,7 +317,7 @@ int grammars_tick(const oket_api *api, oket_self self, const oket_at *at) {
 
 /* --- the six messages --- */
 
-static void *open_list(const oket_api *api, oket_self self, oket_doc doc, const char *args,
+static void *open_list(const lues_api *api, lues_self self, lues_doc doc, const char *args,
                        size_t args_len) {
     list_ui *ui = calloc(1, sizeof *ui);
     oket_list *l;
@@ -338,7 +338,7 @@ static void *open_list(const oket_api *api, oket_self self, oket_doc doc, const 
     return l;
 }
 
-static void close_list(const oket_api *api, oket_self self, oket_doc doc, void *inst) {
+static void close_list(const lues_api *api, lues_self self, lues_doc doc, void *inst) {
     oket_list *l = inst;
 
     (void)api;
@@ -357,7 +357,7 @@ static void close_list(const oket_api *api, oket_self self, oket_doc doc, void *
  * is one no shell step should be spawned for, and a build already out is one the kernel would
  * refuse at the step with nothing on screen to say why. Either way a non-zero return stops the
  * chain here. */
-static int32_t build_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t build_cmd(const lues_api *api, lues_self self, const lues_at *at,
                          const char *args, size_t args_len) {
     char msg[128];
     int i, idx = -1;
@@ -397,8 +397,9 @@ static int32_t build_cmd(const oket_api *api, oket_self self, const oket_at *at,
     return 0;
 }
 
-oket_kind grammars_register(const oket_api *api, oket_self self) {
-    static const oket_kind_spec SPEC = {
+lues_kind grammars_register(const lues_api *api, lues_self self) {
+    static const lues_kind_spec SPEC = {
+        sizeof(lues_kind_spec),
         LIT("grammars"),
         LIT("surface"),
         {open_list, close_list, oket_list_event},

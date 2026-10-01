@@ -51,8 +51,8 @@ menubar_build :: proc(a: ^App, allocator := context.temp_allocator) -> menu.Bar 
     if rows := menubar_chords(a, ctx, kind, allocator); len(rows) > 0 {
         append(&menus, menu.Menu{MENU_CHORDS, .Chords, rows})
     }
-    for p, i in a.plugs {
-        if !p.live {
+    for p, i in a.kernel.plugs {
+        if p.state != .Live {
             continue
         }
         if rows := menubar_cmds(a, i, allocator); len(rows) > 0 {
@@ -171,7 +171,7 @@ menubar_kids :: proc(a: ^App, prefix: input.Chord, ctx: input.Bind_Ctx, kind: in
 @(private = "file")
 menubar_cmds :: proc(a: ^App, owner: int, allocator := context.temp_allocator) -> []menu.Row {
     out := make([dynamic]menu.Row, allocator)
-    for c in a.cmds {
+    for c in a.kernel.cmds {
         if c.owner != owner {
             continue
         }
@@ -198,7 +198,7 @@ menubar_answers :: proc(a: ^App, b: input.Bind, ctx: input.Bind_Ctx, kind: input
 // table cannot say who wanted it. A row nobody asked for is the user's, and names nobody.
 @(private = "file")
 menubar_owner :: proc(a: ^App, b: input.Bind) -> string {
-    for r in a.reqs {
+    for r in a.kernel.reqs {
         if r.dead {
             continue
         }

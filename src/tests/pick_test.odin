@@ -236,7 +236,6 @@ hold_steer_release_opens_where_you_steered :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.plug_init(&a)
     if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "edit")), a.message) {
         return
     }
@@ -287,7 +286,6 @@ the_chord_again_makes_the_panel_the_release_opens_into :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.plug_init(&a)
     if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "edit")), a.message) {
         return
     }

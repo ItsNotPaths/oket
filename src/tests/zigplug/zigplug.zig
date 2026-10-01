@@ -10,7 +10,7 @@ const c = @cImport({
 const NAME = "zigplug";
 const DOC = "proof the seam is not C-only";
 
-fn said(api: [*c]const c.oket_api, self: c.oket_self, at: [*c]const c.oket_at,
+fn said(api: [*c]const c.lues_api, self: c.lues_self, at: [*c]const c.lues_at,
         args: [*c]const u8, args_len: usize) callconv(.c) i32 {
     _ = at;
     _ = args;
@@ -19,7 +19,7 @@ fn said(api: [*c]const c.oket_api, self: c.oket_self, at: [*c]const c.oket_at,
     return 0;
 }
 
-export fn oket_main(api: [*c]const c.oket_api, self: c.oket_self) callconv(.c) i32 {
+export fn lues_main(api: [*c]const c.lues_api, self: c.lues_self) callconv(.c) i32 {
     api.*.register_command.?(api, self, NAME, NAME.len, DOC, DOC.len, said);
     return 0;
 }

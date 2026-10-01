@@ -1,10 +1,14 @@
 package main
 
+import "lues:abi"
+import "lues:lues"
+import "lues:pt"
 import "core:mem"
 import "core:slice"
 import "core:strings"
 import "../gfx"
 import "../plug"
+import "../shape"
 import "../store"
 import "../txt"
 import "../view"
@@ -30,8 +34,8 @@ import "../view"
 // One document's built view. By pointer, because a stage's text borrows the blocks of the stage
 // before it and the arena holding them must not move under a map rehash.
 Pipeline :: struct {
-    snap:    ^txt.Snapshot, // the original, HELD: every derived text points into its blocks
-    text:    txt.Text, // what is drawn
+    snap:    ^pt.Snapshot, // the original, HELD: every derived text points into its blocks
+    text:    pt.Text, // what is drawn
     dv:      view.Derived, // and the map back to the original, every stage folded into one
     hidden:  []txt.Range, // §7's export to motion, and the whole of it
     over:    []view.Style, // what the stages painted over their own output
@@ -47,20 +51,20 @@ Pipeline :: struct {
 // plugin set moved under the one we have. The return is the latch, which is what stops the frame
 // loop idling on work that is half done (§9).
 views_settle :: proc(a: ^App) -> (latched: bool) {
-    ids := store.store_ids(&a.docs)
+    ids := store.store_ids(a.docs)
     views_prune(a, ids)
     pid := preedit_id(a)
     for id in ids {
         names := config_names(&a.config, kind_name(a, doc_kind(a, id)), "view")
         ghost := id == pid ? a.preedit : ""
-        gen, live := store.store_gen(&a.docs, id)
+        gen, live := store.store_gen(a.docs, id)
         if (len(names) == 0 && ghost == "") || !live {
             views_forget(a, id)
             continue
         }
         point := views_point(a, id)
         if p, held := a.views[id];
-           held && p.gen == gen && p.point == point && p.rev == a.view_rev &&
+           held && p.gen == gen && p.point == point && p.rev == views_rev(a) &&
            p.ghosted == (ghost != "") && !p.latch {
             continue
         }
@@ -85,7 +89,7 @@ preedit_id :: proc(a: ^App) -> store.Id {
 // The document to DRAW, and the map back to the original. Both nil when no stage had anything to
 // say, which is every document until a `view =` line names one — and every consumer then reads
 // the original through a nil map, which is the identity (§6).
-views_of :: proc(a: ^App, id: store.Id) -> (^txt.Text, ^view.Derived) {
+views_of :: proc(a: ^App, id: store.Id) -> (^pt.Text, ^view.Derived) {
     p, held := a.views[id]
     if !held {
         return nil, nil
@@ -95,7 +99,7 @@ views_of :: proc(a: ^App, id: store.Id) -> (^txt.Text, ^view.Derived) {
 
 // The drawn text, or the caller's own when nothing derived this document. The shape every draw
 // site wants, so none of them writes the fallback out again.
-views_text :: proc(a: ^App, id: store.Id, t: ^txt.Text) -> (^txt.Text, ^view.Derived) {
+views_text :: proc(a: ^App, id: store.Id, t: ^pt.Text) -> (^pt.Text, ^view.Derived) {
     dt, dv := views_of(a, id)
     return dt != nil ? dt : t, dv
 }
@@ -114,6 +118,13 @@ views_over :: proc(a: ^App, id: store.Id) -> []view.Style {
 // names, and which names resolve has just changed.
 views_dirty :: proc(a: ^App) {
     a.view_rev += 1
+}
+
+// A plugin that ran may have changed its view: a fold a command toggled moves no generation
+// and no caret (VIEWS.md §5). lues counts every call but a stage's own.
+@(private = "file")
+views_rev :: proc(a: ^App) -> u64 {
+    return a.view_rev + a.kernel.ran
 }
 
 views_forget :: proc(a: ^App, id: store.Id) {
@@ -135,7 +146,7 @@ views_destroy :: proc(a: ^App) {
 
 @(private = "file")
 pipeline_free :: proc(p: ^Pipeline) {
-    txt.snapshot_release(p.snap)
+    pt.snapshot_release(p.snap)
     mem.dynamic_arena_destroy(&p.arena)
     free(p)
 }
@@ -148,7 +159,7 @@ pipeline_free :: proc(p: ^Pipeline) {
 @(private = "file")
 views_build :: proc(a: ^App, id: store.Id, names: []string, gen, point: u64,
                     ghost: string) -> (latched: bool) {
-    snap := store.store_snapshot(&a.docs, id)
+    snap := store.store_snapshot(a.docs, id)
     if snap == nil {
         return false
     }
@@ -156,7 +167,7 @@ views_build :: proc(a: ^App, id: store.Id, names: []string, gen, point: u64,
     p := new(Pipeline)
     mem.dynamic_arena_init(&p.arena)
     al := mem.dynamic_arena_allocator(&p.arena)
-    p.snap, p.gen, p.point, p.rev, p.ghosted = snap, gen, point, a.view_rev, ghost != ""
+    p.snap, p.gen, p.point, p.rev, p.ghosted = snap, gen, point, views_rev(a), ghost != ""
 
     t, dv, any := &snap.text, view.Derived{}, false
     runs := make([dynamic]View_Run, 0, 8, al)
@@ -211,9 +222,9 @@ views_build :: proc(a: ^App, id: store.Id, names: []string, gen, point: u64,
 // One more link of the chain: the edits derived over what it produced so far, and every run
 // already collected moved into the new space.
 @(private = "file")
-chain_derive :: proc(t: ^txt.Text, edits: []view.Edit, runs: []View_Run,
-                     al: mem.Allocator) -> (^txt.Text, view.Derived) {
-    nt := new(txt.Text, al)
+chain_derive :: proc(t: ^pt.Text, edits: []view.Edit, runs: []View_Run,
+                     al: mem.Allocator) -> (^pt.Text, view.Derived) {
+    nt := new(pt.Text, al)
     step: view.Derived
     nt^, step = view.derive(t, edits, al)
     for &r in runs {
@@ -226,8 +237,8 @@ chain_derive :: proc(t: ^txt.Text, edits: []view.Edit, runs: []View_Run,
 // The view offset the ghost lands at: the primary caret's byte, through the chain so far.
 // False in a hidden run — motion never leaves the caret there, but a stage may fold over it.
 @(private = "file")
-ghost_off :: proc(a: ^App, id: store.Id, t: ^txt.Text, dv: ^view.Derived) -> (int, bool) {
-    doc := store.store_doc(&a.docs, id)
+ghost_off :: proc(a: ^App, id: store.Id, t: ^pt.Text, dv: ^view.Derived) -> (int, bool) {
+    doc := store.store_doc(a.docs, id)
     if doc == nil {
         return 0, false
     }
@@ -235,7 +246,7 @@ ghost_off :: proc(a: ^App, id: store.Id, t: ^txt.Text, dv: ^view.Derived) -> (in
     if !on {
         return 0, false
     }
-    return txt.text_off(t, at), true
+    return pt.text_off(t, at), true
 }
 
 // One stage, through the fault net like every other call into a plugin (§10). What it wrote into
@@ -245,30 +256,36 @@ view_run :: proc(
     a: ^App,
     i: int,
     id: store.Id,
-    t: ^txt.Text,
+    t: ^pt.Text,
     gen: u64,
     dv: ^view.Derived,
     alloc: mem.Allocator,
 ) -> (
     edits: []view.Edit,
-    spans: []plug.Span,
+    spans: []abi.Span,
     code: i32,
     live: bool,
 ) {
     v := view_over(a, id, t, gen, dv)
     defer view_free(v)
     out: plug.View_Out
-    at := plug.At{doc = plug_doc(id), snap = &v.snap}
-    if inst, held := a.insts[id]; held && inst.owner == i {
+    at := abi.At{doc = plug_doc(id), snap = &v.snap}
+    if inst, held := a.kernel.insts[id]; held && inst.owner == i {
         at.inst = inst.inst
     }
-    r, ok := plug_dispatch(a, i, {what = .View, fn_view = a.plugs[i].viewer, at = &at, out = &out})
-    if !ok {
-        return nil, nil, 0, false
+    code, live = plug_view_run(a, i, &at, &out)
+    if !live {
+        return
+    }
+    estep, eok := lues.stride(abi.Edit, out.edits, int(out.nedits))
+    sstep, sok := lues.stride(abi.Span, out.spans, int(out.nspans))
+    if !eok || !sok {
+        return nil, nil, code, true // a short struct: nothing drawn, and the stage lives
     }
     own := make([dynamic]view.Edit, 0, out.nedits, alloc)
     last := 0
-    for e in out.edits[:out.nedits] {
+    for n in 0 ..< int(out.nedits) {
+        e := lues.elem(abi.Edit, out.edits, estep, n)
         // A stage that hands back an overlapping or backwards pair is refused a pair at a time,
         // not a chain at a time: `derive` needs them sorted and disjoint, and half a fold drawn
         // beats the whole document vanishing.
@@ -280,7 +297,11 @@ view_run :: proc(
         append(&own, view.Edit{lo, min(hi, t.size), text})
         last = hi
     }
-    return own[:], slice.clone(out.spans[:out.nspans], context.temp_allocator), r.code, true
+    spans = make([]abi.Span, out.nspans, context.temp_allocator)
+    for &sp, n in spans {
+        sp = lues.elem(abi.Span, out.spans, sstep, n)^
+    }
+    return own[:], spans, code, true
 }
 
 // A style run a stage published, in the space of what that stage produced. `view.Style` carries
@@ -295,7 +316,7 @@ View_Run :: struct {
 // outlives frames, and a colour written here would sit stale across a theme switch. A channel
 // nobody claimed is the theme's, said as its token.
 @(private = "file")
-view_run_take :: proc(sp: plug.Span, size: int) -> View_Run {
+view_run_take :: proc(sp: abi.Span, size: int) -> View_Run {
     set := sp.set & {.Fg, .Bg, .Attrs} // untrusted byte: stray bits are not channels
     return {
         lo = clamp(int(min(sp.lo, uint(max(int)))), 0, size),
@@ -303,7 +324,7 @@ view_run_take :: proc(sp: plug.Span, size: int) -> View_Run {
         st = {
             fg    = .Fg in set ? u32(sp.tok) : u32(gfx.Token.Fg),
             bg    = .Bg in set ? u32(sp.tok) : u32(gfx.Token.Bg),
-            attrs = .Attrs in set ? sp.attrs : {},
+            attrs = .Attrs in set ? transmute(shape.Attrs)sp.attrs : {},
         },
     }
 }
@@ -313,15 +334,15 @@ view_run_take :: proc(sp: plug.Span, size: int) -> View_Run {
 // to stay last.
 @(private = "file")
 view_styles :: proc(
-    t: ^txt.Text,
+    t: ^pt.Text,
     runs: []View_Run,
     alloc: mem.Allocator,
 ) -> []view.Style {
     out := make([dynamic]view.Style, 0, len(runs), alloc)
-    lines := txt.text_line_count(t)
+    lines := pt.text_line_count(t)
     for r in runs {
-        for line := txt.text_line_at_off(t, r.lo); line < lines; line += 1 {
-            lo, hi := txt.text_line_range(t, line)
+        for line := pt.text_line_at_off(t, r.lo); line < lines; line += 1 {
+            lo, hi := pt.text_line_range(t, line)
             if lo >= r.hi {
                 break
             }
@@ -343,7 +364,7 @@ view_styles :: proc(
 // FNV over the whole set, not the primary: a stage may read all of them.
 @(private = "file")
 views_point :: proc(a: ^App, id: store.Id) -> u64 {
-    doc := store.store_doc(&a.docs, id)
+    doc := store.store_doc(a.docs, id)
     if doc == nil {
         return 0
     }
@@ -369,17 +390,4 @@ views_prune :: proc(a: ^App, ids: []store.Id) {
     for id in dead {
         views_forget(a, id)
     }
-}
-
-// The live plugin registered under this name with a stage to run. A name that resolves to
-// nothing is skipped in silence: a `view =` line naming a plugin the user has not installed is
-// a config file that is ahead of the machine, not an error.
-@(private = "file")
-plug_view_of :: proc(a: ^App, name: string) -> (int, bool) {
-    for p, i in a.plugs {
-        if p.live && p.viewer != nil && p.name == name {
-            return i, true
-        }
-    }
-    return 0, false
 }

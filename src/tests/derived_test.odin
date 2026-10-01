@@ -1,5 +1,6 @@
 package tests
 
+import "lues:pt"
 import "core:testing"
 import "../desc"
 import "../gfx"
@@ -26,8 +27,8 @@ SIX :: "aaa\nbbb\nccc\nddd\neee\nfff"
 //   eee
 //   fff
 @(private = "file")
-folded :: proc(d: ^txt.Doc) -> (txt.Text, view.Derived) {
-    return view.derive(&d.pt, []view.Edit{{7, 19, transmute([]u8)string(" ...")}})
+folded :: proc(d: ^txt.Doc) -> (pt.Text, view.Derived) {
+    return view.derive(&d.table, []view.Edit{{7, 19, transmute([]u8)string(" ...")}})
 }
 
 @(private = "file")
@@ -39,8 +40,8 @@ mk_doc :: proc(s: string) -> txt.Doc {
 }
 
 @(private = "file")
-line :: proc(t: ^txt.Text, n: int) -> string {
-    return string(txt.text_line(t, n, context.temp_allocator))
+line :: proc(t: ^pt.Text, n: int) -> string {
+    return string(pt.text_line(t, n, context.temp_allocator))
 }
 
 // --- the derived document ---
@@ -51,11 +52,11 @@ a_derived_document_is_the_edits_applied :: proc(t: ^testing.T) {
     defer txt.doc_destroy(&d)
     dt, _ := folded(&d)
 
-    testing.expect_value(t, txt.text_line_count(&dt), 3)
+    testing.expect_value(t, pt.text_line_count(&dt), 3)
     testing.expect_value(t, line(&dt, 0), "aaa")
     testing.expect_value(t, line(&dt, 1), "bbb ...")
     testing.expect_value(t, line(&dt, 2), "fff")
-    testing.expect(t, txt.text_check(&dt), "a derived document holds every invariant a Text has")
+    testing.expect(t, pt.text_check(&dt), "a derived document holds every invariant a Text has")
 }
 
 // Unchanged text is the ORIGINAL's bytes, not a copy of them: only the inserted run needs a
@@ -66,12 +67,12 @@ unchanged_text_points_into_the_original :: proc(t: ^testing.T) {
     defer txt.doc_destroy(&d)
     dt, _ := folded(&d)
 
-    ins := len(d.pt.blocks) // the one block derive added
+    ins := len(d.table.blocks) // the one block derive added
     carried := 0
     for p in dt.pieces {
         if p.block != ins {
             carried += 1
-            testing.expect(t, raw_data(dt.blocks[p.block]) == raw_data(d.pt.blocks[p.block]),
+            testing.expect(t, raw_data(dt.blocks[p.block]) == raw_data(d.table.blocks[p.block]),
                            "a carried piece names the original's own block")
         }
     }
@@ -90,7 +91,7 @@ a_derived_offset_answers_its_original :: proc(t: ^testing.T) {
     testing.expect(t, ok)
     testing.expect_value(t, o, 5)
 
-    o, ok = view.src_off(&dv, txt.text_line_start(&dt, 2)) // 'f', after it
+    o, ok = view.src_off(&dv, pt.text_line_start(&dt, 2)) // 'f', after it
     testing.expect(t, ok)
     testing.expect_value(t, o, 20)
 }
@@ -154,7 +155,7 @@ NUMBERED :: desc.Descriptor {
 @(private = "file")
 draw_folded :: proc(
     t: ^testing.T,
-    dt: ^txt.Text,
+    dt: ^pt.Text,
     dv: ^view.Derived,
     v := view.View{},
     cols := 12,
@@ -189,7 +190,7 @@ a_folded_document_draws_with_a_gap_in_its_numbers :: proc(t: ^testing.T) {
 an_inserted_line_has_no_number :: proc(t: ^testing.T) {
     d := mk_doc("aaa\nbbb")
     defer txt.doc_destroy(&d)
-    dt, dv := view.derive(&d.pt, []view.Edit{{4, 4, transmute([]u8)string("xxx\n")}})
+    dt, dv := view.derive(&d.table, []view.Edit{{4, 4, transmute([]u8)string("xxx\n")}})
 
     snap := draw_folded(t, &dt, &dv)
     defer delete(snap)
@@ -264,7 +265,7 @@ marked :: proc(g: ^gfx.Grid, y: int) -> string {
 a_deleted_prefix_still_answers :: proc(t: ^testing.T) {
     d := mk_doc(SIX)
     defer txt.doc_destroy(&d)
-    dt, dv := view.derive(&d.pt, []view.Edit{{0, 4, transmute([]u8)string(">")}})
+    dt, dv := view.derive(&d.table, []view.Edit{{0, 4, transmute([]u8)string(">")}})
 
     testing.expect_value(t, line(&dt, 0), ">bbb")
     o, ok := view.src_off(&dv, 0)
@@ -285,7 +286,7 @@ a_deleted_prefix_still_answers :: proc(t: ^testing.T) {
 an_inline_substitution_maps_within_the_line :: proc(t: ^testing.T) {
     d := mk_doc("abcdef")
     defer txt.doc_destroy(&d)
-    dt, dv := view.derive(&d.pt, []view.Edit{{2, 4, transmute([]u8)string("__")}})
+    dt, dv := view.derive(&d.table, []view.Edit{{2, 4, transmute([]u8)string("__")}})
     testing.expect_value(t, line(&dt, 0), "ab__ef")
 
     o, ok := view.src_off(&dv, 4) // 'e', the first cell past the marker
@@ -311,10 +312,10 @@ an_inline_substitution_maps_within_the_line :: proc(t: ^testing.T) {
 overlapping_edits_cannot_corrupt_the_derivation :: proc(t: ^testing.T) {
     d := mk_doc(SIX)
     defer txt.doc_destroy(&d)
-    dt, dv := view.derive(&d.pt, []view.Edit{{4, 8, transmute([]u8)string("x")},
+    dt, dv := view.derive(&d.table, []view.Edit{{4, 8, transmute([]u8)string("x")},
                                              {6, 2, transmute([]u8)string("y")}})
 
-    testing.expect(t, txt.text_check(&dt), "an overlapping pair broke a Text invariant")
+    testing.expect(t, pt.text_check(&dt), "an overlapping pair broke a Text invariant")
     testing.expect_value(t, line(&dt, 1), "xyccc")
     h := view.hidden(&dv)
     testing.expect_value(t, len(h), 1)
@@ -331,7 +332,7 @@ overlapping_edits_cannot_corrupt_the_derivation :: proc(t: ^testing.T) {
 // The fold above, then a second stage hanging a box off the end of the row it left. The box's
 // bytes belong to neither the first stage nor the file.
 @(private = "file")
-two_stages :: proc(d: ^txt.Doc) -> (txt.Text, view.Derived) {
+two_stages :: proc(d: ^txt.Doc) -> (pt.Text, view.Derived) {
     dt, one := folded(d)
     // "aaa\nbbb ...\nfff" — the box goes after `bbb ...`, which is offset 11.
     dt2, two := view.derive(&dt, []view.Edit{{11, 11, transmute([]u8)string("\n[box]")}})
@@ -344,15 +345,15 @@ two_stages_compose_into_one_map :: proc(t: ^testing.T) {
     defer txt.doc_destroy(&d)
     dt, dv := two_stages(&d)
 
-    testing.expect_value(t, txt.text_line_count(&dt), 4)
+    testing.expect_value(t, pt.text_line_count(&dt), 4)
     testing.expect_value(t, line(&dt, 1), "bbb ...")
     testing.expect_value(t, line(&dt, 2), "[box]")
     testing.expect_value(t, line(&dt, 3), "fff")
-    testing.expect(t, txt.text_check(&dt), "a twice-derived document is still a Text")
+    testing.expect(t, pt.text_check(&dt), "a twice-derived document is still a Text")
 
     // The map is back to the ORIGINAL and not to the stage between: `fff` is at 20 in SIX, and
     // it is the fourth line of what is drawn.
-    off, on := view.src_off(&dv, txt.text_line_start(&dt, 3))
+    off, on := view.src_off(&dv, pt.text_line_start(&dt, 3))
     testing.expect(t, on, "the last line lost its original bytes")
     testing.expect_value(t, off, 20)
     testing.expect_value(t, view.src_line(&dv, &dt, 3), 5)
@@ -370,7 +371,7 @@ composing_keeps_every_inserted_run_inserted :: proc(t: ^testing.T) {
     testing.expect(t, !in_doc, "a fold marker claimed to be in the document")
     testing.expect_value(t, marker, 19) // where `fff` starts in SIX
 
-    box, boxed := view.src_off(&dv, txt.text_line_start(&dt, 2))
+    box, boxed := view.src_off(&dv, pt.text_line_start(&dt, 2))
     testing.expect(t, !boxed, "a popup box claimed to be in the document")
     testing.expect_value(t, box, 19)
     testing.expect_value(t, view.src_line(&dv, &dt, 2), -1) // every byte of it was inserted

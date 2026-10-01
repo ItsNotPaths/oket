@@ -34,7 +34,7 @@
 #define TAB_WIDTH 4
 #define INDENT_MAX 256 /* a pasted-in wall of indent is not worth a heap allocation */
 
-static oket_kind EDIT;
+static lues_kind EDIT;
 
 /* Per-document state. The text, the cursors and the undo history are the kernel's, and
  * re-reading them is a pointer walk rather than a copy we would have to keep in step (§6).
@@ -45,7 +45,7 @@ typedef struct {
     char   *path; /* owned; NULL for a buffer with no file yet */
     char   *disk; /* owned; the bytes the file had when we last read or wrote it */
     size_t  disk_len;
-    oket_io watch; /* that path, watched (§9) */
+    lues_io watch; /* that path, watched (§9) */
 } editor;
 
 static int same(const char *a, size_t alen, const char *b, size_t blen) {
@@ -60,7 +60,7 @@ static void disk_keep(editor *e, char *bytes, size_t len) {
 }
 
 /* The document, flat. A piece table is what it is stored as; a file is a run of bytes. */
-static char *buffer_bytes(const oket_snapshot *s, size_t *len) {
+static char *buffer_bytes(const lues_snapshot *s, size_t *len) {
     char *buf = malloc(s->size + 1);
 
     *len = 0;
@@ -90,7 +90,7 @@ static void describe(const editor *e, oket_descriptor *d) {
 
 /* The kernel made the document and handed over the path it was asked to open. Reading it is
  * the opener's: the kernel decides nothing about what a file becomes (§7). */
-static void *open_edit(const oket_api *api, oket_self self, oket_doc doc,
+static void *open_edit(const lues_api *api, lues_self self, lues_doc doc,
                        const char *args, size_t args_len) {
     editor *e = calloc(1, sizeof *e);
     oket_descriptor d;
@@ -118,7 +118,7 @@ static void *open_edit(const oket_api *api, oket_self self, oket_doc doc,
     return e;
 }
 
-static void close_edit(const oket_api *api, oket_self self, oket_doc doc, void *inst) {
+static void close_edit(const lues_api *api, lues_self self, lues_doc doc, void *inst) {
     editor *e = inst;
 
     (void)doc;
@@ -134,7 +134,7 @@ static void close_edit(const oket_api *api, oket_self self, oket_doc doc, void *
 
 /* The smallest splice that turns the buffer into `now`, and it takes ownership of `now`. Only
  * the changed MIDDLE is submitted: a whole-buffer replace drags every caret onto it. */
-static void take_disk(const oket_api *api, oket_self self, const oket_snapshot *s, editor *e,
+static void take_disk(const lues_api *api, lues_self self, const lues_snapshot *s, editor *e,
                       char *now, size_t now_len) {
     size_t buf_len, lo, a, b;
     char *buf = buffer_bytes(s, &buf_len);
@@ -159,8 +159,8 @@ static void take_disk(const oket_api *api, oket_self self, const oket_snapshot *
 /* Three answers, told apart by the baseline: our own write coming back, a clean buffer that
  * takes the new file whole, or two edits of one file — say so and change nothing.
  * The third is the whole reason for the baseline; `ed.reload` is how you overrule it. */
-static void changed(const oket_api *api, oket_self self, const oket_at *at, editor *e) {
-    const oket_snapshot *s = at->snap;
+static void changed(const lues_api *api, lues_self self, const lues_at *at, editor *e) {
+    const lues_snapshot *s = at->snap;
     size_t now_len, buf_len;
     char *now, *buf;
     char note[512];
@@ -194,19 +194,19 @@ static void changed(const oket_api *api, oket_self self, const oket_at *at, edit
 /* One edit per cursor, one transaction, one undo step: every caret's range becomes `text`. Each
  * edit NAMES its caret, so the one it leaves behind is the same caret and the primary does not
  * jump to the top of the set. */
-static int insert_each_cursor(const oket_api *api, oket_self self, const oket_at *at,
+static int insert_each_cursor(const lues_api *api, lues_self self, const lues_at *at,
                               const char *text, size_t len) {
-    const oket_snapshot *s = at->snap;
+    const lues_snapshot *s = at->snap;
     oket_batch b;
     size_t i;
     int sent;
 
     memset(&b, 0, sizeof b);
-    for (i = 0; i < s->ncursors; i++) {
+    for (i = 0; i < oket_side_of(s)->ncursors; i++) {
         size_t lo, hi;
 
         oket_cursor_span(s, i, &lo, &hi);
-        oket_batch_edit_for(&b, s->cursors[i].id, lo, hi, text, len);
+        oket_batch_edit_for(&b, oket_side_of(s)->cursors[i].id, lo, hi, text, len);
     }
     sent = oket_batch_submit(api, self, s->doc, s->gen, &b);
     oket_batch_free(&b);
@@ -215,14 +215,14 @@ static int insert_each_cursor(const oket_api *api, oket_self self, const oket_at
 
 /* The indent-aware newline: each caret takes "\n" plus its OWN line's leading whitespace,
  * which is why each edit in a batch carries its own string. */
-static int newline_each_cursor(const oket_api *api, oket_self self, const oket_at *at) {
-    const oket_snapshot *s = at->snap;
+static int newline_each_cursor(const lues_api *api, lues_self self, const lues_at *at) {
+    const lues_snapshot *s = at->snap;
     oket_batch b;
     size_t i;
     int sent;
 
     memset(&b, 0, sizeof b);
-    for (i = 0; i < s->ncursors; i++) {
+    for (i = 0; i < oket_side_of(s)->ncursors; i++) {
         char text[INDENT_MAX] = "\n";
         char line[INDENT_MAX];
         size_t lo, hi, at_line, col, len, ind;
@@ -236,7 +236,7 @@ static int newline_each_cursor(const oket_api *api, oket_self self, const oket_a
             ind = sizeof text - 1;
         }
         memcpy(text + 1, line, ind);
-        oket_batch_edit_for(&b, s->cursors[i].id, lo, hi, text, 1 + ind);
+        oket_batch_edit_for(&b, oket_side_of(s)->cursors[i].id, lo, hi, text, 1 + ind);
     }
     sent = oket_batch_submit(api, self, s->doc, s->gen, &b);
     oket_batch_free(&b);
@@ -245,18 +245,18 @@ static int newline_each_cursor(const oket_api *api, oket_self self, const oket_a
 
 /* Self-insert, and nothing else reaches here: `bound` means the bind table answered every
  * chord already. A generation that moved needs no repair — the text IS the state (§6). */
-static int32_t event(const oket_api *api, oket_self self, const oket_at *at,
-                     oket_event ev, const char *text, size_t len) {
+static int32_t event(const lues_api *api, lues_self self, const lues_at *at,
+                     lues_event ev, const char *text, size_t len) {
     editor *e = at->inst;
 
     if (!oket_mine(at)) {
         return 0;
     }
-    if (ev == OKET_EVENT_IO && at->io == e->watch) {
+    if (ev == LUES_EVENT_IO && at->io == e->watch) {
         changed(api, self, at, e);
         return 0;
     }
-    if (ev != OKET_EVENT_TEXT) {
+    if (ev != LUES_EVENT_TEXT) {
         return 0;
     }
     return insert_each_cursor(api, self, at, text, len);
@@ -266,12 +266,12 @@ static int32_t event(const oket_api *api, oket_self self, const oket_at *at,
 
 /* A command answers an EXIT CODE: 0 advances an `&&` chain. Note the polarity is the opposite
  * of event()'s "did you claim it". */
-static int32_t refuse(const oket_api *api, oket_self self, const char *why) {
+static int32_t refuse(const lues_api *api, lues_self self, const char *why) {
     oket_say(api, self, why);
     return 1;
 }
 
-static int32_t newline_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t newline_cmd(const lues_api *api, lues_self self, const lues_at *at,
                            const char *args, size_t args_len) {
     (void)args;
     (void)args_len;
@@ -284,10 +284,10 @@ static int32_t newline_cmd(const oket_api *api, oket_self self, const oket_at *a
 
 /* Spaces to the next tab stop, which is a COLUMN question: the stop is counted in cells, so a
  * tab already on the line and a wide glyph both count for what they draw. */
-static int32_t indent_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t indent_cmd(const lues_api *api, lues_self self, const lues_at *at,
                           const char *args, size_t args_len) {
     static const char SPACES[TAB_WIDTH] = {' ', ' ', ' ', ' '};
-    const oket_snapshot *s = at->snap;
+    const lues_snapshot *s = at->snap;
     oket_batch b;
     size_t i;
 
@@ -297,13 +297,13 @@ static int32_t indent_cmd(const oket_api *api, oket_self self, const oket_at *at
         return refuse(api, self, "ed.indent: this document is not the editor's");
     }
     memset(&b, 0, sizeof b);
-    for (i = 0; i < s->ncursors; i++) {
+    for (i = 0; i < oket_side_of(s)->ncursors; i++) {
         size_t lo, hi, line, cells;
 
         oket_cursor_span(s, i, &lo, &hi);
         line = oket_line_at(s, lo);
         cells = oket_col_cells(s, line, lo - oket_line_start(s, line), TAB_WIDTH);
-        oket_batch_edit_for(&b, s->cursors[i].id, lo, hi, SPACES, TAB_WIDTH - cells % TAB_WIDTH);
+        oket_batch_edit_for(&b, oket_side_of(s)->cursors[i].id, lo, hi, SPACES, TAB_WIDTH - cells % TAB_WIDTH);
     }
     oket_batch_submit(api, self, s->doc, s->gen, &b);
     oket_batch_free(&b);
@@ -318,7 +318,7 @@ static int32_t indent_cmd(const oket_api *api, oket_self self, const oket_at *at
  * SHIFT IS WRITTEN OUT, and it has to be: the bind table's Shift retry hands its `extend` to
  * the kernel's own motion arm, and a command slot never sees it. A plugin that takes over
  * `left` takes over `shift+left` in the same breath, or the selection key goes quiet. */
-static int32_t move(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t move(const lues_api *api, lues_self self, const lues_at *at,
                     oket_motion m, int select) {
     if (!oket_mine(at)) {
         return refuse(api, self, "ed: this document is not the editor's");
@@ -327,28 +327,28 @@ static int32_t move(const oket_api *api, oket_self self, const oket_at *at,
     return 0;
 }
 
-static int32_t left_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t left_cmd(const lues_api *api, lues_self self, const lues_at *at,
                         const char *args, size_t args_len) {
     (void)args;
     (void)args_len;
     return move(api, self, at, OKET_MOTION_LEFT, 0);
 }
 
-static int32_t right_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t right_cmd(const lues_api *api, lues_self self, const lues_at *at,
                          const char *args, size_t args_len) {
     (void)args;
     (void)args_len;
     return move(api, self, at, OKET_MOTION_RIGHT, 0);
 }
 
-static int32_t select_left_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t select_left_cmd(const lues_api *api, lues_self self, const lues_at *at,
                                const char *args, size_t args_len) {
     (void)args;
     (void)args_len;
     return move(api, self, at, OKET_MOTION_LEFT, 1);
 }
 
-static int32_t select_right_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t select_right_cmd(const lues_api *api, lues_self self, const lues_at *at,
                                 const char *args, size_t args_len) {
     (void)args;
     (void)args_len;
@@ -359,7 +359,7 @@ static int32_t select_right_cmd(const oket_api *api, oket_self self, const oket_
  * answer overruled: the watch REFUSES to touch a buffer that has edits the file does not, and
  * this is how the user says take it anyway. The kernel kept no verb for this — it reads no file
  * into a document, so it cannot re-read one either (PLAN.md §14's answer for `watch`). */
-static int32_t reload_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t reload_cmd(const lues_api *api, lues_self self, const lues_at *at,
                           const char *args, size_t args_len) {
     editor *e = at->inst;
     size_t len;
@@ -388,9 +388,9 @@ static int32_t reload_cmd(const oket_api *api, oket_self self, const oket_at *at
 /* `:w [path]` — the buffer, back to its file. The kernel's own `file.dump` writes a copy
  * into the state directory and knows nothing about paths, which is what leaves this verb here:
  * what a file IS on disk is the opener's business, and the opener is this plugin. */
-static int32_t write_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t write_cmd(const lues_api *api, lues_self self, const lues_at *at,
                          const char *args, size_t args_len) {
-    const oket_snapshot *s = at->snap;
+    const lues_snapshot *s = at->snap;
     editor *e = at->inst;
     char note[512];
     char *buf;
@@ -406,7 +406,8 @@ static int32_t write_cmd(const oket_api *api, oket_self self, const oket_at *at,
         free(e->path);
         e->path = oket_dup(args, args_len);
         describe(e, &d); /* the buffer takes the name it was written under */
-        api->submit(api, self, s->doc, s->gen, NULL, 0, &d, NULL, 0);
+        oket(api)->describe(api, self, s->doc, &d);
+        api->submit(api, self, s->doc, s->gen, NULL, 0, NULL, 0);
         /* The watch follows the name: the file this buffer IS is the one worth hearing about. */
         api->io_close(api, self, e->watch);
         e->watch = e->path == NULL
@@ -437,11 +438,12 @@ static int32_t write_cmd(const oket_api *api, oket_self self, const oket_at *at,
     return 0;
 }
 
-OKET_MAIN {
+LUES_MAIN {
     /* `text` is the bind context, so every motion, selection and delete row the kernel already
      * has serves this kind unchanged (§8). The kind's NAME is what `:open` hands a regular file
      * to, and what the `[edit]` section of binds.conf narrows to. */
-    static const oket_kind_spec SPEC = {
+    static const lues_kind_spec SPEC = {
+        sizeof(lues_kind_spec),
         LIT("edit"),
         LIT("text"),
         {open_edit, close_edit, event},

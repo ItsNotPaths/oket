@@ -1,7 +1,9 @@
 package main
 
+import "lues:lues"
 import "core:strings"
 import "../desc"
+import "../shape"
 import "../gfx"
 import "../input"
 import vt "../libvterm"
@@ -17,7 +19,7 @@ import "../txt"
 // That is the whole of why there is no terminal scroll code. The kernel's viewport scrolls it
 // like anything else, `follow: tail` is the live bottom, point is the caret, and a drag selects
 // for copy. What is left that a text document does not have is colour, and that goes into the
-// span store like everybody else's (store/spans.odin), under the name `term`: the kernel is a
+// span store like everybody else's (lues docs/spans.odin), under the name `term`: the kernel is a
 // publisher here and config ranks it beside the plugins, because a terminal is one more thing
 // with an opinion about what its bytes look like.
 //
@@ -86,9 +88,9 @@ term_open :: proc(a: ^App) -> (store.Id, bool) {
         return {}, false
     }
     pty.terminal_set_default_colors(&tm.t, a.theme[.Fg], a.theme[.Bg])
-    tm.doc = store.store_open(&a.docs, "")
+    tm.doc = store.store_open(a.docs, "")
     term_publish(a, tm)
-    store.store_drain(&a.docs)
+    lues.kernel_settle(a.kernel)
     if a.terms == nil {
         a.terms = make(map[store.Id]^Term)
     }
@@ -149,7 +151,7 @@ term_session_pump :: proc(a: ^App, tm: ^Term) {
     }
     pty.terminal_drain(&tm.t)
 
-    doc := store.store_doc(&a.docs, tm.doc)
+    doc := store.store_doc(a.docs, tm.doc)
     if doc == nil {
         return
     }
@@ -190,7 +192,7 @@ term_trim :: proc(a: ^App, tm: ^Term, doc: ^txt.Doc) {
     resize(&tm.spans, kept)
     // The whole list, because every run that survived moved. This is the one path that
     // republishes frozen scrollback, and it runs only when the cap is crossed.
-    store.store_spans_publish(&a.docs, tm.doc,
+    store.store_spans_publish(a.docs, tm.doc,
                               {producer_intern(a, TERM_PRODUCER), 0, max(int), tm.spans[:]})
 }
 
@@ -233,7 +235,7 @@ term_rewrite :: proc(a: ^App, tm: ^Term, doc: ^txt.Doc) {
     // To the END and not to the new length: a screen that shrank must not leave the runs that
     // were under what it dropped. A trim moved every surviving run's place in the list, so
     // that publish is the whole of it, from the top.
-    store.store_spans_publish(&a.docs, tm.doc,
+    store.store_spans_publish(a.docs, tm.doc,
                               {producer_intern(a, TERM_PRODUCER), cut ? 0 : lo, max(int),
                                cut ? tm.spans[:] : tm.spans[frozen:]})
 }
@@ -331,15 +333,17 @@ term_style :: proc(tm: ^Term, cell: vt.ScreenCell, at: int) -> store.Span {
     if cell.attrs.reverse {
         st.fg, st.bg = st.bg, st.fg
     }
+    attrs: shape.Attrs
     if cell.attrs.bold {
-        st.attrs |= {.Bold}
+        attrs |= {.Bold}
     }
     if cell.attrs.italic {
-        st.attrs |= {.Italic}
+        attrs |= {.Italic}
     }
     if cell.attrs.underline != 0 {
-        st.attrs |= {.Underline}
+        attrs |= {.Underline}
     }
+    st.attrs = transmute(u8)attrs
     return st
 }
 
@@ -411,7 +415,7 @@ term_col_byte :: proc(tm: ^Term, line, want: int) -> (off: int) {
 // else about a session's behaviour moves.
 @(private = "file")
 term_publish :: proc(a: ^App, tm: ^Term) {
-    gen, _ := store.store_gen(&a.docs, tm.doc)
+    gen, _ := store.store_gen(a.docs, tm.doc)
     tm.events = tm.t.mouse_on
     d := desc.new_from(
         {
@@ -425,7 +429,7 @@ term_publish :: proc(a: ^App, tm: ^Term) {
             tab_width = 8,
         },
     )
-    store.store_submit(&a.docs, tm.doc, gen, nil, d)
+    store.store_submit(a.docs, tm.doc, gen, nil, d)
     desc.release(d)
 }
 
@@ -572,7 +576,7 @@ term_copy :: proc(a: ^App) -> bool {
     if tm == nil {
         return false
     }
-    doc := store.store_doc(&a.docs, active(a).doc)
+    doc := store.store_doc(a.docs, active(a).doc)
     if doc == nil {
         return false
     }

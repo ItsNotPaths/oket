@@ -1,5 +1,7 @@
 package main
 
+import "lues:lues"
+import "lues:pt"
 import "core:os"
 import "core:strings"
 import "../desc"
@@ -30,19 +32,19 @@ cl_init :: proc(a: ^App) {
     if a.cl.live {
         return
     }
-    a.cl.doc = store.store_open(&a.docs, "")
+    a.cl.doc = store.store_open(a.docs, "")
     a.cl.live = true
-    gen, _ := store.store_gen(&a.docs, a.cl.doc)
+    gen, _ := store.store_gen(a.docs, a.cl.doc)
     // A widget, not a surface (§5): no kind, so it takes no ring slot and appears in no lane.
     d := desc.new_from({ctx = .Text, selection = .Char, editable = true, tab_width = 4})
-    store.store_submit(&a.docs, a.cl.doc, gen, nil, d)
+    store.store_submit(a.docs, a.cl.doc, gen, nil, d)
     desc.release(d)
-    store.store_drain(&a.docs)
+    lues.kernel_settle(a.kernel)
 }
 
 cl_destroy :: proc(a: ^App) {
     if a.cl.live {
-        store.store_close(&a.docs, a.cl.doc)
+        store.store_close(a.docs, a.cl.doc)
     }
     for h in a.cl.history {
         delete(h)
@@ -73,7 +75,7 @@ cl_hide :: proc(a: ^App) {
 
 // What is typed right now, trimmed the way submit trims it.
 cl_line :: proc(a: ^App, alloc := context.temp_allocator) -> string {
-    doc := store.store_doc(&a.docs, a.cl.doc)
+    doc := store.store_doc(a.docs, a.cl.doc)
     if doc == nil {
         return ""
     }
@@ -120,7 +122,7 @@ cl_history :: proc(a: ^App, by: int) {
 
 @(private = "file")
 cl_set :: proc(a: ^App, text: string) {
-    doc := store.store_doc(&a.docs, a.cl.doc)
+    doc := store.store_doc(a.docs, a.cl.doc)
     if doc == nil {
         return
     }
@@ -137,12 +139,12 @@ cl_draw :: proc(a: ^App, g: ^gfx.Grid, th: gfx.Theme, workspace: string) {
     line := bar_theme(th)
     cl_fill(g, line, b.y)
     gfx.grid_write(g, b.x - len(CL_PROMPT), b.y, CL_PROMPT, line[.Fg], gfx.opaque(line[.Bg]))
-    snap := store.store_snapshot(&a.docs, a.cl.doc)
+    snap := store.store_snapshot(a.docs, a.cl.doc)
     if snap == nil {
         return
     }
-    defer txt.snapshot_release(snap)
-    d := store.store_descriptor(&a.docs, a.cl.doc)
+    defer pt.snapshot_release(snap)
+    d := store.store_descriptor(a.docs, a.cl.doc)
     defer desc.release(d)
     view.follow_col(&a.cl.view, view.point_col(&snap.text, d, a.cl.view), b.w)
     // Through the pipeline like a panel (VIEWS.md §5): the line has no stages of its own, but

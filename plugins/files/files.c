@@ -70,7 +70,7 @@
 #define PREFIX_W (10 + 1 + SIZE_W + 2 + WHEN_W + 2)
 #define LINE_CAP (PREFIX_W + NAME_CAP + 64)
 
-static oket_kind FILES;
+static lues_kind FILES;
 
 /* One line of the document. `path` is where the row POINTS and `shown` is what it DRAWS, and a
  * commit is the whole of the difference between them: the two stop agreeing the moment you type.
@@ -112,7 +112,7 @@ typedef struct {
     size_t nseen;
     /* The inotify job over `root` (§9). A directory changes under a listing with no keystroke
      * and no generation move to notice it by, so the kernel is what notices. */
-    oket_io watch;
+    lues_io watch;
 } browser;
 
 /* --- the platter --- */
@@ -517,7 +517,7 @@ static const oket_list_spec LSPEC = {
  *
  * A line count that does not match is a document somebody has split or joined — an edit no row
  * survives — so nothing is harvested and `commit` will refuse for the same reason. */
-static void harvest(oket_list *l, const oket_snapshot *s) {
+static void harvest(oket_list *l, const lues_snapshot *s) {
     browser *b = l->ctx;
     size_t j;
 
@@ -562,7 +562,7 @@ static int pending(const browser *b) {
 
 /* Read the document back, read the directory again, write it out: the three steps every verb
  * below ends with. `keep` off throws typed names away, which is what a reload is. */
-static void rebuild(const oket_api *api, oket_self self, oket_list *l, const oket_at *at,
+static void rebuild(const lues_api *api, lues_self self, oket_list *l, const lues_at *at,
                     int keep) {
     browser *b = l->ctx;
 
@@ -574,13 +574,13 @@ static void rebuild(const oket_api *api, oket_self self, oket_list *l, const oke
 }
 
 /* The browser row behind the line point is on, or NULL over nothing. */
-static row *row_at_point(oket_list *l, const oket_at *at, size_t *line);
+static row *row_at_point(oket_list *l, const lues_at *at, size_t *line);
 
 /* The directory as it IS, not as it was read. A file made in a terminal or dropped by a build
  * has to show up in a listing nobody has touched, and there is no keystroke and no generation
  * move to notice it by — so the kernel notices, through the inotify job §9 already has. One
  * watch, replaced whenever the root does, and an idle browser costs nothing. */
-static void watch_root(const oket_api *api, oket_self self, oket_list *l) {
+static void watch_root(const lues_api *api, lues_self self, oket_list *l) {
     browser *b = l->ctx;
 
     if (b->watch != 0) {
@@ -592,7 +592,7 @@ static void watch_root(const oket_api *api, oket_self self, oket_list *l) {
 /* The listing, rooted somewhere else, with the caret on `land`'s name once the rows exist.
  * Shared by every verb that MOVES rather than opens: visiting a directory, going back up, and
  * `:fs.root`. The filter is this directory's, so it goes too. */
-static void reroot(const oket_api *api, oket_self self, oket_list *l, const oket_at *at,
+static void reroot(const lues_api *api, lues_self self, oket_list *l, const lues_at *at,
                    const char *root, const char *land) {
     browser *b = l->ctx;
     char report[128];
@@ -647,7 +647,7 @@ static void reroot(const oket_api *api, oket_self self, oket_list *l, const oket
 
 /* --- the six messages --- */
 
-static void *open_browser(const oket_api *api, oket_self self, oket_doc doc,
+static void *open_browser(const lues_api *api, lues_self self, lues_doc doc,
                           const char *args, size_t args_len) {
     browser *b = calloc(1, sizeof *b);
     oket_list *l;
@@ -683,7 +683,7 @@ static void *open_browser(const oket_api *api, oket_self self, oket_doc doc,
     return l;
 }
 
-static void close_browser(const oket_api *api, oket_self self, oket_doc doc, void *inst) {
+static void close_browser(const lues_api *api, lues_self self, lues_doc doc, void *inst) {
     oket_list *l = inst;
     browser *b;
     size_t i;
@@ -712,7 +712,7 @@ static void close_browser(const oket_api *api, oket_self self, oket_doc doc, voi
 
 /* --- the verbs --- */
 
-static int32_t refuse(const oket_api *api, oket_self self, const char *why) {
+static int32_t refuse(const lues_api *api, lues_self self, const char *why) {
     oket_say(api, self, why);
     return 1;
 }
@@ -720,12 +720,12 @@ static int32_t refuse(const oket_api *api, oket_self self, const char *why) {
 /* Typing is the list core's; a watch hit is this file's. The directory changed under the
  * listing, so it is read again with TYPED NAMES KEPT: a rename half written must survive
  * somebody else's `touch`, which is the same rule a regeneration already follows. */
-static int32_t files_event(const oket_api *api, oket_self self, const oket_at *at,
-                           oket_event ev, const char *text, size_t len) {
+static int32_t files_event(const lues_api *api, lues_self self, const lues_at *at,
+                           lues_event ev, const char *text, size_t len) {
     oket_list *l;
     size_t line;
 
-    if (ev != OKET_EVENT_IO) {
+    if (ev != LUES_EVENT_IO) {
         return oket_list_event(api, self, at, ev, text, len);
     }
     l = oket_list_of(at);
@@ -739,7 +739,7 @@ static int32_t files_event(const oket_api *api, oket_self self, const oket_at *a
 }
 
 /* The browser row behind the line point is on, or NULL over nothing. */
-static row *row_at_point(oket_list *l, const oket_at *at, size_t *line) {
+static row *row_at_point(oket_list *l, const lues_at *at, size_t *line) {
     const oket_list_row *lr;
     browser *b = l->ctx;
 
@@ -768,7 +768,7 @@ static int arg_path(const char *args, size_t args_len, char *out, size_t cap) {
  * The exit code is the whole interface: non-zero over a directory STOPS the `&&` chain, having
  * moved; zero over anything else lets the chain reach `:open <path>`. A plugin cannot open a
  * document of somebody else's kind and does not need to — the command line it was bound in can. */
-static int32_t enter_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t enter_cmd(const lues_api *api, lues_self self, const lues_at *at,
                          const char *args, size_t args_len) {
     oket_list *l = oket_list_of(at);
     char path[PATH_CAP];
@@ -786,7 +786,7 @@ static int32_t enter_cmd(const oket_api *api, oket_self self, const oket_at *at,
 /* `fs.up` — out of whatever you are inside of: an open subtree closes, and otherwise the
  * listing goes up a directory and lands on the row it came from. `ctrl+backspace`, and the
  * same place the `..` row takes you. */
-static int32_t up_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t up_cmd(const lues_api *api, lues_self self, const lues_at *at,
                       const char *args, size_t args_len) {
     oket_list *l = oket_list_of(at);
     browser *b;
@@ -820,7 +820,7 @@ static int32_t up_cmd(const oket_api *api, oket_self self, const oket_at *at,
 /* `fs.into` — the directory under point, visited. The mirror of `fs.up`, and UNBOUND by
  * default: `enter` already visits a directory, so this is one binds.conf line away for anyone
  * who wants the pair on two chords. Over a file it does nothing. */
-static int32_t into_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t into_cmd(const lues_api *api, lues_self self, const lues_at *at,
                         const char *args, size_t args_len) {
     oket_list *l = oket_list_of(at);
     row *r;
@@ -842,7 +842,7 @@ static int32_t into_cmd(const oket_api *api, oket_self self, const oket_at *at,
 /* `fs.up.row` and `fs.down.row` — one row, and the caret lands at the END OF ITS NAME. That is
  * the whole of what navigation means here: there is no column to keep, because every row is
  * arrived at ready to type into. */
-static int32_t step(const oket_api *api, oket_self self, oket_list *l, const oket_at *at,
+static int32_t step(const lues_api *api, lues_self self, oket_list *l, const lues_at *at,
                     int by) {
     size_t line = oket_list_line(at->snap);
 
@@ -853,7 +853,7 @@ static int32_t step(const oket_api *api, oket_self self, oket_list *l, const oke
     return 0;
 }
 
-static int32_t up_row_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t up_row_cmd(const lues_api *api, lues_self self, const lues_at *at,
                           const char *args, size_t args_len) {
     oket_list *l = oket_list_of(at);
 
@@ -865,7 +865,7 @@ static int32_t up_row_cmd(const oket_api *api, oket_self self, const oket_at *at
     return step(api, self, l, at, -1);
 }
 
-static int32_t down_row_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t down_row_cmd(const lues_api *api, lues_self self, const lues_at *at,
                             const char *args, size_t args_len) {
     oket_list *l = oket_list_of(at);
 
@@ -880,7 +880,7 @@ static int32_t down_row_cmd(const oket_api *api, oket_self self, const oket_at *
 /* `fs.snap` — the caret back onto the end of the name of whatever row it is on. What `click` is
  * bound to: the kernel moves point before it dispatches a button chord (§8), so this lands it
  * where a name is edited from rather than where the pointer happened to be. */
-static int32_t snap_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t snap_cmd(const lues_api *api, lues_self self, const lues_at *at,
                         const char *args, size_t args_len) {
     oket_list *l = oket_list_of(at);
 
@@ -895,7 +895,7 @@ static int32_t snap_cmd(const oket_api *api, oket_self self, const oket_at *at,
 
 /* `fs.toggle <path>` — the subtree under a row, opened or closed IN PLACE. Unbound by default:
  * `enter` and the arrows are the hierarchy, and this is for the key you want it on. */
-static int32_t toggle_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t toggle_cmd(const lues_api *api, lues_self self, const lues_at *at,
                           const char *args, size_t args_len) {
     oket_list *l = oket_list_of(at);
     char path[PATH_CAP];
@@ -924,10 +924,10 @@ static int32_t toggle_cmd(const oket_api *api, oket_self self, const oket_at *at
  * A document with a different number of lines than rows is one somebody has split or joined,
  * and no row can be trusted to name its own line any more. That refuses whole: `:fs.reload` is
  * one key away and undo is the kernel's. */
-static int32_t commit_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t commit_cmd(const lues_api *api, lues_self self, const lues_at *at,
                           const char *args, size_t args_len) {
     oket_list *l = oket_list_of(at);
-    const oket_snapshot *s = at->snap;
+    const lues_snapshot *s = at->snap;
     browser *b;
     char report[256];
     size_t i, line;
@@ -975,7 +975,7 @@ static int32_t commit_cmd(const oket_api *api, oket_self self, const oket_at *at
 
 /* `:fs.reload` — the listing as the disk has it, and typed names dropped. The abort half of a
  * rename, and the way back from an edit that broke a row. */
-static int32_t reload_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t reload_cmd(const lues_api *api, lues_self self, const lues_at *at,
                           const char *args, size_t args_len) {
     oket_list *l = oket_list_of(at);
     size_t line;
@@ -993,7 +993,7 @@ static int32_t reload_cmd(const oket_api *api, oket_self self, const oket_at *at
 
 /* `:fs.hidden` — dotfiles, shown or not. A row rather than a mode: it answers to `describe` and
  * it is one line in binds.conf away from any key. */
-static int32_t hidden_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t hidden_cmd(const lues_api *api, lues_self self, const lues_at *at,
                           const char *args, size_t args_len) {
     oket_list *l = oket_list_of(at);
     browser *b;
@@ -1012,7 +1012,7 @@ static int32_t hidden_cmd(const oket_api *api, oket_self self, const oket_at *at
 
 /* `:fs.root <path>` — the listing, somewhere else. The lane already holds this document, so the
  * root moves rather than a second listing opening beside it. */
-static int32_t root_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t root_cmd(const lues_api *api, lues_self self, const lues_at *at,
                         const char *args, size_t args_len) {
     oket_list *l = oket_list_of(at);
     char root[PATH_CAP];
@@ -1027,11 +1027,12 @@ static int32_t root_cmd(const oket_api *api, oket_self self, const oket_at *at,
     return 0;
 }
 
-OKET_MAIN {
+LUES_MAIN {
     /* `files` is the name the kernel already aims at (kinds.odin): `:open` on a directory,
      * `alt+f`'s `:ring files`, and the `[files]` bind section all reach whoever registers it,
      * so this becomes what a directory opens as with no new wiring. */
-    static const oket_kind_spec SPEC = {
+    static const lues_kind_spec SPEC = {
+        sizeof(lues_kind_spec),
         LIT("files"),
         LIT("surface"),
         {open_browser, close_browser, files_event},

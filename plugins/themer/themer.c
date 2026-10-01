@@ -42,7 +42,7 @@
 #define NAME_W 34
 #define MAX_THEMES 512
 
-static oket_kind THEMER;
+static lues_kind THEMER;
 
 /* Where the themes live: `$OKET_DATA/themes`, or wherever `:th.dir` pointed — the same seam
  * `:grammar dir` gives the syntax gate, because a test cannot set this process's environment. */
@@ -199,7 +199,7 @@ static int cache_present(void) {
 /* The repo listing into the cache, atomically: the shell scrapes the JSON, so no line of it is
  * ever parsed here, and a curl that fails leaves whatever cache there was. The doc routes the
  * exit back to `event` (§9). */
-static void fetch(const oket_api *api, oket_self self, oket_doc doc) {
+static void fetch(const lues_api *api, lues_self self, lues_doc doc) {
     static char cmd[PATH_CAP * 3 + 256];
     const char *argv[3] = {"sh", "-c", cmd};
 
@@ -300,14 +300,14 @@ static const oket_list_spec LSPEC = {
     t_count, t_match, t_row, t_head, NULL,
 };
 
-static void rescan(const oket_api *api, oket_self self) {
+static void rescan(const lues_api *api, lues_self self) {
     scan();
     oket_list_repaint(api, self);
 }
 
 /* --- the six messages --- */
 
-static void *open_list(const oket_api *api, oket_self self, oket_doc doc, const char *args,
+static void *open_list(const lues_api *api, lues_self self, lues_doc doc, const char *args,
                        size_t args_len) {
     oket_list *l = oket_list_open(api, self, doc, NULL);
 
@@ -325,18 +325,18 @@ static void *open_list(const oket_api *api, oket_self self, oket_doc doc, const 
     return l;
 }
 
-static void close_list(const oket_api *api, oket_self self, oket_doc doc, void *inst) {
+static void close_list(const lues_api *api, lues_self self, lues_doc doc, void *inst) {
     (void)api;
     (void)self;
     (void)doc;
     oket_list_close(inst);
 }
 
-static int32_t event(const oket_api *api, oket_self self, const oket_at *at, oket_event ev,
+static int32_t event(const lues_api *api, lues_self self, const lues_at *at, lues_event ev,
                      const char *text, size_t len) {
     /* The fetch coming home: the cache moved, or curl said no and it did not. Either way the
      * platter is the answer, so a rescan is the whole of the handling. */
-    if (ev == OKET_EVENT_IO_END) {
+    if (ev == LUES_EVENT_IO_END) {
         rescan(api, self);
         return 0;
     }
@@ -346,7 +346,7 @@ static int32_t event(const oket_api *api, oket_self self, const oket_at *at, oke
 /* --- the verbs --- */
 
 /* A staged chain's last step: the platter moved under every open list, so they say so. */
-static int32_t done_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t done_cmd(const lues_api *api, lues_self self, const lues_at *at,
                         const char *args, size_t args_len) {
     (void)at;
     (void)args;
@@ -355,7 +355,7 @@ static int32_t done_cmd(const oket_api *api, oket_self self, const oket_at *at,
     return 0;
 }
 
-static int32_t pull_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t pull_cmd(const lues_api *api, lues_self self, const lues_at *at,
                         const char *args, size_t args_len) {
     (void)args;
     (void)args_len;
@@ -371,7 +371,7 @@ static int32_t pull_cmd(const oket_api *api, oket_self self, const oket_at *at,
     return 0;
 }
 
-static int32_t dir_cmd(const oket_api *api, oket_self self, const oket_at *at,
+static int32_t dir_cmd(const lues_api *api, lues_self self, const lues_at *at,
                        const char *args, size_t args_len) {
     char msg[PATH_CAP + 32];
 
@@ -391,8 +391,9 @@ static int32_t dir_cmd(const oket_api *api, oket_self self, const oket_at *at,
     return 0;
 }
 
-OKET_MAIN {
-    static const oket_kind_spec SPEC = {
+LUES_MAIN {
+    static const lues_kind_spec SPEC = {
+        sizeof(lues_kind_spec),
         LIT("themer"),
         LIT("surface"),
         {open_list, close_list, event},

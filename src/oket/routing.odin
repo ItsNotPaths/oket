@@ -1,5 +1,7 @@
 package main
 
+import "lues:lues"
+import "lues:pt"
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
@@ -27,7 +29,7 @@ active :: proc(a: ^App) -> ^Slot {
 @(private = "file")
 active_doc :: proc(a: ^App) -> ^txt.Doc {
     s := active(a)
-    return s != nil ? store.store_doc(&a.docs, s.doc) : nil
+    return s != nil ? store.store_doc(a.docs, s.doc) : nil
 }
 
 // Where that document was drawn, for a click. The line's row while it is open, the focused
@@ -51,7 +53,7 @@ active_desc :: proc(a: ^App) -> (^Slot, ^desc.Descriptor) {
     if s == nil {
         return nil, nil
     }
-    return s, store.store_descriptor(&a.docs, s.doc)
+    return s, store.store_descriptor(a.docs, s.doc)
 }
 
 // The focused document names its own context, and the descriptor is where it says so (§5). An
@@ -523,7 +525,7 @@ writable :: proc(a: ^App) -> ^txt.Doc {
         return nil
     }
     defer desc.release(d)
-    return d.editable && !s.locked ? store.store_doc(&a.docs, s.doc) : nil
+    return d.editable && !s.locked ? store.store_doc(a.docs, s.doc) : nil
 }
 
 // A rune, not a chord (§8): binds see chords and never see an `a` on its way into a document.
@@ -537,7 +539,7 @@ writable :: proc(a: ^App) -> ^txt.Doc {
 text_input :: proc(a: ^App, r: rune) {
     a.paste.live = false // typing is one of the "every other verb" the mark is put down for
     if cl_active(a) {
-        doc := store.store_doc(&a.docs, a.cl.doc)
+        doc := store.store_doc(a.docs, a.cl.doc)
         if doc == nil {
             return
         }
@@ -652,7 +654,7 @@ bind_expand :: proc(a: ^App, template: string) -> (string, bool) {
     if !ok {
         return "", false
     }
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     defer desc.release(d)
 
     b := strings.builder_make(context.temp_allocator)
@@ -679,7 +681,7 @@ bind_expand :: proc(a: ^App, template: string) -> (string, bool) {
 // the opener's, because what a file is on disk is what the opener knew and the kernel does not.
 dump_doc :: proc(a: ^App) -> bool {
     s := ring_focused(a)
-    doc := s != nil ? store.store_doc(&a.docs, s.doc) : nil
+    doc := s != nil ? store.store_doc(a.docs, s.doc) : nil
     if doc == nil {
         message_set(a, "file.dump: nothing is focused")
         return false
@@ -873,7 +875,7 @@ point_sync :: proc(a: ^App) {
     if s == nil {
         return
     }
-    if doc := store.store_doc(&a.docs, s.doc); doc != nil {
+    if doc := store.store_doc(a.docs, s.doc); doc != nil {
         s.view.point = doc.cursors[doc.primary]
     }
 }
@@ -884,7 +886,10 @@ point_sync :: proc(a: ^App) {
 // The return is a view stage's latch (VIEWS.md §5), which is the one thing no keystroke and no
 // reader thread will wake. Every other caller ignores it: only the frame loop can act on it.
 docs_settle :: proc(a: ^App) -> (latched: bool) {
-    applied, _ := store.store_drain(&a.docs)
+    lues.kernel_settle(a.kernel)
+    // What landed here, and in every settle lues ran inside a dispatch since (hooks.drained).
+    applied := a.settled
+    a.settled = 0
     // Before the early return: a splice written straight through `store_doc` moves a document
     // with no transaction behind it, and its journal still has to be flushed (§10).
     journal_sync(a)
@@ -899,7 +904,7 @@ docs_settle :: proc(a: ^App) -> (latched: bool) {
         return
     }
     s := active(a)
-    d := s != nil ? store.store_descriptor(&a.docs, s.doc) : nil
+    d := s != nil ? store.store_descriptor(a.docs, s.doc) : nil
     if d == nil {
         return
     }
@@ -907,11 +912,11 @@ docs_settle :: proc(a: ^App) -> (latched: bool) {
     // A tail document decides its own top by what is on screen (§11), and yanking it to the
     // caret would be the attached/detached flag that field exists to not need.
     if d.follow != .Tail {
-        snap := store.store_snapshot(&a.docs, s.doc)
+        snap := store.store_snapshot(a.docs, s.doc)
         if snap == nil {
             return
         }
-        defer txt.snapshot_release(snap)
+        defer pt.snapshot_release(snap)
         t, dv := views_text(a, s.doc, &snap.text)
         view.follow(&s.view, active_rect(a).h, t, dv)
     }
@@ -921,15 +926,15 @@ docs_settle :: proc(a: ^App) -> (latched: bool) {
 // The read pair every event wants: the frozen text and the descriptor its generation named. The
 // caller releases both.
 @(private = "file")
-reading :: proc(a: ^App, s: ^Slot) -> (^txt.Snapshot, ^desc.Descriptor, bool) {
+reading :: proc(a: ^App, s: ^Slot) -> (^pt.Snapshot, ^desc.Descriptor, bool) {
     if s == nil {
         return nil, nil, false
     }
-    snap := store.store_snapshot(&a.docs, s.doc)
+    snap := store.store_snapshot(a.docs, s.doc)
     if snap == nil {
         return nil, nil, false
     }
-    return snap, store.store_descriptor(&a.docs, s.doc), true
+    return snap, store.store_descriptor(a.docs, s.doc), true
 }
 
 // The active descriptor's tab width, for the verbs whose goal column expands tabs
@@ -946,7 +951,7 @@ active_tab :: proc(a: ^App) -> int {
 
 point_move :: proc(a: ^App, motion: txt.Motion, extend: bool) {
     s := active(a)
-    doc := s != nil ? store.store_doc(&a.docs, s.doc) : nil
+    doc := s != nil ? store.store_doc(a.docs, s.doc) : nil
     if doc == nil {
         return
     }
@@ -954,11 +959,11 @@ point_move :: proc(a: ^App, motion: txt.Motion, extend: bool) {
     // for. `txt` takes a slice and stays pure — it never learns what a fold is.
     txt.doc_move(doc, motion, extend, hidden = views_hidden(a, s.doc), tab = active_tab(a))
     point_sync(a)
-    snap := store.store_snapshot(&a.docs, s.doc)
+    snap := store.store_snapshot(a.docs, s.doc)
     if snap == nil {
         return
     }
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     t, dv := views_text(a, s.doc, &snap.text)
     view.follow(&s.view, active_rect(a).h, t, dv)
 }
@@ -972,7 +977,7 @@ point_at :: proc(a: ^App, cx, cy: int) -> (txt.Pos, bool) {
     if !ok {
         return {}, false
     }
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     defer desc.release(d)
     r := active_rect(a)
     t, dv := views_text(a, s.doc, &snap.text)
@@ -1019,9 +1024,9 @@ select_expand :: proc(a: ^App) {
     if !ok {
         return
     }
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     defer desc.release(d)
-    doc := store.store_doc(&a.docs, s.doc)
+    doc := store.store_doc(a.docs, s.doc)
     at := doc.cursors[doc.primary].head
     switch d.selection {
     case .Char:
@@ -1050,11 +1055,11 @@ scroll_by :: proc(a: ^App, lines: int) {
     if s == nil {
         return
     }
-    snap := store.store_snapshot(&a.docs, s.doc)
+    snap := store.store_snapshot(a.docs, s.doc)
     if snap == nil {
         return
     }
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     t, _ := views_text(a, s.doc, &snap.text) // `top` is a line of the DRAWN document
     view.scroll(&s.view, t, lines)
 }
@@ -1222,7 +1227,7 @@ hover_update :: proc(a: ^App, panel, cx, cy: int) {
     if !ok {
         return
     }
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     defer desc.release(d)
     b := pn.body
     t, dv := views_text(a, s.doc, &snap.text)

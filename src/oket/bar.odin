@@ -44,7 +44,7 @@ bar_text :: proc(a: ^App) -> string {
         // (VIEWS.md §4). Escape puts one down ahead of every row that claims the key, and no row
         // is what describe could read out, so the bar is where that is said.
         trail := ""
-        if doc := store.store_doc(&a.docs, s.doc); doc != nil && len(doc.cursors) > 1 {
+        if doc := store.store_doc(a.docs, s.doc); doc != nil && len(doc.cursors) > 1 {
             trail = fmt.tprintf("  %d carets, esc puts them down", len(doc.cursors))
         }
         lock := s.locked ? "  locked" : ""

@@ -1,5 +1,6 @@
 package tests
 
+import "lues:pt"
 import "core:strings"
 import "core:testing"
 import "../desc"
@@ -39,7 +40,7 @@ opened :: proc(
     text: string,
     d: desc.Descriptor,
 ) -> (
-    snap: ^txt.Snapshot,
+    snap: ^pt.Snapshot,
     dp: ^desc.Descriptor,
 ) {
     id := store.store_open(s, text)
@@ -65,7 +66,7 @@ into :: proc(
     s: store.Store
     defer store.store_destroy(&s)
     snap, dp := opened(&s, text, d)
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     defer desc.release(dp)
 
     testing.expect(t, gfx.grid_init(g, cols, rows))
@@ -112,7 +113,7 @@ field_resolves_from_the_descriptor :: proc(t: ^testing.T) {
     defer store.store_destroy(&s)
     fields := LISTING_FIELDS
     snap, dp := opened(&s, LISTING, {fields = fields[:]})
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     defer desc.release(dp)
 
     name, ok := view.field_text(&snap.text, dp, 1, "name")
@@ -161,7 +162,7 @@ wrap_splits_a_line_into_rows :: proc(t: ^testing.T) {
     s: store.Store
     defer store.store_destroy(&s)
     snap, dp := opened(&s, "aaa bbb ccc", {wrap = .Char})
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     defer desc.release(dp)
 
     by_char := view.rows(&snap.text, dp, 0, 7, 8)
@@ -194,7 +195,7 @@ locate_maps_cells_through_tabs :: proc(t: ^testing.T) {
     s: store.Store
     defer store.store_destroy(&s)
     snap, dp := opened(&s, "a\tbc", {tab_width = 4})
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     defer desc.release(dp)
 
     // cells: a=0, the tab runs 1..3, b=4, c=5
@@ -220,7 +221,7 @@ a_selected_row_is_marked_over_its_own_text :: proc(t: ^testing.T) {
     columns := LISTING_COLUMNS
     fields := LISTING_FIELDS
     snap, dp := opened(&s, LISTING, {columns = columns[:], fields = fields[:], selection = .Line})
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     defer desc.release(dp)
 
     g: gfx.Grid
@@ -249,7 +250,7 @@ every_caret_lights_its_listing_row :: proc(t: ^testing.T) {
     columns := LISTING_COLUMNS
     fields := LISTING_FIELDS
     snap, dp := opened(&s, LISTING, {columns = columns[:], fields = fields[:], selection = .Line})
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     defer desc.release(dp)
 
     g: gfx.Grid
@@ -277,7 +278,7 @@ a_selection_carries_its_swap_as_far_as_the_percent_says :: proc(t: ^testing.T) {
     s: store.Store
     defer store.store_destroy(&s)
     snap, dp := opened(&s, "hello\nworld", {selection = .Char})
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     defer desc.release(dp)
 
     g: gfx.Grid
@@ -316,7 +317,7 @@ a_field_with_a_value_answers_with_it :: proc(t: ^testing.T) {
     defer store.store_destroy(&s)
     fields := [?]desc.Field{{0, "name", 0, 3, ""}, {0, "path", 0, 3, "/tmp/src"}}
     snap, dp := opened(&s, "src", {fields = fields[:]})
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     defer desc.release(dp)
 
     shown, _ := view.field_text(&snap.text, dp, 0, "name")
@@ -339,7 +340,7 @@ a_draw_only_walks_the_carets_on_screen :: proc(t: ^testing.T) {
     defer store.store_destroy(&s)
     text := strings.repeat("ab\n", LINES, context.temp_allocator)
     snap, dp := opened(&s, text, {})
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     defer desc.release(dp)
 
     carets := make([]txt.Cursor, LINES, context.temp_allocator)
@@ -393,7 +394,7 @@ an_unsorted_caret_set_lights_the_rows_it_names :: proc(t: ^testing.T) {
     columns := LISTING_COLUMNS
     fields := LISTING_FIELDS
     snap, dp := opened(&s, LISTING, {columns = columns[:], fields = fields[:], selection = .Line})
-    defer txt.snapshot_release(snap)
+    defer pt.snapshot_release(snap)
     defer desc.release(dp)
 
     g: gfx.Grid

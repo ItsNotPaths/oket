@@ -10,7 +10,7 @@
  * `pieces` is sorted by doc_off and covers the document with no gaps, so locating an offset is
  * a binary search. */
 
-static size_t piece_at(const oket_snapshot *s, size_t off) {
+static size_t piece_at(const lues_snapshot *s, size_t off) {
     size_t lo = 0, hi = s->npieces;
     while (lo + 1 < hi) {
         size_t mid = lo + (hi - lo) / 2;
@@ -23,9 +23,9 @@ static size_t piece_at(const oket_snapshot *s, size_t off) {
     return lo;
 }
 
-const char *oket_run(const oket_snapshot *s, size_t off, size_t *run_len) {
+const char *oket_run(const lues_snapshot *s, size_t off, size_t *run_len) {
     size_t i, into;
-    const oket_piece *p;
+    const lues_piece *p;
 
     *run_len = 0;
     if (s == NULL || off >= s->size || s->npieces == 0) {
@@ -41,7 +41,7 @@ const char *oket_run(const oket_snapshot *s, size_t off, size_t *run_len) {
     return (const char *)s->blocks[p->block].ptr + (size_t)p->off + into;
 }
 
-size_t oket_copy(const oket_snapshot *s, size_t lo, size_t hi, char *dst, size_t cap) {
+size_t oket_copy(const lues_snapshot *s, size_t lo, size_t hi, char *dst, size_t cap) {
     size_t n = 0;
 
     if (s == NULL || dst == NULL) {
@@ -70,7 +70,7 @@ size_t oket_copy(const oket_snapshot *s, size_t lo, size_t hi, char *dst, size_t
     return n;
 }
 
-char oket_byte(const oket_snapshot *s, size_t off) {
+char oket_byte(const lues_snapshot *s, size_t off) {
     size_t run_len;
     const char *run = oket_run(s, off, &run_len);
     return run != NULL ? *run : '\0';
@@ -82,7 +82,7 @@ char oket_byte(const oket_snapshot *s, size_t off) {
  * run's `delta` added. An edit re-deltas segments rather than rewriting every start after the
  * caret, which is what keeps a keystroke off an O(document) path. */
 
-static const oket_seg *seg_of_line(const oket_snapshot *s, size_t line) {
+static const lues_seg *seg_of_line(const lues_snapshot *s, size_t line) {
     size_t lo = 0, hi = s->nsegs;
     while (lo + 1 < hi) {
         size_t mid = lo + (hi - lo) / 2;
@@ -95,8 +95,8 @@ static const oket_seg *seg_of_line(const oket_snapshot *s, size_t line) {
     return &s->segs[lo];
 }
 
-size_t oket_line_start(const oket_snapshot *s, size_t line) {
-    const oket_seg *g;
+size_t oket_line_start(const lues_snapshot *s, size_t line) {
+    const lues_seg *g;
     ptrdiff_t at;
 
     if (s == NULL || s->nsegs == 0 || s->lines == 0) {
@@ -113,7 +113,7 @@ size_t oket_line_start(const oket_snapshot *s, size_t line) {
     return (size_t)(s->starts[at] + g->delta);
 }
 
-void oket_line_range(const oket_snapshot *s, size_t line, size_t *lo, size_t *hi) {
+void oket_line_range(const lues_snapshot *s, size_t line, size_t *lo, size_t *hi) {
     *lo = *hi = 0;
     if (s == NULL || s->lines == 0) {
         return;
@@ -126,7 +126,7 @@ void oket_line_range(const oket_snapshot *s, size_t line, size_t *lo, size_t *hi
     }
 }
 
-size_t oket_line_at(const oket_snapshot *s, size_t off) {
+size_t oket_line_at(const lues_snapshot *s, size_t off) {
     size_t lo = 0, hi;
 
     if (s == NULL || s->lines == 0) {
@@ -144,7 +144,7 @@ size_t oket_line_at(const oket_snapshot *s, size_t off) {
     return lo;
 }
 
-size_t oket_line_copy(const oket_snapshot *s, size_t line, char *dst, size_t cap) {
+size_t oket_line_copy(const lues_snapshot *s, size_t line, char *dst, size_t cap) {
     size_t lo, hi;
     oket_line_range(s, line, &lo, &hi);
     return oket_copy(s, lo, hi, dst, cap);
@@ -154,7 +154,7 @@ size_t oket_line_copy(const oket_snapshot *s, size_t line, char *dst, size_t cap
 
 /* One walk for both column questions: forward until `hi` bytes or `cell_stop` cells, whichever
  * comes first. Returns where it stopped and writes the cells it crossed. */
-static size_t col_walk(const oket_snapshot *s, size_t lo, size_t hi, size_t cell_stop,
+static size_t col_walk(const lues_snapshot *s, size_t lo, size_t hi, size_t cell_stop,
                        size_t tab_width, size_t *cells_out) {
     size_t at, cells = 0;
 
@@ -176,7 +176,7 @@ static size_t col_walk(const oket_snapshot *s, size_t lo, size_t hi, size_t cell
     return at;
 }
 
-size_t oket_col_cells(const oket_snapshot *s, size_t line, size_t col, size_t tab_width) {
+size_t oket_col_cells(const lues_snapshot *s, size_t line, size_t col, size_t tab_width) {
     size_t lo, hi, cells;
 
     oket_line_range(s, line, &lo, &hi);
@@ -187,7 +187,7 @@ size_t oket_col_cells(const oket_snapshot *s, size_t line, size_t col, size_t ta
     return cells;
 }
 
-size_t oket_col_bytes(const oket_snapshot *s, size_t line, size_t cell, size_t tab_width) {
+size_t oket_col_bytes(const lues_snapshot *s, size_t line, size_t cell, size_t tab_width) {
     size_t lo, hi, cells;
 
     oket_line_range(s, line, &lo, &hi);
@@ -196,7 +196,7 @@ size_t oket_col_bytes(const oket_snapshot *s, size_t line, size_t cell, size_t t
 
 /* --- cursors --- */
 
-size_t oket_pos_off(const oket_snapshot *s, oket_pos p) {
+size_t oket_pos_off(const lues_snapshot *s, oket_pos p) {
     size_t lo, hi, at;
 
     if (p.line < 0) {
@@ -210,15 +210,15 @@ size_t oket_pos_off(const oket_snapshot *s, oket_pos p) {
     return at > hi ? hi : at;
 }
 
-void oket_cursor_span(const oket_snapshot *s, size_t i, size_t *lo, size_t *hi) {
+void oket_cursor_span(const lues_snapshot *s, size_t i, size_t *lo, size_t *hi) {
     size_t a, b;
 
-    if (i >= s->ncursors) {
+    if (i >= oket_side_of(s)->ncursors) {
         *lo = *hi = 0;
         return;
     }
-    a = oket_pos_off(s, s->cursors[i].anchor);
-    b = oket_pos_off(s, s->cursors[i].head);
+    a = oket_pos_off(s, oket_side_of(s)->cursors[i].anchor);
+    b = oket_pos_off(s, oket_side_of(s)->cursors[i].head);
     *lo = a < b ? a : b;
     *hi = a < b ? b : a;
 }
@@ -237,7 +237,7 @@ static int pos_same(oket_pos a, oket_pos b) {
  * ends. Through the decoders above and never a byte count of their own, so a plugin and the
  * kernel cannot disagree about where a rune ends. */
 
-static size_t rune_back(const oket_snapshot *s, size_t off, size_t lo) {
+static size_t rune_back(const lues_snapshot *s, size_t off, size_t lo) {
     char     buf[4];
     uint32_t r;
     size_t   n = oket_copy(s, off - lo > 4 ? off - 4 : lo, off, buf, sizeof buf);
@@ -246,7 +246,7 @@ static size_t rune_back(const oket_snapshot *s, size_t off, size_t lo) {
     return used == 0 ? 1 : used;
 }
 
-static size_t rune_fwd(const oket_snapshot *s, size_t off, size_t hi) {
+static size_t rune_fwd(const lues_snapshot *s, size_t off, size_t hi) {
     char     buf[4];
     uint32_t r;
     size_t   n = oket_copy(s, off, off + 4 < hi ? off + 4 : hi, buf, sizeof buf);
@@ -255,7 +255,7 @@ static size_t rune_fwd(const oket_snapshot *s, size_t off, size_t hi) {
     return used == 0 ? 1 : used;
 }
 
-oket_pos oket_pos_left(const oket_snapshot *s, oket_pos p) {
+oket_pos oket_pos_left(const lues_snapshot *s, oket_pos p) {
     oket_pos out = p;
     size_t   lo, hi, off;
 
@@ -279,7 +279,7 @@ oket_pos oket_pos_left(const oket_snapshot *s, oket_pos p) {
     return out;
 }
 
-oket_pos oket_pos_right(const oket_snapshot *s, oket_pos p) {
+oket_pos oket_pos_right(const lues_snapshot *s, oket_pos p) {
     oket_pos out = p;
     size_t   lo, hi, off;
 
@@ -300,18 +300,18 @@ oket_pos oket_pos_right(const oket_snapshot *s, oket_pos p) {
     return out;
 }
 
-oket_pos oket_visible(const oket_snapshot *s, oket_pos p, int toward_lo) {
+oket_pos oket_visible(const lues_snapshot *s, oket_pos p, int toward_lo) {
     oket_pos out = p;
     size_t   pass, i;
 
     /* Looped, because two runs can meet and the edge of one is then inside the next. */
-    for (pass = 0; pass < s->nhidden; pass++) {
+    for (pass = 0; pass < oket_side_of(s)->nhidden; pass++) {
         int moved = 0;
 
-        for (i = 0; i < s->nhidden; i++) {
-            oket_pos e = toward_lo ? s->hidden[i].lo : s->hidden[i].hi;
+        for (i = 0; i < oket_side_of(s)->nhidden; i++) {
+            oket_pos e = toward_lo ? oket_side_of(s)->hidden[i].lo : oket_side_of(s)->hidden[i].hi;
 
-            if (oket_pos_less(out, s->hidden[i].lo) || oket_pos_less(s->hidden[i].hi, out)) {
+            if (oket_pos_less(out, oket_side_of(s)->hidden[i].lo) || oket_pos_less(oket_side_of(s)->hidden[i].hi, out)) {
                 continue;
             }
             if (!pos_same(e, out)) {
@@ -328,7 +328,7 @@ oket_pos oket_visible(const oket_snapshot *s, oket_pos p, int toward_lo) {
 
 /* Where one caret goes. `goal` is left negative: the seam reads that as "compute the cell
  * column from head", and only the kernel can measure one against the grid it draws. */
-static oket_cursor move_cursor(const oket_snapshot *s, oket_cursor c, oket_motion m,
+static oket_cursor move_cursor(const lues_snapshot *s, oket_cursor c, oket_motion m,
                                int select) {
     int      right = m == OKET_MOTION_RIGHT;
     oket_pos to;
@@ -357,11 +357,11 @@ static oket_cursor move_cursor(const oket_snapshot *s, oket_cursor c, oket_motio
  * beats a buffer kept per document for the rare case. */
 #define CURSORS_INLINE 32
 
-void oket_move(const oket_api *api, oket_self self, const oket_snapshot *s,
+void oket_move(const lues_api *api, lues_self self, const lues_snapshot *s,
                oket_motion m, int select) {
     oket_cursor  inline_set[CURSORS_INLINE];
     oket_cursor *set = inline_set;
-    size_t       i, n = s->ncursors;
+    size_t       i, n = oket_side_of(s)->ncursors;
 
     if (n == 0) {
         return;
@@ -373,9 +373,9 @@ void oket_move(const oket_api *api, oket_self self, const oket_snapshot *s,
         }
     }
     for (i = 0; i < n; i++) {
-        set[i] = move_cursor(s, s->cursors[i], m, select);
+        set[i] = move_cursor(s, oket_side_of(s)->cursors[i], m, select);
     }
-    api->cursors(api, self, s->doc, set, n, s->primary);
+    oket(api)->cursors(api, self, s->doc, set, n, oket_side_of(s)->primary);
     if (set != inline_set) {
         free(set);
     }

@@ -535,7 +535,6 @@ a_browser_and_two_editors_at_once :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.plug_init(&a)
     for plugin in ([?]string{"files", "edit"}) {
         if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, plugin)), a.message) {
             return
@@ -678,7 +677,6 @@ a_panel_takes_a_file_whatever_it_held :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.plug_init(&a)
     for plugin in ([?]string{"files", "edit"}) {
         if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, plugin)), a.message) {
             return
@@ -806,7 +804,6 @@ an_open_can_go_to_the_panel_that_has_it :: proc(t: ^testing.T) {
         return
     }
     defer close_plug_app(&a)
-    app.plug_init(&a)
     if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "edit")), a.message) {
         return
     }
