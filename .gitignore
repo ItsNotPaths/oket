@@ -13,3 +13,6 @@ docs/
 # Crash reports and recovery journals (§10). Written under oket_home(), which is the repo
 # root when you run the binary from here.
 /dumplogs/
+
+# The swiss plan: local to whoever is working, not shipped.
+/ws.md
