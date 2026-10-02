@@ -52,6 +52,13 @@ Terminal :: struct {
     exit_id:    u64,
     exit_code:  int,
 
+    // OSC 8 hyperlinks a program marked, oldest first, and the one it has open. `osc8` is the
+    // payload arriving in fragments; a URI does not fit `osc_buf`.
+    osc8:      [dynamic]u8,
+    link_uri:  string, // owned; "" when none is open
+    link_at:   [2]int,
+    links:     [dynamic]Hyperlink,
+
     // Scrollback. `sb_total` counts every line ever pushed, giving each a stable absolute
     // number: scrollback[i] is sb_total-len+i, live row r is sb_total+r. There is no view and
     // no copy cursor here — the kernel's viewport and cursors are the document's (§11).
@@ -71,6 +78,15 @@ ScrollLine :: struct {
     // command paste back as one line. Captured because libvterm forgets a row in history.
     continuation: bool,
 }
+
+// An OSC 8 link as the screen drew it: [from, to) in (absolute row, cell column), rows numbered
+// like scrollback so a link that scrolled off is still where it was. Owned uri.
+Hyperlink :: struct {
+    from, to: [2]int,
+    uri:      string,
+}
+
+HYPERLINKS_MAX :: 1024 // past it the oldest go, as scrollback lines do
 
 // Lines kept, and the slack before trimming the oldest in one batch (amortised O(1) per line
 // rather than an O(n) shift on every scrolled line).
@@ -105,6 +121,13 @@ terminal_vt_destroy :: proc(t: ^Terminal) {
     }
     delete(t.scrollback)
     t.scrollback = nil
+    for l in t.links {
+        delete(l.uri)
+    }
+    delete(t.links)
+    delete(t.link_uri)
+    delete(t.osc8)
+    t.links, t.link_uri, t.osc8 = nil, "", nil
 }
 
 // Called from draw; no-op when unchanged. TIOCSWINSZ makes the shell reflow (SIGWINCH).
@@ -584,9 +607,14 @@ term_output_cb :: proc "c" (s: [^]u8, len: c.size_t, user: rawptr) {
 // id correlates the report with the injection.
 OSC_EXIT_TAG :: 697
 
+OSC_HYPERLINK :: 8
+
 // The payload may arrive in fragments; parse on the final piece.
 @(private = "file")
 term_osc_cb :: proc "c" (command: c.int, frag: vt.StringFragment, user: rawptr) -> c.int {
+    if int(command) == OSC_HYPERLINK {
+        return term_osc8(user, frag)
+    }
     if int(command) != OSC_EXIT_TAG {
         return 0
     }
@@ -602,6 +630,43 @@ term_osc_cb :: proc "c" (command: c.int, frag: vt.StringFragment, user: rawptr) 
     }
     if frag.final {
         term_parse_exit(t, t.osc_buf[:t.osc_len])
+    }
+    return 1
+}
+
+// `OSC 8 ; params ; URI ST` opens a link at the cursor, and an empty URI closes it there. A
+// second open closes the first, which is what a program that never closes one means.
+@(private = "file")
+term_osc8 :: proc "c" (user: rawptr, frag: vt.StringFragment) -> c.int {
+    t := (^Terminal)(user)
+    context = t.sb_ctx
+    if frag.initial {
+        clear(&t.osc8)
+    }
+    append(&t.osc8, ..frag.str[:frag.len])
+    if !frag.final {
+        return 1
+    }
+    _, _, uri := strings.partition(string(t.osc8[:]), ";")
+    row, col := terminal_cursor(t)
+    at := [2]int{t.sb_total + row, col}
+    if t.link_uri != "" {
+        if at != t.link_at {
+            append(&t.links, Hyperlink{t.link_at, at, t.link_uri})
+        } else {
+            delete(t.link_uri)
+        }
+        t.link_uri = ""
+    }
+    if len(t.links) > HYPERLINKS_MAX {
+        drop := len(t.links) - HYPERLINKS_MAX
+        for l in t.links[:drop] {
+            delete(l.uri)
+        }
+        remove_range(&t.links, 0, drop)
+    }
+    if uri != "" {
+        t.link_uri, t.link_at = strings.clone(uri), at
     }
     return 1
 }

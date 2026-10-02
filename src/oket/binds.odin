@@ -45,6 +45,10 @@ binds_base :: proc() -> [dynamic]input.Bind {
     // covers every section (home.odin). Narrower than the surface row it shadows, which would
     // open a recovered file and leave the journal sitting beside it (§13).
     input.bind_line(&b, "RTRN", {}, ":home enter", ctx = {.Surface}, kind = KIND_HOME)
+    // A session's links (term_links.odin). Off a link :openlink selects the word, which is what
+    // a double-click did before.
+    input.bind_line(&b, "RTRN", {.Alt}, ":openlink", ctx = {.Terminal}, kind = KIND_TERM)
+    input.bind_line(&b, "double-click", {}, ":openlink", ctx = {.Terminal}, kind = KIND_TERM)
     return b
 }
 

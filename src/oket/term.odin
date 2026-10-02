@@ -1,6 +1,7 @@
 package main
 
 import "lues:lues"
+import "core:slice"
 import "core:strings"
 import "../desc"
 import "../shape"
@@ -40,6 +41,9 @@ Term :: struct {
     // The mouse mode the descriptor was last published with, so a pump republishes only when
     // the TUI actually turns tracking on or off.
     events: bool,
+    // What path tokens resolved to from `cwd`, owned (term_links.odin).
+    cwd:      string,
+    resolved: map[string]string,
 }
 
 // Where a session starts: N0's shell, wherever a `cd` in the command line has left it, and the
@@ -104,16 +108,31 @@ term_close :: proc(a: ^App, id: store.Id) {
         return
     }
     delete_key(&a.terms, id)
+    term_free(tm)
+}
+
+@(private = "file")
+term_free :: proc(tm: ^Term) {
     pty.terminal_close(&tm.t)
+    term_spans_drop(tm, 0, len(tm.spans))
     delete(tm.spans)
+    term_resolved_clear(tm)
+    delete(tm.resolved)
+    delete(tm.cwd)
     free(tm)
+}
+
+// Frees the texts of tm.spans[lo:hi], which the caller is about to drop.
+@(private = "file")
+term_spans_drop :: proc(tm: ^Term, lo, hi: int) {
+    for sp in tm.spans[lo:hi] {
+        delete(sp.text)
+    }
 }
 
 terms_destroy :: proc(a: ^App) {
     for _, tm in a.terms {
-        pty.terminal_close(&tm.t)
-        delete(tm.spans)
-        free(tm)
+        term_free(tm)
     }
     delete(a.terms)
     a.terms = nil
@@ -187,6 +206,8 @@ term_trim :: proc(a: ^App, tm: ^Term, doc: ^txt.Doc) {
             tm.spans[kept].lo -= cut
             tm.spans[kept].hi -= cut
             kept += 1
+        } else {
+            delete(sp.text)
         }
     }
     resize(&tm.spans, kept)
@@ -212,6 +233,7 @@ term_rewrite :: proc(a: ^App, tm: ^Term, doc: ^txt.Doc) {
         }
         frozen += 1 // below the rewrite, so it was published in an earlier pass
     }
+    term_spans_drop(tm, frozen, len(tm.spans))
     resize(&tm.spans, frozen)
     b := strings.builder_make(context.temp_allocator)
     // The cursor's own cell is something you can see, so the blank trim below stops short of
@@ -219,12 +241,18 @@ term_rewrite :: proc(a: ^App, tm: ^Term, doc: ^txt.Doc) {
     // top of the prompt instead.
     crow, ccol := pty.terminal_cursor(&tm.t)
     cursor := tm.t.sb_total + crow
+    starts := make([dynamic]int, context.temp_allocator)
     for n in tm.base + from ..= pty.terminal_bottom(&tm.t) {
         if n > tm.base + from {
             strings.write_byte(&b, '\n')
         }
+        append(&starts, lo + strings.builder_len(b))
         term_line(a, tm, n, &b, lo, n == cursor ? ccol + 1 : 0)
     }
+    // Beside the colour, and in document order with it, which is what the frozen count above
+    // reads next pump.
+    term_links(a, tm, strings.to_string(b), lo, tm.base + from, starts[:], &tm.spans)
+    slice.stable_sort_by(tm.spans[frozen:], proc(x, y: store.Span) -> bool {return x.lo < y.lo})
     // .Pin, because a rewrite is a REGEN and the row is the identity: a line that scrolls off
     // the grid keeps its document line number, so a selection over it is still over it. The
     // default .Follow would drop every caret and leave one at the end, which is a selection
@@ -255,6 +283,7 @@ term_spans_trim :: proc(tm: ^Term) -> bool {
         return false
     }
     drop := len(tm.spans) - (store.SPAN_MAX - TERM_SPAN_TRIM)
+    term_spans_drop(tm, 0, drop)
     copy(tm.spans[:], tm.spans[drop:])
     resize(&tm.spans, len(tm.spans) - drop)
     return true
@@ -396,7 +425,6 @@ term_point :: proc(tm: ^Term, s: ^Slot, doc: ^txt.Doc) {
 }
 
 // The cursor's COLUMN is a cell, and the document's is a byte. One walk of the row converts.
-@(private = "file")
 term_col_byte :: proc(tm: ^Term, line, want: int) -> (off: int) {
     n := tm.base + line
     b := strings.builder_make(context.temp_allocator)

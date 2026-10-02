@@ -592,3 +592,86 @@ a_session_keeps_the_combining_marks :: proc(t: ^testing.T) {
     testing.expect_value(t, col, 6)
     testing.expect_value(t, app.active(&a).view.point.head.col, 8)
 }
+
+// --- links (term_links.odin) ---
+
+@(private = "file")
+term_links_of :: proc(a: ^app.App, tm: ^app.Term) -> []desc.Field {
+    out := make([dynamic]desc.Field, context.temp_allocator)
+    for f in all_fields(a, tm.doc) {
+        if f.name == app.LINK_KEY {
+            append(&out, f)
+        }
+    }
+    return out[:]
+}
+
+// OSC 8 is a program saying where a link is, so the run covers exactly the cells it marked and
+// its value is the URI it named, not the text it showed.
+@(test)
+an_osc8_link_is_a_link_over_its_cells :: proc(t: ^testing.T) {
+    a, tm, ok := term_app(t)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+    if !term_wait_prompts(t, &a, tm, 0) {
+        return
+    }
+    term_show(&a, tm, "\r\n\x1b]8;;https://oket.dev/docs\x1b\\click\x1b]8;;\x1b\\ here\r\n")
+
+    links := term_links_of(&a, tm)
+    if !testing.expect_value(t, len(links), 1) {
+        return
+    }
+    testing.expect_value(t, links[0].value, "https://oket.dev/docs")
+    testing.expect_value(t, links[0].hi - links[0].lo, len("click"))
+}
+
+// A URL the terminal soft-wrapped is one link, and its value is the URL without the break.
+@(test)
+a_wrapped_url_is_one_link :: proc(t: ^testing.T) {
+    a, tm, ok := term_app(t, cols = 20)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+    if !term_wait_prompts(t, &a, tm, 0) {
+        return
+    }
+    URL :: "https://example.com/a/long/path"
+    term_show(&a, tm, "\r\nsee " + URL + " ok\r\n")
+
+    links := term_links_of(&a, tm)
+    if !testing.expect_value(t, len(links), 1) {
+        return
+    }
+    testing.expect_value(t, links[0].value, URL)
+}
+
+// A relative path is resolved where the shell stands, and the value is absolute so following it
+// does not depend on where the shell goes next.
+@(test)
+a_path_in_output_resolves_from_the_shell :: proc(t: ^testing.T) {
+    a, tm, ok := term_app(t)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+    if !term_wait_prompts(t, &a, tm, 0) {
+        return
+    }
+    cwd := pty.terminal_cwd(&tm.t)
+    if !testing.expect(t, cwd != "", "the shell has no cwd to read") {
+        return
+    }
+    _ = os.write_entire_file(fmt.tprintf("%s/oket-link-probe.txt", cwd), transmute([]u8)string("x\n"))
+    defer os.remove(fmt.tprintf("%s/oket-link-probe.txt", cwd))
+    term_show(&a, tm, "\r\nerror at oket-link-probe.txt:3:7, and nowhere/else.c\r\n")
+
+    links := term_links_of(&a, tm)
+    if !testing.expect_value(t, len(links), 1) {
+        return
+    }
+    testing.expect_value(t, links[0].value, fmt.tprintf("%s/oket-link-probe.txt:3:7", cwd))
+}
