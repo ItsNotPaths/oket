@@ -74,20 +74,41 @@ link_parse :: proc(a: ^App, target: string) -> (kind: Link, path: string, line, 
     if uri_like(target) {
         return .Uri, "", 0, 0
     }
-    path, line, col = split_position(target)
-    if strings.has_prefix(path, "~/") {
-        path, _ = filepath.join({os.get_env("HOME", context.temp_allocator), path[2:]},
-                                context.temp_allocator)
-    }
     for dir in ([2]string{link_dir(a), a.dir}) {
-        full := path
-        if !filepath.is_abs(path) && dir != "" {
-            full, _ = filepath.join({dir, path}, context.temp_allocator)
-        }
-        if os.exists(full) {
-            return .Path, full, line, col
+        if full, l, c, _, found := link_path(target, dir); found {
+            return .Path, full, l, c
         }
     }
+    return
+}
+
+// What a token of plain text links to, as `:openlink` reads it back: a URI as it stands, or a
+// path that exists from `dir`, made absolute with its `:line[:col]` kept.
+link_value :: proc(token, dir: string) -> (string, bool) {
+    if uri_like(token) {
+        return token, true
+    }
+    full, _, _, suffix, found := link_path(token, dir)
+    if !found {
+        return "", false
+    }
+    return strings.concatenate({full, suffix}, context.temp_allocator), true
+}
+
+// `target` as a path on disk from `dir`: `~/` is home, and a relative one joins `dir`. The
+// `:line[:col]` comes off first; `suffix` is that text as it was written.
+link_path :: proc(target, dir: string) -> (full: string, line, col: int, suffix: string, ok: bool) {
+    path: string
+    path, line, col = split_position(target)
+    suffix = target[len(path):]
+    full = path
+    if strings.has_prefix(path, "~/") {
+        full, _ = filepath.join({os.get_env("HOME", context.temp_allocator), path[2:]},
+                                context.temp_allocator)
+    } else if !filepath.is_abs(path) && dir != "" {
+        full, _ = filepath.join({dir, path}, context.temp_allocator)
+    }
+    ok = path != "" && os.exists(full)
     return
 }
 
