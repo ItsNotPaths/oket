@@ -320,7 +320,7 @@ harness_frame :: proc(a: ^App) -> (busy: bool) {
     settled := docs_settle(a)
     latched := plug_pump(a) | settled
     surface_draw(a)
-    return chain_busy(a) || latched
+    return cl.busy(&a.chain) || latched
 }
 
 // Until nothing is outstanding, or until the cap. Past the cap the step is abandoned and the

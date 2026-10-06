@@ -31,7 +31,7 @@ Link :: enum {
     Path,
 }
 
-builtin_openlink :: proc(a: ^App, args: string, _: CL_Step) -> bool {
+builtin_openlink :: proc(a: ^App, args: string, _: cl.Step) -> bool {
     _, target := cl.first_arg(strings.trim_space(args))
     if target == "" {
         target = link_under(a)
@@ -178,12 +178,12 @@ link_dir :: proc(a: ^App) -> string {
 // After the chain, as a shell step, so the browser's own output lands in N# like any command's.
 @(private = "file")
 link_browse :: proc(a: ^App, uri: string) -> bool {
-    if len(a.queue) >= QUEUE_MAX {
+    if len(a.chain.queue) >= cl.QUEUE_MAX {
         message_set(a, ":openlink: the queue is full")
         return false
     }
     browser := a.config.browser != "" ? a.config.browser : BROWSER_DEFAULT
-    append(&a.queue, fmt.aprintf("%s %s", browser, cl.sh_arg(uri)))
+    append(&a.chain.queue, fmt.aprintf("%s %s", browser, cl.sh_arg(uri)))
     return true
 }
 

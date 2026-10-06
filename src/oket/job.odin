@@ -88,7 +88,7 @@ sh_run :: proc(a: ^App, cmd, feed: string, fed: bool) -> bool {
     }
     job_end(a) // the last step's staging, kept until now so its `cat` could finish with it
     a.sys_seq += 1
-    a.job = Job{live = true, id = a.sys_seq, captured = chain_wants_feed(a)}
+    a.job = Job{live = true, id = a.sys_seq, captured = cl.wants_feed(&a.chain)}
     tm.t.exit_ready = false // any report still standing belongs to a step that is over
 
     if fed {
@@ -121,7 +121,7 @@ sh_run :: proc(a: ^App, cmd, feed: string, fed: bool) -> bool {
     // ONLY the last, and only with the queue empty, because surfacing MOVES THE FOCUS: a step
     // after this one would be aimed at a shell instead of at the document the line was typed
     // over. Reading the output is the same objection — the answer lands where you already are.
-    if chain_last_step(a) && !a.job.captured {
+    if cl.last_step(&a.chain) && !a.job.captured {
         ring_show_system(a)
     }
     return true
@@ -141,7 +141,7 @@ sh_pump :: proc(a: ^App) {
         message_set(a, "N0's shell exited mid-step")
         ring_show_system(a)
         job_end(a)
-        chain_clear(a)
+        cl.reset(&a.chain)
         return
     }
     if !tm.t.exit_ready || tm.t.exit_id != a.job.id {
@@ -151,7 +151,7 @@ sh_pump :: proc(a: ^App) {
     code, captured := tm.t.exit_code, a.job.captured
     if captured {
         if raw, err := os.read_entire_file(a.job.out, context.temp_allocator); err == nil {
-            chain_feed(a, string(raw))
+            cl.feed_set(&a.chain, string(raw))
         }
     }
     a.job.live = false // the staging survives until the next step: `cat` is still reading it
@@ -159,18 +159,19 @@ sh_pump :: proc(a: ^App) {
     // means the answer lands in the document you are looking at and being thrown to a terminal
     // is the wrong place to be told. And except where an `||` ahead answers the failure: the
     // arm that runs IS the response, so there is nothing to surface over it.
-    if code != 0 && !chain_rescued(a) {
+    if code != 0 && !cl.rescued(&a.chain) {
         if captured {
             message_set(a, fmt.tprintf("the shell step exited %d", code))
         } else {
             ring_show_system(a)
         }
     }
-    cl_job_done(a, code)
+    cl.job_done(&a.chain, code)
+    chain_pump(a)
 }
 
 // Everything the job staged, and the struct back to rest. The chain is not touched: a caller
-// mid-`cl_job_done` is the one who decides what happens next.
+// mid-`sh_pump` is the one who decides what happens next.
 @(private = "file")
 job_end :: proc(a: ^App) {
     for path in ([?]string{a.job.feed, a.job.out}) {

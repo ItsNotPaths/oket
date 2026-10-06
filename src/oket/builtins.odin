@@ -32,7 +32,7 @@ Builtin :: struct {
     doc:   string,
     // `args` is the line past the name. `step` is the whole step, for the one builtin that
     // reads what was piped into it.
-    run:   proc(a: ^App, args: string, step: CL_Step) -> bool,
+    run:   proc(a: ^App, args: string, step: cl.Step) -> bool,
 }
 
 @(rodata)
@@ -116,7 +116,7 @@ builtin_named :: proc(name: string) -> (Builtin, bool) {
     return {}, false
 }
 
-cl_builtin :: proc(a: ^App, step: CL_Step) -> bool {
+cl_builtin :: proc(a: ^App, step: cl.Step) -> bool {
     name := cl.first_field(step.text)
     args := strings.trim_space(step.text[len(name):])
     if b, is_builtin := builtin_named(name); is_builtin {
@@ -145,7 +145,7 @@ cl_builtin :: proc(a: ^App, step: CL_Step) -> bool {
 // `#*` empties the lane — the slot axis only: what panel stands where is `ring_close`'s own
 // fallout, not an argument here.
 @(private = "file")
-builtin_close :: proc(a: ^App, args: string, _: CL_Step) -> bool {
+builtin_close :: proc(a: ^App, args: string, _: cl.Step) -> bool {
     target, bad, aimed := target_parse(args)
     if !aimed || target.how != .Here {
         message_set(a, fmt.tprintf(":close: %s is not a slot (%s)", bad != "" ? bad : args,
@@ -192,7 +192,7 @@ USAGE_CLOSE :: ":close [#slot|#*]"
 // `panel.open` as a command line, which is what the picker's second `tab+enter` runs: a panel
 // to the right of the one the keys are aimed at, and the aim goes with it.
 @(private = "file")
-builtin_np :: proc(a: ^App, _: string, _: CL_Step) -> bool {
+builtin_np :: proc(a: ^App, _: string, _: cl.Step) -> bool {
     panel_open(a)
     return true
 }
@@ -200,7 +200,7 @@ builtin_np :: proc(a: ^App, _: string, _: CL_Step) -> bool {
 // `:home enter` is the page's own row acting on itself; a bare `:home` asks for the page. Both
 // are lines you could type, which is what keeps the page a document.
 @(private = "file")
-builtin_home :: proc(a: ^App, args: string, _: CL_Step) -> bool {
+builtin_home :: proc(a: ^App, args: string, _: cl.Step) -> bool {
     if _, verb := cl.first_arg(args); verb == "enter" {
         return home_enter(a)
     }
@@ -209,7 +209,7 @@ builtin_home :: proc(a: ^App, args: string, _: CL_Step) -> bool {
 }
 
 @(private = "file")
-builtin_tu :: proc(a: ^App, _: string, _: CL_Step) -> bool {
+builtin_tu :: proc(a: ^App, _: string, _: cl.Step) -> bool {
     moved, busy := term_update(a)
     why := busy > 0 ? fmt.tprintf(", %d busy and skipped", busy) : ""
     message_set(a, fmt.tprintf(":tu: %d moved to %s%s", moved, term_dir(a), why))
@@ -217,7 +217,7 @@ builtin_tu :: proc(a: ^App, _: string, _: CL_Step) -> bool {
 }
 
 @(private = "file")
-builtin_lock :: proc(a: ^App, _: string, _: CL_Step) -> bool {
+builtin_lock :: proc(a: ^App, _: string, _: cl.Step) -> bool {
     s := ring_focused(a)
     if s == nil {
         message_set(a, ":lock: nothing is focused")
@@ -229,7 +229,7 @@ builtin_lock :: proc(a: ^App, _: string, _: CL_Step) -> bool {
 }
 
 @(private = "file")
-builtin_quit :: proc(a: ^App, _: string, _: CL_Step) -> bool {
+builtin_quit :: proc(a: ^App, _: string, _: cl.Step) -> bool {
     a.quit = true
     return true
 }
@@ -241,7 +241,7 @@ builtin_quit :: proc(a: ^App, _: string, _: CL_Step) -> bool {
 // The panel is reached BEFORE the document is placed, so the open is an ordinary one from
 // there: what `@N` does is aim the keys, and the ring then answers the way it does for any
 // other panel. Which is also why the open takes focus with it — you always see where it went.
-builtin_open :: proc(a: ^App, args: string, _: CL_Step) -> bool {
+builtin_open :: proc(a: ^App, args: string, _: cl.Step) -> bool {
     raw, path := cl.first_arg(args)
     rest := strings.trim_space(args[len(raw):])
     if path == "" {
@@ -281,7 +281,7 @@ USAGE_OPEN :: ":open <path> [#slot] [@panel]"
 //
 // A bare number is a percent here and never a `#slot`, because a panel has no slot to name.
 @(private = "file")
-builtin_width :: proc(a: ^App, args: string, _: CL_Step) -> bool {
+builtin_width :: proc(a: ^App, args: string, _: cl.Step) -> bool {
     pcts := make([dynamic]int, 0, 4, context.temp_allocator)
     target: Target
     rest := strings.trim_space(args)
@@ -386,7 +386,7 @@ open_path :: proc(a: ^App, path: string) -> (store.Id, bool) {
 // runs, and the reason it is a row rather than a case in the dispatch — the kind is named in
 // the config and never in kernel source.
 @(private = "file")
-builtin_ring :: proc(a: ^App, args: string, _: CL_Step) -> bool {
+builtin_ring :: proc(a: ^App, args: string, _: cl.Step) -> bool {
     _, name := cl.first_arg(args)
     if name == "" {
         for l, i in a.ring.lanes {
@@ -411,7 +411,7 @@ builtin_ring :: proc(a: ^App, args: string, _: CL_Step) -> bool {
 
 // The ring, printed into N0, which surfaces to show it.
 @(private = "file")
-builtin_ls :: proc(a: ^App, _: string, _: CL_Step) -> bool {
+builtin_ls :: proc(a: ^App, _: string, _: cl.Step) -> bool {
     n := 0
     for l, lane in a.ring.lanes {
         for s, i in l.slots {
@@ -437,7 +437,7 @@ builtin_ls :: proc(a: ^App, _: string, _: CL_Step) -> bool {
 // under point and SELECTS it, so what a following `:put` replaces is what you were shown —
 // same rule as `edit.copy`, which takes the selection or the line.
 @(private = "file")
-builtin_sel :: proc(a: ^App, _: string, _: CL_Step) -> bool {
+builtin_sel :: proc(a: ^App, _: string, _: cl.Step) -> bool {
     s := ring_focused(a)
     if s == nil {
         message_set(a, ":sel: nothing is focused")
@@ -454,7 +454,7 @@ builtin_sel :: proc(a: ^App, _: string, _: CL_Step) -> bool {
     }
     lo, hi := txt.cursor_range(c)
     text := txt.doc_text(doc, lo, hi, context.temp_allocator)
-    chain_feed(a, text)
+    cl.feed_set(&a.chain, text)
     s.view.point = doc.cursors[doc.primary]
     return true
 }
@@ -462,8 +462,8 @@ builtin_sel :: proc(a: ^App, _: string, _: CL_Step) -> bool {
 // `:put` takes what was piped into it and replaces the selection with it, at point. Emacs's
 // shell-command-on-region, as a chain step: `:sel | sort -u | :put`.
 @(private = "file")
-builtin_put :: proc(a: ^App, _: string, step: CL_Step) -> bool {
-    if !chain_piped(a, step) {
+builtin_put :: proc(a: ^App, _: string, step: cl.Step) -> bool {
+    if !cl.piped(&a.chain, step) {
         message_set(a, ":put: nothing was piped into it")
         return false
     }
@@ -489,15 +489,15 @@ builtin_put :: proc(a: ^App, _: string, step: CL_Step) -> bool {
 // like `:ls`. The verb is what makes a chain conditional without new syntax: the chain already
 // branches on a step's exit, so `:get kind | grep -q term && ...` is an if.
 @(private = "file")
-builtin_get :: proc(a: ^App, args: string, _: CL_Step) -> bool {
+builtin_get :: proc(a: ^App, args: string, _: cl.Step) -> bool {
     _, what := cl.first_arg(args)
     out, known := get_value(a, what)
     if !known {
         message_set(a, USAGE_GET)
         return false
     }
-    chain_feed(a, out)
-    if !chain_wants_feed(a) {
+    cl.feed_set(&a.chain, out)
+    if !cl.wants_feed(&a.chain) {
         sys_print(a, out)
         ring_show_system(a)
     }
@@ -653,7 +653,7 @@ get_spans :: proc(a: ^App, b: ^strings.Builder) {
 // file's rows come in (config_set_line), so what it can say and what the file can say cannot
 // drift. Session-only — the file is the durable half, and this verb never writes it.
 @(private = "file")
-builtin_set :: proc(a: ^App, args: string, _: CL_Step) -> bool {
+builtin_set :: proc(a: ^App, args: string, _: cl.Step) -> bool {
     key := cl.first_field(args)
     value := strings.trim_space(args[len(key):])
     dot := strings.index_byte(key, '.')
@@ -679,8 +679,8 @@ USAGE_SET :: ":set <section>.<key> <value>"
 // than run here, because a line's parse clears the chain it would be standing in. Lines are
 // literal — no holes — since the generator had the values and focus moves as lines run.
 @(private = "file")
-builtin_do :: proc(a: ^App, _: string, step: CL_Step) -> bool {
-    if !chain_piped(a, step) {
+builtin_do :: proc(a: ^App, _: string, step: cl.Step) -> bool {
+    if !cl.piped(&a.chain, step) {
         message_set(a, ":do: nothing was piped into it")
         return false
     }
@@ -691,14 +691,14 @@ builtin_do :: proc(a: ^App, _: string, step: CL_Step) -> bool {
             n += 1
         }
     }
-    if len(a.queue) + n > QUEUE_MAX {
-        message_set(a, fmt.tprintf(":do: %d lines is past the queue's cap (%d)", n, QUEUE_MAX))
+    if len(a.chain.queue) + n > cl.QUEUE_MAX {
+        message_set(a, fmt.tprintf(":do: %d lines is past the queue's cap (%d)", n, cl.QUEUE_MAX))
         return false
     }
     rest = a.chain.feed
     for line in strings.split_lines_iterator(&rest) {
         if l := strings.trim_space(line); l != "" {
-            append(&a.queue, strings.clone(l))
+            append(&a.chain.queue, strings.clone(l))
         }
     }
     return true
@@ -709,7 +709,7 @@ builtin_do :: proc(a: ^App, _: string, step: CL_Step) -> bool {
 // the document it shadows (journal.odin), so the visible half of a home-page row is the whole
 // of what the row acts on and hover underlines what `enter` would take (§14).
 @(private = "file")
-builtin_recover :: proc(a: ^App, args: string, _: CL_Step) -> bool {
+builtin_recover :: proc(a: ^App, args: string, _: cl.Step) -> bool {
     raw, first := cl.first_arg(args)
     drop := first == "drop"
     path := first
@@ -738,7 +738,7 @@ USAGE_RECOVER :: ":recover [drop] <path>"
 // DIRECTORY under `plugins/` in the data directory, holding a `.so` of the same name; that name
 // is also the section header its bind requests land under in binds.conf.
 @(private = "file")
-builtin_plug :: proc(a: ^App, args: string, _: CL_Step) -> bool {
+builtin_plug :: proc(a: ^App, args: string, _: cl.Step) -> bool {
     raw, verb := cl.first_arg(args)
     _, name := cl.first_arg(strings.trim_space(args[len(raw):]))
     if verb != "" && name == "" {
@@ -800,7 +800,7 @@ plug_list :: proc(a: ^App) -> bool {
 // over a `file:line` opens the file. The recipe is plugins/stage.sh and nothing else:
 // release.sh and the gate tests run the same script, so this build is the shipped build.
 @(private = "file")
-builtin_pluginify :: proc(a: ^App, args: string, _: CL_Step) -> bool {
+builtin_pluginify :: proc(a: ^App, args: string, _: cl.Step) -> bool {
     dir, flags := pluginify_target(a, args)
     if dir == "" {
         message_set(a, USAGE_PLUGINIFY)
@@ -875,7 +875,7 @@ USAGE_PLUGINIFY :: ":pluginify [<dir>] [--asan]"
 // With nothing named it runs the file you are LOOKING AT, which is the same rule a bare
 // `:pluginify` follows: the loop is one chord over what you just edited.
 @(private = "file")
-builtin_harness :: proc(a: ^App, args: string, _: CL_Step) -> bool {
+builtin_harness :: proc(a: ^App, args: string, _: cl.Step) -> bool {
     line := harness_line(a, args) or_return
     cl_exec(a, line)
     return true

@@ -11,6 +11,7 @@ import "../input"
 import "../store"
 import "../txt"
 import app "../oket"
+import "../cl"
 
 // Stage 8's gate (§13), and it is a DESIGN gate: the editor is a plugin, with no privileged
 // path and no kernel self-insert. If the seam could not express one, §5 would be redesigned
@@ -536,11 +537,11 @@ openlink_hands_a_uri_to_the_browser :: proc(t: ^testing.T) {
     txt.doc_set_head(store.store_doc(a.docs, focused(&a)), {0, 8}, false)
     app.point_sync(&a)
     testing.expect(t, app.builtin_openlink(&a, "", {}))
-    if !testing.expect_value(t, len(a.queue), 1) {
+    if !testing.expect_value(t, len(a.chain.queue), 1) {
         return
     }
-    testing.expect_value(t, a.queue[0], fmt.tprintf("%s https://oket.dev", app.BROWSER_DEFAULT))
-    delete(pop(&a.queue)) // not run: a test opens no browser
+    testing.expect_value(t, a.chain.queue[0], fmt.tprintf("%s https://oket.dev", app.BROWSER_DEFAULT))
+    delete(pop(&a.chain.queue)) // not run: a test opens no browser
 }
 
 // Off a link, it is a double-click's word select, so one row serves text and links alike.

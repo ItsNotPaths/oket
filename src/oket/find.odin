@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:strings"
 import "../store"
 import "../txt"
+import "../cl"
 
 // Search, and it is nearly all `txt` already: `doc_find` walks a direction and wraps,
 // `doc_find_all` collects every hit. What is here is the TERM — one per app, the way every
@@ -34,7 +35,7 @@ find_doc :: proc(a: ^App) -> ^txt.Doc {
 
 // `:find <pattern>` — every match at once, as selections. The primary is the first hit at or
 // after point rather than the first in the file, so the screen goes where you were looking.
-builtin_find :: proc(a: ^App, args: string, _: CL_Step) -> bool {
+builtin_find :: proc(a: ^App, args: string, _: cl.Step) -> bool {
     pattern := strings.trim_space(args)
     if pattern == "" {
         message_set(a, USAGE_FIND)

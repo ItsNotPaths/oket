@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
+import "../cl"
 
 // `:oket status | install | uninstall | update` (INSTALL.md §4), and the `--install` /
 // `--uninstall` / `--status` forms install.sh reaches on a machine with no display.
@@ -294,7 +295,7 @@ USAGE_OKET :: ":oket status | install | uninstall | update"
 // downloads the release and runs the new binary's `--install`. The kernel gets no HTTP client.
 UPDATE_LINE :: "curl -fsSL https://github.com/ItsNotPaths/oket/releases/latest/download/install.sh | sh"
 
-builtin_oket :: proc(a: ^App, args: string, _: CL_Step) -> bool {
+builtin_oket :: proc(a: ^App, args: string, _: cl.Step) -> bool {
     t := install_target()
     defer install_target_destroy(&t)
     ok: bool

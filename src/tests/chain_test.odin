@@ -20,7 +20,7 @@ import "../cl"
 @(private = "file")
 run_line :: proc(a: ^app.App, line: string) {
     app.cl_exec(a, line)
-    for i := 0; app.chain_busy(a) && i < 5000; i += 1 {
+    for i := 0; cl.busy(&a.chain) && i < 5000; i += 1 {
         app.term_pump(a) // N0 is a PTY: nothing reports until its bytes reach the parser
         app.sh_pump(a)
         store.store_drain(a.docs)
@@ -378,9 +378,9 @@ do_runs_the_piped_lines_after_the_chain :: proc(t: ^testing.T) {
     testing.expect_value(t, a.panels[0].size, app.WIDTH_FULL / 4)
 
     // The cap, at its edge: QUEUE_MAX lines go in, one more refuses the batch whole.
-    run_line(&a, fmt.tprintf("seq %d | sed 's/.*/:width 50/' | :do", app.QUEUE_MAX))
+    run_line(&a, fmt.tprintf("seq %d | sed 's/.*/:width 50/' | :do", cl.QUEUE_MAX))
     testing.expect_value(t, a.panels[0].size, app.WIDTH_FULL / 2)
-    run_line(&a, fmt.tprintf("seq %d | sed 's/.*/:width 100/' | :do", app.QUEUE_MAX + 1))
+    run_line(&a, fmt.tprintf("seq %d | sed 's/.*/:width 100/' | :do", cl.QUEUE_MAX + 1))
     testing.expect(t, strings.contains(a.message, "cap"), a.message)
     testing.expect_value(t, a.panels[0].size, app.WIDTH_FULL / 2)
 }
