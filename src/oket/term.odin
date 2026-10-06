@@ -12,6 +12,7 @@ import "../plug"
 import "../pty"
 import "../store"
 import "../txt"
+import "../cl"
 
 // The terminal kind (§7: the kernel may implement a document, it may not have a second way to
 // be one). A session is a PTY, a libvterm state machine, and a DOCUMENT: scrollback lines
@@ -65,7 +66,7 @@ term_dir :: proc(a: ^App) -> string {
 // counted; ctrl+u clears a half-typed line first so the `cd` is the whole line.
 term_update :: proc(a: ^App) -> (moved, busy: int) {
     dir := term_dir(a)
-    line := transmute([]u8)strings.concatenate({"\x15cd ", sh_quote(dir, context.temp_allocator), "\r"},
+    line := transmute([]u8)strings.concatenate({"\x15cd ", cl.sh_quote(dir, context.temp_allocator), "\r"},
                                               context.temp_allocator)
     for id, tm in a.terms {
         s := term_slot(a, id)

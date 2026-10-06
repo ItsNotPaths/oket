@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import "core:strings"
+import "../cl"
 
 // A submitted line is a chain of segments split on `&&`, `||` and `|`, each a builtin (`:name`)
 // or a shell command. Builtins run in-process; a shell step runs in the system session and the
@@ -19,24 +20,13 @@ import "core:strings"
 // string between them. So `:sel | sort -u | :put` is a source, a shell pipeline of any length,
 // and a sink — three steps, one carried string, and no shell grammar reimplemented.
 
-// What opened a step. The zero value is `&&`, which is also the start of the line: the first
-// step runs the way a step after a success does.
-CL_Op :: enum {
-    And, // `&&`, or the start of the line: runs after a success
-    Pipe, // `|`: runs after a success, taking what the step before it produced
-    Or, // `||`: runs after a failure
-}
-
-// The operator's spelling, put back between coalescing shell steps for bash to read.
-@(rodata)
-CL_SEP := [CL_Op]string{.And = " && ", .Pipe = " | ", .Or = " || "}
-
 CL_Step :: struct {
     shell: bool,
-    op:    CL_Op,
+    op:    cl.Op,
     text:  string, // owned; a builtin's `:` already stripped
 }
 
+// (hole cmd-chain :tags shared :sev gap) the chain runs on ^App (a.chain, a.queue, aliases, sh_run); it must move into cl as a pulled state machine.
 Chain :: struct {
     steps:   [dynamic]CL_Step,
     idx:     int,
@@ -134,8 +124,8 @@ cl_parse :: proc(a: ^App, line: string) {
 // keeps the operator its name was called with, so `:sel | :up` pipes into the body's first
 // step — and `depth` is where alias-in-alias stops.
 @(private = "file")
-cl_parse_into :: proc(a: ^App, line: string, op0: CL_Op, depth: int) {
-    for seg, i in cl_split_chain(strings.trim_space(line)) {
+cl_parse_into :: proc(a: ^App, line: string, op0: cl.Op, depth: int) {
+    for seg, i in cl.split(strings.trim_space(line)) {
         // Segment ZERO only: an empty first segment (`|| x` opens the line) consumes the
         // override, so the `||` keeps its own operator and stays a skipped step.
         op := i == 0 ? op0 : seg.op
@@ -143,7 +133,7 @@ cl_parse_into :: proc(a: ^App, line: string, op0: CL_Op, depth: int) {
         if s == "" {
             continue
         }
-        if seg_builtin(s) {
+        if cl.is_builtin(s) {
             name := strings.trim_space(s[1:])
             if name == "" {
                 continue // a bare `:` names no builtin
@@ -151,7 +141,7 @@ cl_parse_into :: proc(a: ^App, line: string, op0: CL_Op, depth: int) {
             // A whole step that is one alias name expands IN PLACE, so the chain that runs is
             // one you could have typed. With arguments or past the depth cap it goes on as a
             // step, and cl_builtin says which refusal it was.
-            if depth < ALIAS_DEPTH && name == first_field(name) {
+            if depth < ALIAS_DEPTH && name == cl.first_field(name) {
                 if sub := alias_expansion(a, name); sub != "" {
                     cl_parse_into(a, sub, op, depth + 1)
                     continue
@@ -164,7 +154,7 @@ cl_parse_into :: proc(a: ^App, line: string, op0: CL_Op, depth: int) {
         // reads it, which is what keeps a pipeline bash's job and not ours.
         if n := len(a.chain.steps); n > 0 && a.chain.steps[n - 1].shell {
             prev := &a.chain.steps[n - 1]
-            joined := strings.concatenate({prev.text, CL_SEP[op], s})
+            joined := strings.concatenate({prev.text, cl.SEP[op], s})
             delete(prev.text)
             prev.text = joined
             continue
@@ -184,106 +174,6 @@ alias_expansion :: proc(a: ^App, name: string) -> string {
         return ""
     }
     return config_alias_line(&a.config, name)
-}
-
-// A segment and the operator that opened it.
-CL_Seg :: struct {
-    text: string, // a slice of the line
-    op:   CL_Op,
-}
-
-// Split the way the shell would: only where the shell sees an operator, never inside quotes,
-// after a backslash, or inside `...`, $(...), ${...}, $'...' or a subshell. Segments go on
-// verbatim — nothing here expands or unquotes. An unclosed quote, brace or paren swallows the
-// rest, as the shell would.
-// Temp-allocated slices of s.
-cl_split_chain :: proc(s: string, alloc := context.temp_allocator) -> []CL_Seg {
-    out := make([dynamic]CL_Seg, 0, 4, alloc)
-    depth: int // unquoted ( ) / $( ) nesting
-    brace: int // ${ } nesting
-    tick: bool // inside `...`
-    start, i := 0, 0
-    op: CL_Op // what opened the segment being scanned
-    word := true // a `#` is only a comment where a word starts
-    for i < len(s) {
-        c := s[i]
-        switch {
-        case c == '\'' || c == '"':
-            _, n, ok := quoted_span(s[i:])
-            i += ok ? n : len(s) - i
-            word = false
-            continue
-        // bash's ANSI-C quoting, whose backslash hides the closing quote. Read as a plain
-        // `'...'` the span ends at the `\'` and the operator after it splits a line the shell
-        // reads as one word.
-        case c == '$' && i + 1 < len(s) && s[i + 1] == '\'':
-            end := quote_end(s, i + 1, true)
-            i = end > 0 ? end : len(s)
-            word = false
-            continue
-        // A parameter expansion is one word, the operators inside it included: `${x:-a|b}`.
-        case c == '$' && i + 1 < len(s) && s[i + 1] == '{':
-            brace += 1
-            i += 2
-            word = false
-            continue
-        case c == '}':
-            brace = max(brace - 1, 0)
-        // The rest of the line is the shell's comment, and it is DROPPED rather than passed on:
-        // a step is injected on one line with its exit report after it (job.odin), so a comment
-        // carried through would take the report with it and the chain would wait forever. That
-        // reason is the shell's alone, and a builtin has no comments: `#` there is a ring slot
-        // (PANELS.md §4), which is exactly a word that starts with one.
-        case c == '#' && word && !tick && depth == 0 && brace == 0 && !seg_builtin(s[start:i]):
-            append(&out, CL_Seg{s[start:i], op})
-            return out[:]
-        case c == '\\':
-            i += 1 // escapes anything, `&` and `|` included
-        case c == '`':
-            tick = !tick
-        case c == '(':
-            depth += 1
-        case c == ')':
-            depth = max(depth - 1, 0)
-        case c == '&' && !tick && depth == 0 && brace == 0 && i + 1 < len(s) && s[i + 1] == '&':
-            append(&out, CL_Seg{s[start:i], op})
-            op, word = .And, true
-            i += 2
-            start = i
-            continue
-        // `||` is a step operator like `&&`: adjacent shell steps coalesce with it put back, so
-        // it only decides anything at a boundary a builtin is on.
-        case c == '|' && !tick && depth == 0 && brace == 0 && i + 1 < len(s) && s[i + 1] == '|':
-            append(&out, CL_Seg{s[start:i], op})
-            op, word = .Or, true
-            i += 2
-            start = i
-            continue
-        // One `|` alone is ours. `|&` is the shell's pipe-with-stderr and stays inside a shell
-        // step for bash to read.
-        case c == '|' && !tick && depth == 0 && brace == 0 && (i + 1 >= len(s) || s[i + 1] != '&'):
-            append(&out, CL_Seg{s[start:i], op})
-            op, word = .Pipe, true
-            i += 1
-            start = i
-            continue
-        // Named exactly rather than left as a catch-all: any `|` an operator case declines
-        // used to eat the byte after it, and inside `${...}` or `...` that byte can be the
-        // closer the scan is waiting for.
-        case c == '|' && i + 1 < len(s) && s[i + 1] == '&':
-            i += 1 // the second byte of `|&`, skipped with the first
-        }
-        word = c == ' ' || c == '\t'
-        i += 1
-    }
-    append(&out, CL_Seg{s[start:], op})
-    return out[:]
-}
-
-// Which half of the split a segment is in: a leading `:` names a builtin.
-@(private = "file")
-seg_builtin :: proc(seg: string) -> bool {
-    return strings.has_prefix(strings.trim_left_space(seg), ":")
 }
 
 // Advance as far as this frame allows: builtins run inline, a shell step goes out and the chain
@@ -360,137 +250,4 @@ queue_clear :: proc(a: ^App) {
         delete(line)
     }
     clear(&a.queue)
-}
-
-// --- reading a line ---
-
-// A hole's value, quoted only when it would RE-PARSE (§8): the line is read again by the chain
-// split and then by the shell, so a name holding a space or an `&&` has to survive both, and an
-// ordinary path carries no quotes and stages readable.
-sh_arg :: proc(s: string, alloc := context.temp_allocator) -> string {
-    return sh_bare(s) ? s : sh_quote(s, alloc)
-}
-
-// An allowlist, not an escape list: anything unlisted goes through sh_quote rather than being
-// judged harmless. Empty is not bare — it would vanish from the line.
-@(private = "file")
-sh_bare :: proc(s: string) -> bool {
-    for i in 0 ..< len(s) {
-        switch c := s[i]; {
-        case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
-        case c == '_', c == '-', c == '.', c == '/', c == '=', c == ':', c == '@', c == '+',
-             c == ',':
-        case:
-            return false
-        }
-    }
-    return len(s) > 0
-}
-
-// Single-quote s for the shell. An embedded quote closes, escapes and reopens ('\'') — safe in
-// every POSIX shell.
-sh_quote :: proc(s: string, alloc := context.allocator) -> string {
-    b := strings.builder_make(alloc)
-    strings.write_byte(&b, '\'')
-    for i in 0 ..< len(s) {
-        if s[i] == '\'' {
-            strings.write_string(&b, `'\''`)
-        } else {
-            strings.write_byte(&b, s[i])
-        }
-    }
-    strings.write_byte(&b, '\'')
-    return strings.to_string(b)
-}
-
-first_field :: proc(s: string) -> string {
-    i := 0
-    for i < len(s) && !field_sep(s[i]) {
-        i += 1
-    }
-    return s[:i]
-}
-
-// The ONE reading of where a field ends, so the address grammar and the picker that aims one
-// cannot drift about what a bare `@` is surrounded by (PANELS.md §4, §6).
-field_sep :: proc(c: byte) -> bool {
-    return c == ' ' || c == '\t'
-}
-
-// The whole of `s` as ONE argument, quotes off. A hole fills quoted when its value would
-// re-parse (§8), and a command taking a single value is where that line ends: it wants the
-// value. A line that is not one quoted span from end to end is handed over as typed, because
-// two arguments are the command's own to split.
-arg_whole :: proc(s: string) -> string {
-    if v, n, ok := quoted_value(s); ok && n == len(s) {
-        return v
-    }
-    return s
-}
-
-// first_field, except a leading quote runs to its partner so a path with spaces works. Returns
-// the span to skip and the value inside; an unclosed quote falls back to the field.
-first_arg :: proc(s: string) -> (raw, value: string) {
-    if v, n, ok := quoted_value(s); ok {
-        return s[:n], v
-    }
-    f := first_field(s)
-    return f, f
-}
-
-// The ONE reading of a quote here, so the chain splitter and the argument parsers cannot drift
-// apart. `n` covers both quotes; ok is false when `s` does not open with a quote or the quote
-// never closes.
-@(private = "file")
-quoted_span :: proc(s: string) -> (inner: string, n: int, ok: bool) {
-    if len(s) == 0 || (s[0] != '\'' && s[0] != '"') {
-        return "", 0, false
-    }
-    end := quote_end(s, 0, s[0] == '"')
-    return end > 0 ? s[1:end - 1] : "", end, end > 0
-}
-
-// Where the quote opened at `q` closes, one byte past its partner, or 0 when it never does.
-// `esc` is whether a backslash hides that partner: `"..."` and `$'...'` say yes, `'...'` says
-// no. The ONE reading of a closing quote, so an argument and the chain split cannot disagree
-// about where a value ends.
-@(private = "file")
-quote_end :: proc(s: string, q: int, esc: bool) -> int {
-    for i := q + 1; i < len(s); i += 1 {
-        if esc && s[i] == '\\' && i + 1 < len(s) {
-            i += 1 // an escaped quote is content, not the partner
-            continue
-        }
-        if s[i] == s[q] {
-            return i + 1
-        }
-    }
-    return 0
-}
-
-// The same span read as an ARGUMENT: double-quote escaping comes back off; a single-quoted span
-// has nothing hidden to strip.
-@(private = "file")
-quoted_value :: proc(s: string) -> (value: string, n: int, ok: bool) {
-    inner, span, found := quoted_span(s)
-    if !found {
-        return "", 0, false
-    }
-    return s[0] == '"' ? arg_unescape(inner) : inner, span, true
-}
-
-// Temp-allocated only when there is an escape to strip, so the common path borrows.
-@(private = "file")
-arg_unescape :: proc(s: string) -> string {
-    if !strings.contains(s, "\\") {
-        return s
-    }
-    b := strings.builder_make(context.temp_allocator)
-    for i := 0; i < len(s); i += 1 {
-        if s[i] == '\\' && i + 1 < len(s) {
-            i += 1
-        }
-        strings.write_byte(&b, s[i])
-    }
-    return strings.to_string(b)
 }

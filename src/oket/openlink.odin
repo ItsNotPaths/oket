@@ -9,6 +9,7 @@ import "lues:pt"
 import "../desc"
 import "../store"
 import "../txt"
+import "../cl"
 
 // `:openlink`: what a link is FOR, decided once and here. A plugin says WHERE a link is by
 // publishing a `link` data span whose value is the target; this reads the target and does the
@@ -31,7 +32,7 @@ Link :: enum {
 }
 
 builtin_openlink :: proc(a: ^App, args: string, _: CL_Step) -> bool {
-    _, target := first_arg(strings.trim_space(args))
+    _, target := cl.first_arg(strings.trim_space(args))
     if target == "" {
         target = link_under(a)
     }
@@ -182,13 +183,13 @@ link_browse :: proc(a: ^App, uri: string) -> bool {
         return false
     }
     browser := a.config.browser != "" ? a.config.browser : BROWSER_DEFAULT
-    append(&a.queue, fmt.aprintf("%s %s", browser, sh_arg(uri)))
+    append(&a.queue, fmt.aprintf("%s %s", browser, cl.sh_arg(uri)))
     return true
 }
 
 @(private = "file")
 link_open :: proc(a: ^App, path: string, line, col: int) -> bool {
-    if !builtin_open(a, sh_arg(path), {}) {
+    if !builtin_open(a, cl.sh_arg(path), {}) {
         return false
     }
     s := active(a)

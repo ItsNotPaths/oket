@@ -8,6 +8,7 @@ import "core:time"
 import sdl "vendor:sdl3"
 import "../gfx"
 import "../input"
+import "../cl"
 
 // The harness (AUTHORING.md §6): a second oket with the fault net disarmed, driven by a file
 // instead of by a window.
@@ -233,9 +234,9 @@ harness_step :: proc(a: ^App, raw, head: string) -> (why: string) {
 // line shape.
 @(private = "file")
 harness_assert :: proc(a: ^App, expr: string) -> (why: string) {
-    what := first_field(expr)
+    what := cl.first_field(expr)
     rest := strings.trim_space(expr[len(what):])
-    op := first_field(rest)
+    op := cl.first_field(rest)
     if what == "" || !harness_op(op) {
         return fmt.tprintf("%s is not `<what> ==|!=|~|!~ <value>`", expr)
     }

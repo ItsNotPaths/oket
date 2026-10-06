@@ -8,6 +8,7 @@ import "core:time"
 import "../store"
 import "../txt"
 import app "../oket"
+import "../cl"
 
 // Half the gate for build order stage 5: `:` runs, `&&` chains, and a shell step is a real link
 // in the chain. §14's first open question is whether `binds.conf` plus chains covers the
@@ -36,9 +37,9 @@ run_line :: proc(a: ^app.App, line: string) {
 @(test)
 the_chain_splits_the_way_a_shell_would :: proc(t: ^testing.T) {
     segs :: proc(line: string) -> string {
-        marks := [app.CL_Op]string{.And = "&", .Pipe = "|", .Or = "!"}
+        marks := [cl.Op]string{.And = "&", .Pipe = "|", .Or = "!"}
         out := make([dynamic]string, context.temp_allocator)
-        for s in app.cl_split_chain(line) {
+        for s in cl.split(line) {
             append(&out, strings.concatenate({marks[s.op], s.text}, context.temp_allocator))
         }
         return strings.join(out[:], " ", context.temp_allocator)
@@ -99,8 +100,8 @@ adjacent_shell_steps_stay_one_command :: proc(t: ^testing.T) {
     app.cl_parse(&a, ":sel | sort -u | tr a b | :put")
     testing.expect_value(t, len(a.chain.steps), 3)
     testing.expect_value(t, a.chain.steps[1].text, "sort -u | tr a b")
-    testing.expect_value(t, a.chain.steps[1].op, app.CL_Op.Pipe)
-    testing.expect_value(t, a.chain.steps[2].op, app.CL_Op.Pipe)
+    testing.expect_value(t, a.chain.steps[1].op, cl.Op.Pipe)
+    testing.expect_value(t, a.chain.steps[2].op, cl.Op.Pipe)
 
     // `||` coalesces between shell steps like the others, so bash keeps its own or-else; at a
     // builtin boundary it is ours.
@@ -109,7 +110,7 @@ adjacent_shell_steps_stay_one_command :: proc(t: ^testing.T) {
     testing.expect_value(t, a.chain.steps[0].text, "make || echo failed")
     app.cl_parse(&a, ":close || :np")
     testing.expect_value(t, len(a.chain.steps), 2)
-    testing.expect_value(t, a.chain.steps[1].op, app.CL_Op.Or)
+    testing.expect_value(t, a.chain.steps[1].op, cl.Op.Or)
 }
 
 // The headline: a document's text out through a shell pipeline and back in at point, with the

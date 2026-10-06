@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:strconv"
 import "core:strings"
 import "../store"
+import "../cl"
 
 // Addressing (PANELS.md §4). One grammar, and every builtin that takes a target parses it here.
 //
@@ -49,7 +50,7 @@ Target :: struct {
 target_parse :: proc(args: string) -> (t: Target, bad: string, ok: bool) {
     rest := strings.trim_space(args)
     for rest != "" {
-        field := first_field(rest)
+        field := cl.first_field(rest)
         rest = strings.trim_space(rest[len(field):])
         body := field
         panel := field[0] == '@'
@@ -154,10 +155,10 @@ target_panel :: proc(a: ^App, t: Target) -> (int, bool) {
 // is freed with the state that holds it.
 target_aim :: proc(text: string, panel: int) -> string {
     for i in 0 ..< len(text) {
-        if text[i] != '@' || i > 0 && !field_sep(text[i - 1]) {
+        if text[i] != '@' || i > 0 && !cl.field_sep(text[i - 1]) {
             continue
         }
-        if i + 1 == len(text) || field_sep(text[i + 1]) {
+        if i + 1 == len(text) || cl.field_sep(text[i + 1]) {
             return fmt.tprintf("%s@%d%s", text[:i], panel + 1, text[i + 1:])
         }
     }

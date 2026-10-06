@@ -9,6 +9,7 @@ import "../input"
 import "../plug"
 import "../store"
 import "../txt"
+import "../cl"
 
 // The plugin seam, kernel side (§7). lues is the kernel: the loader and its ledger, dispatch and
 // the fault net, io, tokens and requests. This file is oket on top of it: the hooks lues calls
@@ -151,7 +152,7 @@ plug_command :: proc(a: ^App, slot: input.Slot, args: string) -> bool {
     }
     // What it wrote is landed and drawn before the next step of a chain reads it.
     defer docs_settle(a)
-    return lues.cmd_run(a.kernel, int(slot), focused, arg_whole(args))
+    return lues.cmd_run(a.kernel, int(slot), focused, cl.arg_whole(args))
 }
 
 plug_cmd_named :: proc(a: ^App, name: string) -> (input.Slot, bool) {

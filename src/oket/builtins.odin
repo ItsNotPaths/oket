@@ -11,6 +11,7 @@ import "../desc"
 import "../shape"
 import "../store"
 import "../txt"
+import "../cl"
 
 // The kernel's curated core set (§12). Everything past it arrives with plugins, and the sigil
 // promised a builtin, so an unknown name stops the chain and says so rather than falling
@@ -116,7 +117,7 @@ builtin_named :: proc(name: string) -> (Builtin, bool) {
 }
 
 cl_builtin :: proc(a: ^App, step: CL_Step) -> bool {
-    name := first_field(step.text)
+    name := cl.first_field(step.text)
     args := strings.trim_space(step.text[len(name):])
     if b, is_builtin := builtin_named(name); is_builtin {
         return b.run(a, args, step)
@@ -200,7 +201,7 @@ builtin_np :: proc(a: ^App, _: string, _: CL_Step) -> bool {
 // are lines you could type, which is what keeps the page a document.
 @(private = "file")
 builtin_home :: proc(a: ^App, args: string, _: CL_Step) -> bool {
-    if _, verb := first_arg(args); verb == "enter" {
+    if _, verb := cl.first_arg(args); verb == "enter" {
         return home_enter(a)
     }
     ring_add(a, home_open(a))
@@ -241,7 +242,7 @@ builtin_quit :: proc(a: ^App, _: string, _: CL_Step) -> bool {
 // there: what `@N` does is aim the keys, and the ring then answers the way it does for any
 // other panel. Which is also why the open takes focus with it — you always see where it went.
 builtin_open :: proc(a: ^App, args: string, _: CL_Step) -> bool {
-    raw, path := first_arg(args)
+    raw, path := cl.first_arg(args)
     rest := strings.trim_space(args[len(raw):])
     if path == "" {
         message_set(a, USAGE_OPEN)
@@ -285,7 +286,7 @@ builtin_width :: proc(a: ^App, args: string, _: CL_Step) -> bool {
     target: Target
     rest := strings.trim_space(args)
     for rest != "" {
-        field := first_field(rest)
+        field := cl.first_field(rest)
         rest = strings.trim_space(rest[len(field):])
         if field[0] == '@' {
             aimed: bool
@@ -386,7 +387,7 @@ open_path :: proc(a: ^App, path: string) -> (store.Id, bool) {
 // the config and never in kernel source.
 @(private = "file")
 builtin_ring :: proc(a: ^App, args: string, _: CL_Step) -> bool {
-    _, name := first_arg(args)
+    _, name := cl.first_arg(args)
     if name == "" {
         for l, i in a.ring.lanes {
             sys_println(a, fmt.tprintf("%s%s", i == ring_lane(a) ? "> " : "  ", kind_name(a, l.kind)))
@@ -489,7 +490,7 @@ builtin_put :: proc(a: ^App, _: string, step: CL_Step) -> bool {
 // branches on a step's exit, so `:get kind | grep -q term && ...` is an if.
 @(private = "file")
 builtin_get :: proc(a: ^App, args: string, _: CL_Step) -> bool {
-    _, what := first_arg(args)
+    _, what := cl.first_arg(args)
     out, known := get_value(a, what)
     if !known {
         message_set(a, USAGE_GET)
@@ -653,7 +654,7 @@ get_spans :: proc(a: ^App, b: ^strings.Builder) {
 // drift. Session-only — the file is the durable half, and this verb never writes it.
 @(private = "file")
 builtin_set :: proc(a: ^App, args: string, _: CL_Step) -> bool {
-    key := first_field(args)
+    key := cl.first_field(args)
     value := strings.trim_space(args[len(key):])
     dot := strings.index_byte(key, '.')
     if dot <= 0 || dot + 1 >= len(key) || value == "" {
@@ -709,11 +710,11 @@ builtin_do :: proc(a: ^App, _: string, step: CL_Step) -> bool {
 // of what the row acts on and hover underlines what `enter` would take (§14).
 @(private = "file")
 builtin_recover :: proc(a: ^App, args: string, _: CL_Step) -> bool {
-    raw, first := first_arg(args)
+    raw, first := cl.first_arg(args)
     drop := first == "drop"
     path := first
     if drop {
-        _, path = first_arg(strings.trim_space(args[len(raw):]))
+        _, path = cl.first_arg(strings.trim_space(args[len(raw):]))
     }
     if path == "" {
         message_set(a, USAGE_RECOVER)
@@ -738,8 +739,8 @@ USAGE_RECOVER :: ":recover [drop] <path>"
 // is also the section header its bind requests land under in binds.conf.
 @(private = "file")
 builtin_plug :: proc(a: ^App, args: string, _: CL_Step) -> bool {
-    raw, verb := first_arg(args)
-    _, name := first_arg(strings.trim_space(args[len(raw):]))
+    raw, verb := cl.first_arg(args)
+    _, name := cl.first_arg(strings.trim_space(args[len(raw):]))
     if verb != "" && name == "" {
         message_set(a, USAGE_PLUG)
         return false
@@ -832,9 +833,9 @@ builtin_pluginify :: proc(a: ^App, args: string, _: CL_Step) -> bool {
     // is the loop this verb exists for, and `:plug load` refuses a name it already has.
     verb := plug_find(a, name) >= 0 ? "reload" : "load"
     cl_exec(a, fmt.tprintf("%s %s %s%s && :plug %s %s",
-                           sh_quote(script, context.temp_allocator),
-                           sh_quote(abs, context.temp_allocator),
-                           sh_quote(out, context.temp_allocator),
+                           cl.sh_quote(script, context.temp_allocator),
+                           cl.sh_quote(abs, context.temp_allocator),
+                           cl.sh_quote(out, context.temp_allocator),
                            flags == "" ? "" : " --asan", verb, name))
     return true
 }
@@ -846,7 +847,7 @@ builtin_pluginify :: proc(a: ^App, args: string, _: CL_Step) -> bool {
 // Split out and reachable so the suite can ask what a line RESOLVES TO without spawning a
 // compiler to find out.
 pluginify_target :: proc(a: ^App, args: string) -> (dir, flags: string) {
-    raw, first := first_arg(args)
+    raw, first := cl.first_arg(args)
     dir, flags = first, strings.trim_space(args[len(raw):])
     if strings.has_prefix(dir, "-") {
         dir, flags = "", strings.trim_space(args)
@@ -893,7 +894,7 @@ harness_line :: proc(a: ^App, args: string) -> (string, bool) {
     plugs := make([dynamic]string, 0, 4, context.temp_allocator)
     rest, seq := strings.trim_space(args), ""
     for rest != "" {
-        raw, value := first_arg(rest)
+        raw, value := cl.first_arg(rest)
         rest = strings.trim_space(rest[len(raw):])
         switch {
         case strings.has_prefix(value, "-"):
@@ -919,14 +920,14 @@ harness_line :: proc(a: ^App, args: string) -> (string, bool) {
         return "", false
     }
     b := strings.builder_make(context.temp_allocator)
-    fmt.sbprintf(&b, "%s %s", sh_quote(exe_path(context.temp_allocator), context.temp_allocator),
+    fmt.sbprintf(&b, "%s %s", cl.sh_quote(exe_path(context.temp_allocator), context.temp_allocator),
                  HARNESS)
     for flag in flags {
         fmt.sbprintf(&b, " %s", flag)
     }
-    fmt.sbprintf(&b, " %s", sh_arg(seq))
+    fmt.sbprintf(&b, " %s", cl.sh_arg(seq))
     for plug in plugs {
-        fmt.sbprintf(&b, " %s", sh_arg(plug))
+        fmt.sbprintf(&b, " %s", cl.sh_arg(plug))
     }
     return strings.to_string(b), true
 }

@@ -14,6 +14,7 @@ import "../input"
 import "../store"
 import "../txt"
 import "../view"
+import "../cl"
 
 // Cells in, document out. The window layer above divides pixels; nothing from here down knows
 // what a pixel is, which is also how a test drives a click without a window.
@@ -672,7 +673,7 @@ bind_expand :: proc(a: ^App, template: string) -> (string, bool) {
             message_set(a, fmt.tprintf("nothing here has a %s", name))
             return "", false
         }
-        strings.write_string(&b, sh_arg(f.value))
+        strings.write_string(&b, cl.sh_arg(f.value))
         rest = tail
     }
     return strings.to_string(b), true

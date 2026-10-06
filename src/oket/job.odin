@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:os"
 import "core:strings"
 import "../pty"
+import "../cl"
 
 // The system session (§11), and the one shell step a chain has out at a time.
 //
@@ -56,7 +57,7 @@ setup_line :: proc(a: ^App) -> string {
 
     strings.write_string(&b, SETUP)
     if a.home.data != "" {
-        fmt.sbprintf(&b, " PATH=\"$PATH\":%s", sh_arg(a.home.data))
+        fmt.sbprintf(&b, " PATH=\"$PATH\":%s", cl.sh_arg(a.home.data))
     }
     strings.write_byte(&b, '\n')
     fmt.sbprintf(&b, REPORT, pty.OSC_EXIT_TAG)
@@ -101,15 +102,15 @@ sh_run :: proc(a: ^App, cmd, feed: string, fed: bool) -> bool {
         body = fmt.tprintf(
             "(%s)%s%s",
             cmd,
-            a.job.feed != "" ? fmt.tprintf(" < %s", sh_quote(a.job.feed, context.temp_allocator)) : "",
-            a.job.out != "" ? fmt.tprintf(" > %s 2>&1", sh_quote(a.job.out, context.temp_allocator)) : "",
+            a.job.feed != "" ? fmt.tprintf(" < %s", cl.sh_quote(a.job.feed, context.temp_allocator)) : "",
+            a.job.out != "" ? fmt.tprintf(" > %s 2>&1", cl.sh_quote(a.job.out, context.temp_allocator)) : "",
         )
     }
     line := fmt.tprintf(
         STEP,
         body,
         a.job.id,
-        a.job.out != "" ? fmt.tprintf("; cat %s", sh_quote(a.job.out, context.temp_allocator)) : "",
+        a.job.out != "" ? fmt.tprintf("; cat %s", cl.sh_quote(a.job.out, context.temp_allocator)) : "",
     )
     pty.terminal_write(&tm.t, transmute([]u8)line)
     // §11 had a session surface on a non-zero exit and on nothing else. A step that is the LAST

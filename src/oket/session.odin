@@ -6,6 +6,7 @@ import "core:path/filepath"
 import "core:strings"
 import "../desc"
 import "../store"
+import "../cl"
 
 // The ring, across restarts (§14). `[session] restore` in config.odin is what turns it on.
 //
@@ -95,7 +96,7 @@ session_line :: proc(a: ^App, b: ^strings.Builder, id: store.Id, slot, panel: in
         return
     }
     at := panel > 0 ? fmt.tprintf(" @%d", panel) : ""
-    fmt.sbprintfln(b, ":open %s #%d%s", sh_quote(d.file, context.temp_allocator), slot, at)
+    fmt.sbprintfln(b, ":open %s #%d%s", cl.sh_quote(d.file, context.temp_allocator), slot, at)
 }
 
 @(private = "file")

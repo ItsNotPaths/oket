@@ -8,6 +8,7 @@ import sdl "vendor:sdl3"
 import "../gfx"
 import "lues:lues"
 import "lues:wake"
+import "../cl"
 
 WIDTH :: 1200
 HEIGHT :: 760
@@ -58,7 +59,7 @@ start_dir :: proc(args: []string, allocator := context.allocator) -> string {
 // argument and a restored line reach `:open` through one path. Answers whether anything landed.
 args_open :: proc(a: ^App, args: []string) -> (opened: bool) {
     for path in args_paths(args, context.temp_allocator) {
-        cl_exec(a, fmt.tprintf(":open %s", sh_quote(path, context.temp_allocator)))
+        cl_exec(a, fmt.tprintf(":open %s", cl.sh_quote(path, context.temp_allocator)))
         opened |= ring_focused(a) != nil
     }
     return
