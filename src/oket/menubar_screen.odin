@@ -115,9 +115,10 @@ menu_took_button :: proc(a: ^App, pn, x, y: int, press: bool) -> bool {
         // Neither half reaches the panel under it, so a press waiting on its release is dropped:
         // a release the menu ate is a click that never happened.
         input.mouse_drop(&a.mouse)
-        if h, on := menu_hit(a, x, y); press && on {
-            // No prefix: a menu the pointer opened is under no primer, so a chord that falls
-            // through it resolves against nothing.
+        if !press {
+            return true
+        }
+        if h, on := menu_hit(a, x, y); on {
             act, row := menubar.click(&a.menu, menubar_frame(a), h, menu_up(a))
             menu_act(a, act, row)
         }
@@ -144,6 +145,8 @@ menu_act :: proc(a: ^App, act: menubar.Act, row: menu.Row) {
     switch act {
     case .None:
     case .Open:
+        // Under no primer: a chord that falls through a menu the pointer opened resolves
+        // against nothing.
         input.pending_set(&a.pending, input.Pending_Menu{})
     case .Close, .Fall:
         input.pending_set(&a.pending)

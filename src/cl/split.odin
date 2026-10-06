@@ -95,9 +95,8 @@ split :: proc(s: string, alloc := context.temp_allocator) -> []Seg {
             i += 1
             start = i
             continue
-        // Named exactly rather than left as a catch-all: any `|` an operator case declines
-        // used to eat the byte after it, and inside `${...}` or `...` that byte can be the
-        // closer the scan is waiting for.
+        // Exactly `|&`, never a catch-all: inside `${...}` or `...` the byte after a `|` can be
+        // the closer the scan is waiting for.
         case c == '|' && i + 1 < len(s) && s[i + 1] == '&':
             i += 1 // the second byte of `|&`, skipped with the first
         }

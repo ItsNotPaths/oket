@@ -77,20 +77,7 @@ load :: proc(scopes: ^map[string]Entry, dir, name: string) -> (ui: gfx.Theme, pr
     if !read_chain(dir, name, &roots, INHERIT_MAX, &problem) {
         return
     }
-    // Built FIRST and across the whole chain, because a child's palette names colours for its
-    // parent's rows too.
-    pal := make(map[string][3]f32, context.temp_allocator)
-    for root in roots {
-        if p, held := toml.get_table(root, "palette"); held {
-            for key, val in p {
-                if s, is_str := val.(string); is_str {
-                    if c, ok := hex_color(s); ok {
-                        pal[key] = c
-                    }
-                }
-            }
-        }
-    }
+    pal := palette(roots[:])
     for root in roots {
         flatten(scopes, root, pal, "")
     }
@@ -132,6 +119,23 @@ forget :: proc(scopes: ^map[string]Entry) {
     }
     delete(scopes^)
     scopes^ = nil
+}
+
+// Merged FIRST and across the whole chain, because a child's palette names colours for its
+// parent's rows too.
+@(private = "file")
+palette :: proc(roots: []^toml.Table) -> map[string][3]f32 {
+    pal := make(map[string][3]f32, context.temp_allocator)
+    for root in roots {
+        p := toml.get_table(root, "palette") or_continue
+        for key, val in p {
+            s := val.(string) or_continue
+            if c, ok := hex_color(s); ok {
+                pal[key] = c
+            }
+        }
+    }
+    return pal
 }
 
 @(private = "file")
