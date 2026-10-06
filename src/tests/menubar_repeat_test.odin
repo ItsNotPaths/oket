@@ -22,14 +22,14 @@ holding_arrow_does_not_jump_on_release :: proc(t: ^testing.T) {
         return
     }
     b := app.menubar_frame(&a)
-    rows := menu.rows_of(b, a.menu_nav)
+    rows := menu.rows_of(b, a.menu.nav)
     if len(rows) < 5 {
         testing.expectf(t, false, "need enough rows, got %d", len(rows))
         return
     }
     b2 := app.menubar_frame(&a)
-    rows2 := menu.rows_of(b2, a.menu_nav)
-    start := a.menu_nav.row
+    rows2 := menu.rows_of(b2, a.menu.nav)
+    start := a.menu.nav.row
     N :: 20
     // initial press + repeats = N moves
     for i in 0 ..< N {
@@ -40,12 +40,12 @@ holding_arrow_does_not_jump_on_release :: proc(t: ^testing.T) {
         }
     }
     want := (start + N) % len(rows2)
-    testing.expect_value(t, a.menu_nav.row, want)
-    top_before := a.menu_nav.top
-    testing.expect_value(t, a.menu_nav.row, want)
-    testing.expect_value(t, a.menu_nav.top, top_before)
+    testing.expect_value(t, a.menu.nav.row, want)
+    top_before := a.menu.nav.top
+    testing.expect_value(t, a.menu.nav.row, want)
+    testing.expect_value(t, a.menu.nav.top, top_before)
     app.handle_chord(&a, chord("DOWN"))
-    testing.expect_value(t, a.menu_nav.row, (want + 1) % len(rows2))
+    testing.expect_value(t, a.menu.nav.row, (want + 1) % len(rows2))
 }
 
 // The order SDL really queues: the last due repeats sit in front of their own release, in one
@@ -76,14 +76,14 @@ repeats_queued_before_the_up_move_nothing :: proc(t: ^testing.T) {
         if !testing.expect(t, up, "menu not open") {
             return
         }
-        a.menu_nav = menu.nav(0)
+        a.menu.nav = menu.nav(0)
         b := app.menubar_frame(&a)
-        rows := menu.rows_of(b, a.menu_nav)
+        rows := menu.rows_of(b, a.menu.nav)
         if len(rows) == 0 {
             continue
         }
-        want_row := a.menu_nav.row
-        want_top := a.menu_nav.top
+        want_row := a.menu.nav.row
+        want_top := a.menu.nav.top
         sc, _ := input.key_code(name)
 
         // The batch as the release queues it: five repeats, then the up. The repeats are stale.
@@ -105,8 +105,8 @@ repeats_queued_before_the_up_move_nothing :: proc(t: ^testing.T) {
 
         app.input_pump(&a, false)
 
-        testing.expectf(t, a.menu_nav.row == want_row, "%s: the row moved on release: want %d got %d", name, want_row, a.menu_nav.row)
-        testing.expectf(t, a.menu_nav.top == want_top, "%s: the top moved on release", name)
+        testing.expectf(t, a.menu.nav.row == want_row, "%s: the row moved on release: want %d got %d", name, want_row, a.menu.nav.row)
+        testing.expectf(t, a.menu.nav.top == want_top, "%s: the top moved on release", name)
         tmp: sdl.Event
         leaked := 0
         for sdl.PollEvent(&tmp) {
@@ -145,11 +145,11 @@ live_repeats_still_move :: proc(t: ^testing.T) {
         return
     }
     b := app.menubar_frame(&a)
-    rows := menu.rows_of(b, a.menu_nav)
+    rows := menu.rows_of(b, a.menu.nav)
     if len(rows) == 0 {
         return
     }
-    start := a.menu_nav.row
+    start := a.menu.nav.row
     sc, _ := input.key_code("DOWN")
     ev: sdl.Event
     ev.type = .KEY_DOWN
@@ -163,7 +163,7 @@ live_repeats_still_move :: proc(t: ^testing.T) {
         _ = sdl.PushEvent(&ev)
     }
     app.input_pump(&a, false)
-    testing.expect_value(t, a.menu_nav.row, (start + 3) % len(rows))
+    testing.expect_value(t, a.menu.nav.row, (start + 3) % len(rows))
 }
 
 @(private = "file")

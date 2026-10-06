@@ -72,7 +72,7 @@ frame_paint :: proc(a: ^App, slots: []strip.Span) {
     // the solve, because a popup is anchored and `lay` tiles (§13.4). A reserved row and a
     // floating one are the same box now that nothing is drawn after them, so neither the bar
     // nor a dropdown paints a ground of its own.
-    for &l, part in a.menu {
+    for &l, part in a.menu.layers {
         if !l.on {
             continue
         }

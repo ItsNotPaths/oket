@@ -39,14 +39,8 @@ State :: struct {
     // works in, and the widths live on the panels.
     panels:       [dynamic]Panel,
     focus:        int,
-    // The menubar's three grids and where the last draw put each (MENU.md §4). Painted LAST,
-    // over the panels and over the boxes the frame drew for them: `on` and `at` are what
-    // `frame_paint` reads to place those boxes, so a layer with no room to draw in gets none.
-    menu:         [Menu_Part]Menu_Layer,
-    // Where the keys are while the menu is up (MENU.md §5), the state the pointer moves too.
-    // The Pending_Menu in `pending` is still the one thing that says a menu IS up; this is only
-    // meaningful then, and menu_open resets it.
-    menu_nav:     Menu_Nav,
+    // The menubar's three grids and its nav (MENU.md §4, §5).
+    menu:         Menu_Screen,
     strip:        strip.Strip,
     // The window and the cell, in pixels, as the last fit measured them. The grids are cells
     // and the strip is pixels, so the conversion is written down once rather than asked of the

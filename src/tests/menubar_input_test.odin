@@ -8,6 +8,7 @@ import "../gfx"
 import "../input"
 import "../menu"
 import app "../oket"
+import "../menubar"
 
 // MENU.md §4, §5 and §6: the menubar on screen, on keys and under the pointer. The model is
 // menubar_test.odin's; what is under test here is the row it reserves (or does not), the six keys
@@ -68,8 +69,8 @@ space_opens_the_menu_and_the_primer_says_where :: proc(t: ^testing.T) {
     app.handle_chord(&a, chord("SPCE", {.Alt}))
     p, up := open_menu(&a)
     testing.expect(t, up, "alt+space opened no menu")
-    testing.expect_value(t, menu_name(&a, a.menu_nav), "file")
-    testing.expect(t, !menu.popped(a.menu_nav), "a popout with no primer behind it")
+    testing.expect_value(t, menu_name(&a, a.menu.nav), "file")
+    testing.expect(t, !menu.popped(a.menu.nav), "a popout with no primer behind it")
     testing.expect_value(t, p.prefix, input.Chord{}) // no primer behind it, so no prefix on it
     input.pending_set(&a.pending)
 
@@ -79,8 +80,8 @@ space_opens_the_menu_and_the_primer_says_where :: proc(t: ^testing.T) {
     app.handle_chord(&a, chord("SPCE", {.Alt}))
     p, up = open_menu(&a)
     testing.expect(t, up, "alt+space under a primer opened no menu")
-    testing.expect_value(t, menu_name(&a, a.menu_nav), "chords")
-    testing.expect(t, menu.popped(a.menu_nav), "the primer's children are not out")
+    testing.expect_value(t, menu_name(&a, a.menu.nav), "chords")
+    testing.expect(t, menu.popped(a.menu.nav), "the primer's children are not out")
     testing.expect_value(t, p.prefix, chord("AB05", {.Alt}))
     input.pending_set(&a.pending)
 
@@ -108,8 +109,8 @@ the_help_chord_arrives_with_the_primers_key_still_down :: proc(t: ^testing.T) {
     app.handle_chord(&a, chord("SPCE", {.Alt}, held = "AB05"))
     _, up := open_menu(&a)
     testing.expect(t, up, "a held key hid the help chord")
-    testing.expect_value(t, menu_name(&a, a.menu_nav), "chords")
-    testing.expect(t, menu.popped(a.menu_nav))
+    testing.expect_value(t, menu_name(&a, a.menu.nav), "chords")
+    testing.expect(t, menu.popped(a.menu.nav))
 }
 
 // The menu claims six keys and nothing else (§5). Anything else falls THROUGH and closes, in the
@@ -181,7 +182,7 @@ escape_closes_the_popout_then_the_menu :: proc(t: ^testing.T) {
     app.handle_chord(&a, chord("ESC"))
     _, up := open_menu(&a)
     testing.expect(t, up, "escape closed the menu and the popout at once")
-    testing.expect(t, !menu.popped(a.menu_nav), "the popout stayed out")
+    testing.expect(t, !menu.popped(a.menu.nav), "the popout stayed out")
 
     app.handle_chord(&a, chord("ESC"))
     _, still := open_menu(&a)
@@ -204,7 +205,7 @@ opening_a_hidden_menu_reflows_nothing :: proc(t: ^testing.T) {
 
     was := app.panel_focused(&a).body
     rows := app.panel_focused(&a).grid.rows
-    testing.expect_value(t, app.menu_show(&a), app.Menu_Show.Hidden)
+    testing.expect_value(t, app.menu_show(&a), menubar.Show.Hidden)
     testing.expect_value(t, was.h, 19) // twenty rows, less the command line's
 
     app.handle_chord(&a, chord("SPCE", {.Alt}))
@@ -214,9 +215,9 @@ opening_a_hidden_menu_reflows_nothing :: proc(t: ^testing.T) {
 
     // The bar is drawn anyway, over the top row of whatever is there: its own grid, so nothing
     // under it moved to make space.
-    testing.expect(t, a.menu[.Bar].on, "no bar was drawn for an open menu")
-    testing.expect(t, a.menu[.Drop].on, "no dropdown was drawn for an open menu")
-    text := gfx.grid_snapshot(&a.menu[.Bar].grid)
+    testing.expect(t, a.menu.layers[.Bar].on, "no bar was drawn for an open menu")
+    testing.expect(t, a.menu.layers[.Drop].on, "no dropdown was drawn for an open menu")
+    text := gfx.grid_snapshot(&a.menu.layers[.Bar].grid)
     defer delete(text)
     testing.expect_value(t, text, " file  edit  view  panel │ chords")
 }
@@ -251,7 +252,7 @@ a_constant_menubar_costs_one_row_at_the_start :: proc(t: ^testing.T) {
     defer os.remove_all(dir)
     defer close_app(&a)
 
-    testing.expect_value(t, app.menu_show(&a), app.Menu_Show.Constant)
+    testing.expect_value(t, app.menu_show(&a), menubar.Show.Constant)
     was := app.panel_focused(&a).body
     testing.expect_value(t, was.h, 18) // one for the command line, one for the bar
 
@@ -263,9 +264,9 @@ a_constant_menubar_costs_one_row_at_the_start :: proc(t: ^testing.T) {
     // between the two modes.
     input.pending_set(&a.pending)
     app.surface_draw(&a)
-    testing.expect(t, a.menu[.Bar].on, "a constant bar went away with the menu")
-    testing.expect(t, !a.menu[.Drop].on, "a dropdown with no menu up")
-    testing.expect_value(t, a.menu[.Bar].at, [2]f32{0, 0})
+    testing.expect(t, a.menu.layers[.Bar].on, "a constant bar went away with the menu")
+    testing.expect(t, !a.menu.layers[.Drop].on, "a dropdown with no menu up")
+    testing.expect_value(t, a.menu.layers[.Bar].at, [2]f32{0, 0})
 }
 
 // CHROME.md §6.1 and §15 stage 6: NO MENUBAR GRID PAINTS A GROUND. The frame's pass runs after
@@ -281,7 +282,7 @@ a_menubar_grid_never_paints_a_ground :: proc(t: ^testing.T) {
     defer close_app(&a)
 
     app.surface_draw(&a)
-    testing.expect_value(t, gfx.grid_at(&a.menu[.Bar].grid, 0, 0).bg, gfx.NOTHING)
+    testing.expect_value(t, gfx.grid_at(&a.menu.layers[.Bar].grid, 0, 0).bg, gfx.NOTHING)
 
     h, hok := primer_app()
     if !hok {
@@ -290,16 +291,16 @@ a_menubar_grid_never_paints_a_ground :: proc(t: ^testing.T) {
     defer close_app(&h)
     app.handle_chord(&h, chord("SPCE", {.Alt})) // the one way a hidden bar reaches the screen
     app.surface_draw(&h)
-    testing.expect(t, h.menu[.Bar].on, "a hidden bar with a menu up")
-    testing.expect_value(t, gfx.grid_at(&h.menu[.Bar].grid, 0, 0).bg, gfx.NOTHING)
+    testing.expect(t, h.menu.layers[.Bar].on, "a hidden bar with a menu up")
+    testing.expect_value(t, gfx.grid_at(&h.menu.layers[.Bar].grid, 0, 0).bg, gfx.NOTHING)
     // And the dropdown hanging off it. The LIT row is a box too: the layer says which row the
     // frame draws a ground under, and the cells of that row carry ink and nothing else.
-    testing.expect(t, h.menu[.Drop].on, "no dropdown with a menu up")
-    testing.expect_value(t, gfx.grid_at(&h.menu[.Drop].grid, 0, 0).bg, gfx.NOTHING)
-    lit := h.menu[.Drop].lit
+    testing.expect(t, h.menu.layers[.Drop].on, "no dropdown with a menu up")
+    testing.expect_value(t, gfx.grid_at(&h.menu.layers[.Drop].grid, 0, 0).bg, gfx.NOTHING)
+    lit := h.menu.layers[.Drop].lit
     testing.expect(t, lit >= 0, "no row of an open dropdown is lit")
-    for x in 0 ..< h.menu[.Drop].grid.cols {
-        testing.expect_value(t, gfx.grid_at(&h.menu[.Drop].grid, x, lit).bg, gfx.NOTHING)
+    for x in 0 ..< h.menu.layers[.Drop].grid.cols {
+        testing.expect_value(t, gfx.grid_at(&h.menu.layers[.Drop].grid, x, lit).bg, gfx.NOTHING)
     }
 }
 
@@ -330,14 +331,14 @@ name_at :: proc(a: ^app.App, want: string) -> (x: int, ok: bool) {
 @(private = "file")
 row_at :: proc(a: ^app.App, i: int) -> (x, y: int) {
     // A test cell is ONE PIXEL, so a popup's pixel origin reads in columns and rows here.
-    box := menu.drop_box(app.menubar_frame(a), a.menu_nav)
-    return int(box.at.x) + 1, int(box.at.y) + i - a.menu_nav.top
+    box := menu.drop_box(app.menubar_frame(a), a.menu.nav)
+    return int(box.at.x) + 1, int(box.at.y) + i - a.menu.nav.top
 }
 
 @(private = "file")
 kid_at :: proc(a: ^app.App, i: int) -> (x, y: int) {
-    box := menu.kid_box(app.menubar_frame(a), a.menu_nav)
-    return int(box.at.x) + 1, int(box.at.y) + i - a.menu_nav.ktop
+    box := menu.kid_box(app.menubar_frame(a), a.menu.nav)
+    return int(box.at.x) + 1, int(box.at.y) + i - a.menu.nav.ktop
 }
 
 // The bar's own row is the MENU'S cell and not the panel's under it, so a click on it opens a
@@ -362,7 +363,7 @@ a_click_on_the_bar_opens_a_menu_and_moves_no_caret :: proc(t: ^testing.T) {
     testing.expect(t, press(&a, x, 0), "the bar's own row did not take the press")
     _, up := open_menu(&a)
     testing.expect(t, up, "a click on the bar opened no menu")
-    testing.expect_value(t, menu_name(&a, a.menu_nav), "file")
+    testing.expect_value(t, menu_name(&a, a.menu.nav), "file")
     testing.expect_value(t, point(&a), was)
 
     // The same name again: what opened it closes it, which is the one thing a name does twice.
@@ -392,11 +393,11 @@ a_click_runs_a_row_and_pops_a_primer_out :: proc(t: ^testing.T) {
     x, found := name_at(&a, "chords")
     testing.expect(t, found, "no chords menu with a primer in the table")
     testing.expect(t, press(&a, x, 0))
-    testing.expect_value(t, menu_name(&a, a.menu_nav), "chords")
+    testing.expect_value(t, menu_name(&a, a.menu.nav), "chords")
 
     rx, ry := row_at(&a, 0)
     testing.expect(t, press(&a, rx, ry), "the dropdown did not take the press")
-    testing.expect(t, menu.popped(a.menu_nav), "a click on a primer row popped nothing out")
+    testing.expect(t, menu.popped(a.menu.nav), "a click on a primer row popped nothing out")
     testing.expect(t, !a.quit, "a primer row ran a verb")
 
     kx, ky := kid_at(&a, 0)
@@ -431,29 +432,29 @@ the_pointer_moves_the_selection_it_passes_over :: proc(t: ^testing.T) {
     app.handle_chord(&a, chord("SPCE", {.Alt}))
     rx, ry := row_at(&a, 2)
     hover(&a, rx, ry)
-    testing.expect_value(t, a.menu_nav.row, 2)
+    testing.expect_value(t, a.menu.nav.row, 2)
 
     // And the keys carry on from there, because it is the one nav.
     app.handle_chord(&a, chord("DOWN"))
-    testing.expect_value(t, a.menu_nav.row, 3)
+    testing.expect_value(t, a.menu.nav.row, 3)
 
     // Across the bar: a name under the pointer with a menu already up switches to it.
     cx, found := name_at(&a, "chords")
     testing.expect(t, found)
     hover(&a, cx, 0)
-    testing.expect_value(t, menu_name(&a, a.menu_nav), "chords")
-    testing.expect_value(t, a.menu_nav.row, 0)
-    testing.expect(t, !menu.popped(a.menu_nav), "the pointer popped a primer out")
+    testing.expect_value(t, menu_name(&a, a.menu.nav), "chords")
+    testing.expect_value(t, a.menu.nav.row, 0)
+    testing.expect(t, !menu.popped(a.menu.nav), "the pointer popped a primer out")
 
     // A popout the pointer has to CROSS its own parent row to reach stays out on the way.
     prx, pry := row_at(&a, 0)
     testing.expect(t, press(&a, prx, pry))
     hover(&a, prx, pry)
-    testing.expect(t, menu.popped(a.menu_nav), "crossing the parent row shut its popout")
+    testing.expect(t, menu.popped(a.menu.nav), "crossing the parent row shut its popout")
 
     kx, ky := kid_at(&a, 0)
     hover(&a, kx, ky)
-    testing.expect_value(t, a.menu_nav.kid, 0)
+    testing.expect_value(t, a.menu.nav.kid, 0)
     testing.expect(t, !a.quit, "the pointer ran a row it only passed over")
 }
 
@@ -506,13 +507,13 @@ the_menubar_takes_the_theme_the_other_way_round :: proc(t: ^testing.T) {
     defer close_app(&a)
 
     // Said outright: the bar is drawn like every document, and nothing is derived.
-    testing.expect_value(t, app.menu_palette(&a), app.Menu_Palette.Dark)
+    testing.expect_value(t, app.menu_palette(&a), menubar.Palette.Dark)
     testing.expect_value(t, app.menu_theme(&a), a.theme)
 
     // The default, against the default theme, which is a dark one. A file that says nothing is
     // the config with no rows in it.
     app.config_destroy(&a.config)
-    testing.expect_value(t, app.menu_palette(&a), app.Menu_Palette.Invert)
+    testing.expect_value(t, app.menu_palette(&a), menubar.Palette.Invert)
     th := app.menu_theme(&a)
     testing.expect_value(t, th[.Bg], a.theme[.Fg]) // the ground is the ink
     testing.expect_value(t, th[.Fg], a.theme[.Bg])

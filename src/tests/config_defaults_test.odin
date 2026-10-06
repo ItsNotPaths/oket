@@ -7,6 +7,7 @@ import "core:strconv"
 import "core:strings"
 import "core:testing"
 import app "../oket"
+import "../menubar"
 
 // `config.conf` is WRITTEN from the settings table, so the file is how a user learns what there
 // is to set (§4). These gate the two things that makes true.
@@ -97,8 +98,8 @@ every_printed_default_is_the_real_one :: proc(t: ^testing.T) {
 
     // The list settings, checked through what they drive: they are stored by name rather than
     // parsed into a field, so the printed default is right only if the behaviour is unchanged.
-    testing.expect_value(t, app.menu_palette(&a), app.Menu_Palette.Invert)
-    testing.expect_value(t, app.menu_show(&a), app.Menu_Show.Hidden)
+    testing.expect_value(t, app.menu_palette(&a), menubar.Palette.Invert)
+    testing.expect_value(t, app.menu_show(&a), menubar.Show.Hidden)
 
     // The alias row the same way: the printed line has to parse back as the shipped one.
     testing.expect_value(t, app.config_alias_line(&a.config, "panel.equalize"),
