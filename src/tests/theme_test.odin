@@ -7,6 +7,7 @@ import "core:strings"
 import "core:testing"
 import "../gfx"
 import app "../oket"
+import "../theme"
 
 // The theme loader (§4): helix TOML, read once per switch. The five UI slots, the token
 // recolour, inherits, and the fallbacks — the switch itself is a palette swap, which
@@ -111,8 +112,8 @@ brand = "#333333"
     testing.expect(t, app.config_set_line(&a.config, "theme", "name", "child"))
     app.theme_sync(&a)
 
-    kw, kw_themed := app.theme_lookup(&a, "keyword")
-    st, st_themed := app.theme_lookup(&a, "string")
+    kw, kw_themed := theme.lookup(a.scopes, "keyword")
+    st, st_themed := theme.lookup(a.scopes, "string")
     testing.expect(t, kw_themed && st_themed)
     testing.expect_value(t, kw, hex(0x444444)) // the child's own row wins
     testing.expect_value(t, st, hex(0x333333)) // the parent's row, through the child's palette
@@ -201,9 +202,9 @@ a_partial_theme_keeps_the_shipped_fallback :: proc(t: ^testing.T) {
     testing.expect(t, app.config_set_line(&a.config, "theme", "name", "tiny"))
     app.theme_sync(&a)
 
-    fb, _ := app.theme_lookup(&a, "function.builtin") // the dot rule, into the loaded scopes
+    fb, _ := theme.lookup(a.scopes, "function.builtin") // the dot rule, into the loaded scopes
     testing.expect_value(t, fb, hex(0x0a0b0c))
-    st, themed := app.theme_lookup(&a, "string") // unsaid, so the shipped palette answers
+    st, themed := theme.lookup(a.scopes, "string") // unsaid, so the shipped palette answers
     testing.expect(t, themed, "an unsaid scope drew plain")
     testing.expect_value(t, st, [3]f32{0.60, 0.76, 0.47})
 }

@@ -3,6 +3,7 @@ package main
 import "lues:lues"
 import "../gfx"
 import "../plug"
+import "../theme"
 
 // How a name becomes a colour. A plugin names a style TOKEN and never an RGB value, because a
 // plugin that names a colour breaks every theme (§5). lues interns the names; this caches what
@@ -42,7 +43,7 @@ token_color :: proc(a: ^App, tok: u16) -> [3]f32 {
     }
     for len(a.tokens) < len(a.kernel.tokens) {
         def: Token_Def
-        def.color, def.themed = theme_lookup(a, a.kernel.tokens[len(a.tokens)])
+        def.color, def.themed = theme.lookup(a.scopes, a.kernel.tokens[len(a.tokens)])
         append(&a.tokens, def)
     }
     if int(tok) < len(a.tokens) && a.tokens[tok].themed {

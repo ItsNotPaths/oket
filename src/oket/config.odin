@@ -10,6 +10,7 @@ import "lues:conf"
 import "lues:lues"
 import "../input"
 import "../txt"
+import "../theme"
 
 // `config.conf` (§4): the settings the kernel keeps, in the flat `key = value` format
 // `binds.conf` already uses and through the same parser. Both files are ones the kernel WRITES,
@@ -194,12 +195,12 @@ SETTINGS := [?]Setting {
     {"switcher", "show", "titles",
      "what the column under a held alt carries: titles or numbers",
      proc(c: ^Config, value: string) {c.switcher = conf_switcher(value)}},
-    {"theme", "name", THEME_DEFAULT,
+    {"theme", "name", theme.DEFAULT,
      "which themes/<name>.toml colours everything; the default is baked in",
      proc(c: ^Config, value: string) {
          delete(c.theme)
          c.theme = {}
-         if v := strings.trim_space(value); v != THEME_DEFAULT {
+         if v := strings.trim_space(value); v != theme.DEFAULT {
              c.theme = strings.clone(v)
          }
      }},
