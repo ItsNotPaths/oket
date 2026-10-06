@@ -41,6 +41,7 @@ sh_quote :: proc(s: string, alloc := context.allocator) -> string {
     return strings.to_string(b)
 }
 
+// oket's address grammar reads words with this and field_sep too (PANELS.md §4).
 first_field :: proc(s: string) -> string {
     i := 0
     for i < len(s) && !field_sep(s[i]) {
