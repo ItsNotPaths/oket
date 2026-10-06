@@ -33,9 +33,9 @@ Chain :: struct {
     // Bumped by every reset, so a builtin that replaced the chain out from under the host's
     // loop (`:pluginify` hands it a new line) is detected rather than stepped past.
     era:     u64,
-    // The one string that crosses between a document and the shell. Owned.
-    feed:    string,
-    fed:     bool, // a step has produced text; "" is a legitimate value, so this is not len()
+    // The one string that crosses between a document and the shell, nil until a step produces
+    // one: "" is a legitimate value. Owned.
+    feed:    Maybe(string),
     // `:do`'s pending lines, each run as its own chain once this one ends. A reset keeps them:
     // a queued line's parse resets the chain and must not eat the lines behind it.
     queue:   [dynamic]string,
@@ -139,10 +139,13 @@ wants_feed :: proc(ch: ^Chain) -> bool {
     return after < len(ch.steps) && ch.steps[after].op == .Pipe
 }
 
-// Did a `|` open this step with a feed for it to take — `:put`/`:do`'s gate, and what sends
-// the feed to a shell step's stdin.
-piped :: proc(ch: ^Chain, step: Step) -> bool {
-    return step.op == .Pipe && ch.fed
+// The feed this step takes, when a `|` opened it and a step before produced one: `:put`/`:do`'s
+// input, and a shell step's stdin.
+piped :: proc(ch: ^Chain, step: Step) -> (string, bool) {
+    if step.op != .Pipe {
+        return "", false
+    }
+    return ch.feed.?
 }
 
 // Is a failure this step reports one the chain itself will answer — an `||` still ahead. The
@@ -167,9 +170,8 @@ busy :: proc(ch: ^Chain) -> bool {
 
 // What one step handed on, taken by the next. Replacing it frees the last.
 feed_set :: proc(ch: ^Chain, text: string) {
-    delete(ch.feed)
+    delete(ch.feed.? or_else "")
     ch.feed = strings.clone(text)
-    ch.fed = true
 }
 
 // The next queued line, owned by the caller.
@@ -188,7 +190,7 @@ reset :: proc(ch: ^Chain) {
         delete(s.text)
     }
     delete(ch.steps)
-    delete(ch.feed)
+    delete(ch.feed.? or_else "")
     ch^ = {era = ch.era + 1, queue = ch.queue}
 }
 

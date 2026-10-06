@@ -51,7 +51,8 @@ chain_pump :: proc(a: ^App) {
             continue
         }
         if step.shell {
-            if !sh_run(a, step.text, ch.feed, cl.piped(ch, step)) {
+            feed, fed := cl.piped(ch, step)
+            if !sh_run(a, step.text, feed, fed) {
                 cl.reset(ch)
                 cl.queue_clear(ch) // a step that cannot even go out is nothing to keep feeding
                 return

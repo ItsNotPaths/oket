@@ -463,7 +463,8 @@ builtin_sel :: proc(a: ^App, _: string, _: cl.Step) -> bool {
 // shell-command-on-region, as a chain step: `:sel | sort -u | :put`.
 @(private = "file")
 builtin_put :: proc(a: ^App, _: string, step: cl.Step) -> bool {
-    if !cl.piped(&a.chain, step) {
+    feed, fed := cl.piped(&a.chain, step)
+    if !fed {
         message_set(a, ":put: nothing was piped into it")
         return false
     }
@@ -479,7 +480,7 @@ builtin_put :: proc(a: ^App, _: string, step: cl.Step) -> bool {
         return false
     }
     doc := store.store_doc(a.docs, s.doc)
-    txt.doc_insert_text(doc, a.chain.feed) // one edit per cursor, replacing its range
+    txt.doc_insert_text(doc, feed) // one edit per cursor, replacing its range
     s.view.point = doc.cursors[doc.primary]
     return true
 }
@@ -680,12 +681,13 @@ USAGE_SET :: ":set <section>.<key> <value>"
 // literal — no holes — since the generator had the values and focus moves as lines run.
 @(private = "file")
 builtin_do :: proc(a: ^App, _: string, step: cl.Step) -> bool {
-    if !cl.piped(&a.chain, step) {
+    feed, fed := cl.piped(&a.chain, step)
+    if !fed {
         message_set(a, ":do: nothing was piped into it")
         return false
     }
     n := 0
-    rest := a.chain.feed
+    rest := feed
     for line in strings.split_lines_iterator(&rest) {
         if strings.trim_space(line) != "" {
             n += 1
@@ -695,7 +697,7 @@ builtin_do :: proc(a: ^App, _: string, step: cl.Step) -> bool {
         message_set(a, fmt.tprintf(":do: %d lines is past the queue's cap (%d)", n, cl.QUEUE_MAX))
         return false
     }
-    rest = a.chain.feed
+    rest = feed
     for line in strings.split_lines_iterator(&rest) {
         if l := strings.trim_space(line); l != "" {
             append(&a.chain.queue, strings.clone(l))
