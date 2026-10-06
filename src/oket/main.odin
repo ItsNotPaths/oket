@@ -141,7 +141,7 @@ main :: proc() {
     }
 
     // An empty stack is not an error: the kernel draws with the bitmap and says so on screen.
-    faces, used := font_stack_load(sx)
+    faces, used := gfx.face_stack_load(sx)
     font_init(&a, used)
     atlas, atlas_ok := gfx.atlas_make(faces)
     if !atlas_ok {
