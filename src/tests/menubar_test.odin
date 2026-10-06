@@ -8,6 +8,7 @@ import "core:testing"
 import "../input"
 import "../menu"
 import app "../oket"
+import "../menubar"
 
 // MENU.md §3: the model behind the bar. Every menu here is a READING of a table that is already
 // there — the bind table, BUILTINS, the command registry, the requests — so the checks below are
@@ -118,7 +119,7 @@ the_bar_is_namespaces_then_chords_then_a_menu_per_plugin :: proc(t: ^testing.T) 
     testing.expect_value(t, len(alpha.rows), 1)
     testing.expect_value(t, alpha.rows[0].name, ":alpha.grep")
     testing.expect_value(t, alpha.rows[0].doc, "search the tree")
-    testing.expect_value(t, alpha.rows[0].id, app.MENU_STAGE)
+    testing.expect_value(t, alpha.rows[0].id, menubar.STAGE)
 }
 
 // A menu is a NAMESPACE: what is bound in it, and what `:` answers for it. A builtin row carries
@@ -144,7 +145,7 @@ a_namespace_menu_holds_its_binds_and_its_builtins :: proc(t: ^testing.T) {
     open, listed := row_usage(file.rows, ":open")
     testing.expect(t, listed, "the file menu names no :open")
     testing.expect_value(t, open.chord, "") // a builtin has none until somebody binds one
-    testing.expect_value(t, open.id, app.MENU_STAGE)
+    testing.expect_value(t, open.id, menubar.STAGE)
     testing.expect(t, strings.contains(open.name, "<path>"), open.name)
 
     // `[menu] panel = panel, ring`, so the ring's builtins are under panel and not under file.

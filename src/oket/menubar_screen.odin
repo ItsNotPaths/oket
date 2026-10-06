@@ -3,6 +3,7 @@ package main
 import "../gfx"
 import "../input"
 import "../menu"
+import "../menubar"
 
 // The menubar on screen, on keys and under the pointer (MENU.md §4-§6): the interaction layer
 // over the model menubar.odin builds. It never walks a table itself — every row it draws, runs
@@ -26,7 +27,7 @@ Menu_Part :: enum u8 {
     Kid,
 }
 
-// (hole menubar-screen :tags shared :sev gap :needs (menubar-model)) drawing, keys and hits read ^App and frame_paint's looks.
+// (hole menubar-screen :tags shared :sev gap) drawing, keys and hits read ^App and frame_paint's looks.
 Menu_Layer :: struct {
     grid: gfx.Grid,
     at:   [2]f32, // the ground's PIXELS: a popup hangs where it likes, and only its size is cells
@@ -215,7 +216,7 @@ menubar_primer_at :: proc(a: ^App, b: menu.Bar, prefix: input.Chord) -> (at, row
     }
     want := input.chord_format(prefix, key_layout_name, context.temp_allocator)
     for m, i in b.menus {
-        if m.name != MENU_CHORDS {
+        if m.name != menubar.CHORDS {
             continue
         }
         for r, j in m.rows {
@@ -387,7 +388,7 @@ menu_click :: proc(a: ^App, x, y: int) {
 // is staged the way a `stage` bind row is; a bind row goes down the path its chord goes down.
 @(private = "file")
 menu_run :: proc(a: ^App, row: menu.Row) {
-    if row.id == MENU_STAGE {
+    if row.id == menubar.STAGE {
         cl_show(a, row.name)
         return
     }
