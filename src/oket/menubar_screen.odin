@@ -26,6 +26,7 @@ Menu_Part :: enum u8 {
     Kid,
 }
 
+// (hole menubar-screen :tags shared :sev gap :needs (menubar-model theme-pkg)) drawing, keys and hits read ^App and frame_paint's looks.
 Menu_Layer :: struct {
     grid: gfx.Grid,
     at:   [2]f32, // the ground's PIXELS: a popup hangs where it likes, and only its size is cells

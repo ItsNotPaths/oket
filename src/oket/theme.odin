@@ -156,6 +156,7 @@ theme_forget :: proc(a: ^App) {
 
 // The chain of files into the scope table and the five. The merged palette is built FIRST and
 // across the whole chain, because a child's palette names colours for its parent's rows too.
+// (hole theme-pkg :tags shared :sev gap) theme files load into a.scopes off a.home; no package holds the palette and the scope table.
 @(private = "file")
 theme_read :: proc(a: ^App, name: string) {
     if a.home.data == "" {

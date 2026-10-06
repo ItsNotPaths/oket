@@ -40,6 +40,7 @@ MENU_DEFAULT := [?]Menu_Def {
 // The whole bar for the FOCUSED document's context and kind, the way `bind_children` is: a row
 // the context hides is not in it, so `enter` in a browser is a browser row and the editor's is
 // not beside it. The geometry is the window's and is put on by menubar_frame.
+// (hole menubar-model :tags shared :sev gap) the bar is read off a.binds, a.kernel.plugs and bind_ctx; it needs those as values.
 menubar_build :: proc(a: ^App, allocator := context.temp_allocator) -> menu.Bar {
     ctx, kind := bind_ctx(a)
     menus := make([dynamic]menu.Menu, allocator)
