@@ -120,12 +120,14 @@ main :: proc() {
         fmt.eprintln("the kernel did not start")
         os.exit(1)
     }
-    a.window = sdl.CreateWindow(TITLE, WIDTH, HEIGHT, {.OPENGL, .RESIZABLE, .HIGH_PIXEL_DENSITY})
-    if a.window == nil {
+    // A local, not a.window: the defer runs after app_destroy has freed a.state.
+    window := sdl.CreateWindow(TITLE, WIDTH, HEIGHT, {.OPENGL, .RESIZABLE, .HIGH_PIXEL_DENSITY})
+    if window == nil {
         fmt.eprintfln("SDL_CreateWindow failed: %s", sdl.GetError())
         os.exit(1)
     }
-    defer sdl.DestroyWindow(a.window)
+    defer sdl.DestroyWindow(window)
+    a.window = window
 
     glctx := sdl.GL_CreateContext(a.window) // and it is current on this thread from here on
     if glctx == nil {
