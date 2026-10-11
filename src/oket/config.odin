@@ -42,6 +42,8 @@ Config :: struct {
     font_px: int, // [font] size = 18 — the face size to bake at; 0 is the display's own
     split:   txt.Split, // [cursor] split = selections — what cursor.split_lines leaves per line
     switcher: Switcher_Show, // [switcher] show = titles — what the alt column carries
+    marks:   bool, // [indent] marks = off — a tab's line and a space's dot
+    guides:  bool, // [indent] guides = off — a line down each scope
     // [theme] name = gruvbox — which themes/<name>.toml colours everything (theme.odin). Owned
     // when set; "" IS the default name, so the field never holds a literal a destroy would free.
     theme:   string,
@@ -201,6 +203,10 @@ SETTINGS := [?]Setting {
     {"switcher", "show", "titles",
      "what the column under a held alt carries: titles or numbers",
      proc(c: ^Config, value: string) {c.switcher = conf_switcher(value)}},
+    {"indent", "marks", "off", "draw a tab's indent as a line and a space's as a dot",
+     proc(c: ^Config, value: string) {c.marks = conf_on(value)}},
+    {"indent", "guides", "off", "draw a line down the column of each scope",
+     proc(c: ^Config, value: string) {c.guides = conf_on(value)}},
     {"theme", "name", theme.DEFAULT,
      "which themes/<name>.toml colours everything; the default is baked in",
      proc(c: ^Config, value: string) {

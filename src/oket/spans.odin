@@ -69,6 +69,7 @@ doc_styles :: proc(
     orig := view.original(dv, t)
     names := d != nil ? link_names(a, d) : nil
     link := view.Style{fg = u32(token_intern(a, TOKEN_LINK)), bg = u32(gfx.Token.Bg), attrs = {.Underline}}
+    hidden: shape.Attrs = a.config.marks ? {} : {.Rule, .Dot}
     runs := make([dynamic]view.Run, 0, 64, context.temp_allocator)
     links := make([dynamic]view.Run, 0, 16, context.temp_allocator)
     for sp in store.store_spans(a.docs, id, lo, hi, spans_order(a, id)) {
@@ -84,7 +85,7 @@ doc_styles :: proc(
         append(&runs, view.Run{sp.lo, sp.hi, {
             fg    = .Fg in sp.set ? sp.fg : u32(gfx.Token.Fg),
             bg    = .Bg in sp.set ? sp.bg : u32(gfx.Token.Bg),
-            attrs = .Attrs in sp.set ? transmute(shape.Attrs)sp.attrs : {},
+            attrs = (.Attrs in sp.set ? transmute(shape.Attrs)sp.attrs : {}) - hidden,
         }})
     }
     append(&runs, ..links[:])

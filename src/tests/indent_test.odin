@@ -25,6 +25,7 @@ indent_marks_and_scope_guides_draw :: proc(t: ^testing.T) {
             return
         }
     }
+    a.config.marks, a.config.guides = true, true // off by default; a load rereads config
     path, _ := filepath.join({home_dir(a.home), "nest.py"}, context.temp_allocator)
     if err := os.write_entire_file(path, transmute([]u8)string(NESTED)); err != nil {
         testing.expectf(t, false, "cannot write %s: %v", path, err)
