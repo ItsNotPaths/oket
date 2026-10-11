@@ -144,7 +144,6 @@ a_namespace_menu_holds_its_binds_and_its_builtins :: proc(t: ^testing.T) {
 
     open, listed := row_usage(file.rows, ":open")
     testing.expect(t, listed, "the file menu names no :open")
-    testing.expect_value(t, open.chord, "") // a builtin has none until somebody binds one
     testing.expect_value(t, open.id, menubar.STAGE)
     testing.expect(t, strings.contains(open.name, "<path>"), open.name)
 
@@ -154,6 +153,31 @@ a_namespace_menu_holds_its_binds_and_its_builtins :: proc(t: ^testing.T) {
     panel, _ := named(b, "panel")
     _, placed := row_usage(panel.rows, ":ring")
     testing.expect(t, placed, ":ring is under no menu at all")
+}
+
+// A `:` row names the key that runs it, as a bind row does, and says so when nothing does: the
+// bind column is never the one that is missing.
+@(test)
+a_builtin_row_names_its_key_or_that_it_has_none :: proc(t: ^testing.T) {
+    a, ok := fixture(t)
+    if !ok {
+        return
+    }
+    defer close(&a)
+
+    b := app.menubar_build(&a)
+    panel, _ := named(b, "panel")
+    ls, listed := row_usage(panel.rows, ":ls")
+    testing.expect(t, listed, "the panel menu names no :ls")
+    testing.expect(t, strings.contains(ls.chord, " "), ls.chord) // behind its primer: two chords
+
+    file, _ := named(b, "file")
+    recover, found := row_usage(file.rows, ":recover")
+    testing.expect(t, found, "the file menu names no :recover")
+    testing.expect_value(t, recover.chord, menubar.UNBOUND)
+
+    alpha, _ := named(b, "alpha")
+    testing.expect_value(t, alpha.rows[0].chord, menubar.UNBOUND)
 }
 
 // A primer is declared by its children and belongs to neither of them, so it is one row with

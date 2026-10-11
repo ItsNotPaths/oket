@@ -34,7 +34,7 @@ DEFAULT := [?]Def {
     {"panel", {"panel", "ring"}},
 }
 
-// A `:` row: a builtin has no chord, and a bind row has no usage.
+// A `:` row: its chord is looked up (`bound`), and a bind row has no usage.
 Verb :: struct {
     usage, doc: string,
     menu:       string, // the namespace it sits in
@@ -85,7 +85,7 @@ build :: proc(src: Source, allocator := context.temp_allocator) -> menu.Bar {
     }
     for p in src.plugins {
         if len(p.cmds) > 0 {
-            append(&menus, menu.Menu{p.name, .Plugin, cmds(p.cmds, allocator)})
+            append(&menus, menu.Menu{p.name, .Plugin, cmds(src, p.cmds, allocator)})
         }
     }
     return {menus = menus[:]}
@@ -112,7 +112,13 @@ rows :: proc(src: Source, holds: []string, allocator := context.temp_allocator) 
     }
     for v in src.verbs {
         if slice.contains(holds, v.menu) {
-            append(&out, menu.Row{name = v.usage, doc = v.doc, id = STAGE})
+            name, _, _ := strings.partition(v.usage, " ")
+            append(&out, menu.Row{
+                chord = bound(src, strings.trim_prefix(name, ":"), allocator),
+                name  = v.usage,
+                doc   = v.doc,
+                id    = STAGE,
+            })
         }
     }
     return out[:]
@@ -165,12 +171,54 @@ kids :: proc(src: Source, prefix: input.Chord, allocator := context.temp_allocat
 // rows are not here — a chord it asked for is under its namespace or under `chords`, and a row
 // listed twice would be two answers to one question.
 @(private = "file")
-cmds :: proc(list: []Cmd, allocator := context.temp_allocator) -> []menu.Row {
+cmds :: proc(src: Source, list: []Cmd, allocator := context.temp_allocator) -> []menu.Row {
     out := make([]menu.Row, len(list), allocator)
     for c, i in list {
-        out[i] = {name = strings.concatenate({":", c.name}, allocator), doc = c.doc, id = STAGE}
+        out[i] = {
+            chord = bound(src, c.name, allocator),
+            name  = strings.concatenate({":", c.name}, allocator),
+            doc   = c.doc,
+            id    = STAGE,
+        }
     }
     return out
+}
+
+// Shown where a `:` row has no key, so the bind column never collapses out of a menu.
+UNBOUND :: "·"
+
+// The key that runs a `:` row's name here, or UNBOUND. A line counts by its first word, so
+// `stage :open <path>` is :open's key; a primed row reads as both chords.
+@(private = "file")
+bound :: proc(src: Source, name: string, allocator := context.temp_allocator) -> string {
+    for b in src.binds {
+        if runs(b.target, src.names) != name || !answers(src, b) {
+            continue
+        }
+        chord := input.chord_format(b.chord, src.layout, allocator)
+        if b.prefix == (input.Chord{}) {
+            return chord
+        }
+        prefix := input.chord_format(b.prefix, src.layout, allocator)
+        return strings.concatenate({prefix, " ", chord}, allocator)
+    }
+    return UNBOUND
+}
+
+// The bare `:` name a target runs. A kernel verb is not one: it has its own row.
+@(private = "file")
+runs :: proc(t: input.Bind_Target, names: input.Names) -> string {
+    switch v in t {
+    case input.Command:
+        return ""
+    case input.Slot:
+        name, _ := input.target_info(v, names)
+        return name
+    case input.Bind_Line:
+        head, _, _ := strings.partition(v.text, " ")
+        return strings.trim_prefix(head, ":")
+    }
+    return ""
 }
 
 // The row a chord REACHES, and not merely one the table holds: binds.conf is PREPENDED over the
