@@ -214,6 +214,7 @@ main :: proc() {
 
         // Writes land at one point in the frame (§6): every session's output into its
         // document first, then the exit code that advances a chain waiting on one.
+        confs_fresh(&a)
         term_pump(&a)
         sh_pump(&a)
         chain_pump(&a)

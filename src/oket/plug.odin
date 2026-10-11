@@ -229,9 +229,7 @@ HOOKS := lues.Hooks {
     // resolve; one that resolves to nothing falls through to the row underneath.
     changed = proc(k: ^lues.Kernel) {
         a := app_of(k)
-        config_sync(&a)
-        binds_sync(&a)
-        views_dirty(&a)
+        confs_sync(&a)
     },
     bind_held = proc(k: ^lues.Kernel, ctx, chord: string) -> (held: string, hold: lues.Bind_Hold) {
         a := app_of(k)

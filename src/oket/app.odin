@@ -1,6 +1,7 @@
 package main
 
 import "core:os"
+import "core:time"
 import "core:strings"
 import sdl "vendor:sdl3"
 import "../gfx"
@@ -123,6 +124,7 @@ State :: struct {
     // One directory per kind of file, chosen by where the binary is (path.odin). Empty in a
     // test that holds an App of its own, which is what every write site refuses on.
     home:         Home,
+    conf_seen:    [2]time.Time, // binds.conf and config.conf as last read (confs_fresh)
     // Where oket thinks it IS: the first directory on the command line, else the working
     // directory it started in. Every terminal is spawned here, so two panels holding two shells
     // cannot disagree about where they are.
@@ -174,6 +176,7 @@ app_init :: proc(a: ^App) {
     config_sync(a)
     cl_init(a)
     binds_sync(a)
+    a.conf_seen = confs_stamp(a)
 }
 
 // Whatever holds a document or a snapshot goes before the kernel, whose heap they are on.

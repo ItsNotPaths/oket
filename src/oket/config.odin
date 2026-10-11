@@ -6,6 +6,7 @@ import "core:path/filepath"
 import "core:slice"
 import "core:strconv"
 import "core:strings"
+import "core:time"
 import "lues:conf"
 import "lues:lues"
 import "../input"
@@ -24,6 +25,11 @@ import "../theme"
 // structure in their names — `lang.odin.tab_width` — and that is a worse TOML. Revisit there.
 
 CONFIG_NAME :: "config.conf" // in the config directory, next to binds.conf (path.odin)
+
+config_path :: proc(a: ^App) -> string {
+    path, _ := filepath.join({a.home.config, CONFIG_NAME}, context.temp_allocator)
+    return path
+}
 
 Config :: struct {
     restore: bool, // [session] restore = on — the ring, across restarts (session.odin)
@@ -220,7 +226,7 @@ config_load :: proc(a: ^App) {
     if a.home.config == "" {
         return
     }
-    path, _ := filepath.join({a.home.config, CONFIG_NAME}, context.temp_allocator)
+    path := config_path(a)
     raw, err := os.read_entire_file(path, context.temp_allocator)
     if err != nil {
         return
@@ -390,7 +396,7 @@ config_sync :: proc(a: ^App) {
     if !home_writable(a.home.config) {
         return
     }
-    path, _ := filepath.join({a.home.config, CONFIG_NAME}, context.temp_allocator)
+    path := config_path(a)
     // The kernel's own block first, so a start with no plugins at all still leaves a file that
     // says what there is to set. Both writes are marker-keyed and asked once.
     wrote := config_defaults_write(a, path)
@@ -527,4 +533,28 @@ gripes_destroy :: proc(a: ^App) {
     }
     delete(a.gripes)
     a.gripes = nil
+}
+
+// A save to either file, from oket's own editor or any other, is read on the next frame. Two
+// stats a frame, because the kernel hears of no save and a lues watch routes to plugins only.
+confs_fresh :: proc(a: ^App) {
+    if a.home.config != "" && confs_stamp(a) != a.conf_seen {
+        confs_sync(a)
+    }
+}
+
+confs_sync :: proc(a: ^App) {
+    config_sync(a)
+    binds_sync(a)
+    views_dirty(a)
+    a.conf_seen = confs_stamp(a) // after the syncs, whose writebacks move the stamps too
+}
+
+confs_stamp :: proc(a: ^App) -> (t: [2]time.Time) {
+    for path, i in ([2]string{binds_path(a), config_path(a)}) {
+        if info, err := os.stat(path, context.temp_allocator); err == nil {
+            t[i] = info.modification_time
+        }
+    }
+    return
 }

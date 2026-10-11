@@ -191,7 +191,7 @@ install_remove :: proc(t: Install_Target) -> (ok: bool, msg: string) {
 // The mode, every path it chose, and any reason nothing below can be saved. Temp-allocated.
 install_status :: proc(a: ^App, t: Install_Target) -> string {
     b := strings.builder_make(context.temp_allocator)
-    cfg, _ := filepath.join({a.home.config, CONFIG_NAME}, context.temp_allocator)
+    cfg := config_path(a)
     fmt.sbprintfln(&b, "mode:      %s", install_mode_label(a.home.mode))
     fmt.sbprintfln(&b, "binary:    %s", exe_path(context.temp_allocator))
     fmt.sbprintfln(&b, "config:    %s%s", a.home.config, os.exists(cfg) ? "" : "   (no config.conf yet)")
