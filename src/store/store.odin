@@ -105,6 +105,29 @@ store_spans :: proc(s: ^Store, id: Id, lo, hi: int, order: []Producer,
     return docs.spans_read(s, id, lo, hi, order, alloc)
 }
 
+// Every producer's runs of `keys` below `hi`, unmerged. A scan, not a read: nothing is cloned, so
+// a run's text is borrowed until the next drain.
+store_marks :: proc(s: ^Store, id: Id, hi: int, keys: []Key, alloc := context.temp_allocator) -> []Span {
+    context.allocator = pt.kept(&s.alloc)
+    slot, ok := docs.store_resolve(s, id)
+    if !ok {
+        return nil
+    }
+    docs.spans_follow(slot)
+    out := make([dynamic]Span, 0, 16, alloc)
+    for &b in slot.spans {
+        for sp in b.list {
+            if sp.lo >= hi {
+                break
+            }
+            if sp.key != 0 && slice.contains(keys, sp.key) {
+                append(&out, sp)
+            }
+        }
+    }
+    return out[:]
+}
+
 store_spans_forget :: proc(s: ^Store, who: Producer) {
     docs.spans_forget(s, who)
 }

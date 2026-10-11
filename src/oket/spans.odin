@@ -3,6 +3,7 @@ package main
 import "lues:lues"
 import "lues:pt"
 import "core:slice"
+import "core:strconv"
 import "../desc"
 import "../shape"
 import "../gfx"
@@ -96,6 +97,56 @@ doc_styles :: proc(
         drawn = both[:]
     }
     return view.cut_lines(t, drawn, first, last)
+}
+
+// oket.h's OKET_GUIDE_OPEN and OKET_GUIDE_CLOSE: the data spans a scope line is drawn from.
+GUIDE_OPEN :: "guide.open"
+GUIDE_CLOSE :: "guide.close"
+
+// The scope lines over ORIGINAL lines, opens and closes matched like brackets. Read from the top,
+// so a scope opened above the viewport still draws; one open at its bottom runs past it.
+doc_guides :: proc(a: ^App, id: store.Id, d: ^desc.Descriptor, t: ^pt.Text, dv: ^view.Derived,
+                   top, rows: int) -> []view.Guide {
+    _, _, _, hi, ok := shown(t, dv, top, rows)
+    if !ok || d == nil {
+        return nil
+    }
+    open, close := store.Key(token_intern(a, GUIDE_OPEN)), store.Key(token_intern(a, GUIDE_CLOSE))
+    Mark :: struct {
+        at:   int,
+        open: bool, // after a close at the same byte: a line that ends one scope and opens the next
+        n:    int,
+    }
+    marks := make([dynamic]Mark, 0, 64, context.temp_allocator)
+    for sp in store.store_marks(a.docs, id, hi, {open, close}) {
+        if sp.key == open {
+            append(&marks, Mark{sp.lo, true, 1})
+        } else if sp.key == close {
+            append(&marks, Mark{sp.lo, false, sp.valued ? max(strconv.parse_int(sp.text) or_else 1, 1) : 1})
+        }
+    }
+    slice.sort_by(marks[:], proc(x, y: Mark) -> bool {
+        return x.at < y.at || (x.at == y.at && !x.open && y.open)
+    })
+    orig := view.original(dv, t)
+    stack := make([dynamic]view.Guide, 0, 16, context.temp_allocator)
+    out := make([dynamic]view.Guide, 0, 16, context.temp_allocator)
+    for m in marks {
+        line := pt.text_line_at_off(orig, m.at)
+        if m.open {
+            src := pt.text_line(orig, line, context.temp_allocator)
+            at := m.at - pt.text_line_start(orig, line)
+            append(&stack, view.Guide{line + 1, max(int), view.cell_of(src, at, d.tab_width)})
+            continue
+        }
+        for _ in 0 ..< m.n {
+            g := pop_safe(&stack) or_break
+            g.hi = line
+            append(&out, g)
+        }
+    }
+    append(&out, ..stack[:])
+    return out[:]
 }
 
 // Styles keyed by a line of `t`, as runs over its bytes.

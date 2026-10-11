@@ -114,8 +114,18 @@ enum {
     OKET_ATTR_BOLD      = 1 << 0,
     OKET_ATTR_ITALIC    = 1 << 1,
     OKET_ATTR_UNDERLINE = 1 << 2,
-    OKET_ATTR_REVERSE   = 1 << 3
+    OKET_ATTR_REVERSE   = 1 << 3,
+    OKET_ATTR_RULE      = 1 << 4, /* a line at mid-height: a tab's indent */
+    OKET_ATTR_DOT       = 1 << 5, /* a dot in the middle: a space's indent */
+    OKET_ATTR_GUIDE     = 1 << 6  /* a line down the left edge */
 };
+
+/* Scope guides are DATA spans, so they overlap anyone's looks. A `guide.open` run's start is
+ * the column the line is drawn in, from the line below it; a `guide.close` run ends the
+ * innermost open ones on the line above it, its value the count ("2"; none is 1). Opens and
+ * closes match like brackets, so scopes nest. */
+#define OKET_GUIDE_OPEN  "guide.open"
+#define OKET_GUIDE_CLOSE "guide.close"
 
 typedef enum {
     OKET_REVEAL_NEAREST = 0, /* scroll as little as it takes */

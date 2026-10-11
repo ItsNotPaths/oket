@@ -16,6 +16,9 @@ Attr :: enum u8 {
     Italic,
     Underline,
     Reverse,
+    Rule,  // a line across the cell at mid-height: a tab's indent
+    Dot,   // a dot in the cell's middle: a space's indent
+    Guide, // a line down the cell's left edge: a scope
 }
 
 Attrs :: bit_set[Attr;u8]
@@ -144,6 +147,9 @@ Field :: struct {
 #assert(int(Attr.Italic) == 1) // OKET_ATTR_ITALIC    1 << 1
 #assert(int(Attr.Underline) == 2) // OKET_ATTR_UNDERLINE 1 << 2
 #assert(int(Attr.Reverse) == 3) // OKET_ATTR_REVERSE   1 << 3
+#assert(int(Attr.Rule) == 4) // OKET_ATTR_RULE      1 << 4
+#assert(int(Attr.Dot) == 5) // OKET_ATTR_DOT       1 << 5
+#assert(int(Attr.Guide) == 6) // OKET_ATTR_GUIDE     1 << 6
 #assert(size_of(Attrs) == 1) // the uint8_t oket_span.attrs is
 #assert(int(Style.Fg) == 0) // OKET_TOK_FG
 #assert(int(Style.Bg) == 1) // OKET_TOK_BG

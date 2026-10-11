@@ -63,14 +63,36 @@ uniform vec2 u_cell_px;
 out vec4 o_color;
 
 // gfx.Attr's bits. Reverse is swapped before upload, and bold and italic want a face this
-// atlas does not hold, so the underline is the only one the shader answers.
+// atlas does not hold, so the shader answers the underline and the three indent marks.
 const uint ATTR_UNDERLINE = 4u;
+const uint ATTR_RULE = 16u;
+const uint ATTR_DOT = 32u;
+const uint ATTR_GUIDE = 64u;
+
+// 1 per axis where px is in the centred band w wide. Whole pixels, so a 1px band lands on one.
+vec2 mid(vec2 px, vec2 cell, float w) {
+    vec2 lo = floor(0.5 * (cell - w));
+    return step(lo, px) * step(px, lo + w);
+}
 
 void main() {
     float cov = texture(u_atlas, v_uv).r;
     // Two pixels along the cell's bottom edge, so it stays visible as the cell zooms. Full
     // coverage, so the rule is ink whether or not the cell has a background under it.
     if ((v_attrs & ATTR_UNDERLINE) != 0u && v_at.y > 1.0 - 2.0 / u_cell_px.y) {
+        cov = 1.0;
+    }
+    // Indent marks scale with the cell, one pixel at the smallest. Ink, like the underline.
+    vec2 px = v_at * u_cell_px;
+    float t = max(1.0, floor(u_cell_px.y / 16.0));
+    if ((v_attrs & ATTR_RULE) != 0u && mid(px, u_cell_px, t).y > 0.0) {
+        cov = 1.0;
+    }
+    vec2 dot = mid(px, u_cell_px, 2.0 * t);
+    if ((v_attrs & ATTR_DOT) != 0u && dot.x * dot.y > 0.0) {
+        cov = 1.0;
+    }
+    if ((v_attrs & ATTR_GUIDE) != 0u && px.x < t) {
         cov = 1.0;
     }
     // Premultiplied: OPAQUE INK over a background that carries its own alpha. At alpha 1 that

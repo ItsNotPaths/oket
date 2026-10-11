@@ -51,6 +51,11 @@ Style :: struct {
     attrs:  gfx.Attrs,
 }
 
+// A scope line down cell `col` of ORIGINAL lines [lo, hi).
+Guide :: struct {
+    lo, hi, col: int,
+}
+
 // A Style over a whole document's bytes, before `cut_lines` splits it; `st.line` is unused.
 Run :: struct {
     lo, hi: int,
@@ -132,6 +137,7 @@ draw :: proc(
     // The face stack, for shaping (IME.md §5). nil draws a codepoint at a time, which is what
     // a measure and every layout test want: neither asks which glyph a cluster chose.
     atlas: ^gfx.Atlas = nil,
+    guides: []Guide = nil,
 ) {
     gut := gutter_width(t, d, dv)
     body := w - gut
@@ -155,6 +161,9 @@ draw :: proc(
         run(g, left, y + i, src[clipped.lo:clipped.hi], body - ind, d.tab_width, th[.Fg],
             gfx.opaque(th[.Bg]), atlas)
         restyle(g, th, pal, d, left, y + i, body - ind, clipped, src, styles)
+        if r.first {
+            guide(g, th, left, y + i, body - ind, r.src, v.left, guides)
+        }
         if point {
             mark_point(g, t, d, dv, left, y + i, body - ind, clipped, src, select, on)
         }
@@ -267,6 +276,24 @@ paint :: proc(g: ^gfx.Grid, th: gfx.Theme, pal: [][3]f32, d: ^desc.Descriptor, r
     for cell in cell_of(row, a, d.tab_width) ..< min(cell_of(row, b, d.tab_width), width) {
         if c := gfx.grid_at(g, x + cell, y); c != nil {
             c.fg, c.bg, c.attrs = fg, bg, st.attrs
+        }
+    }
+}
+
+// The scopes a line is inside, down the left edge of their column. A blank cell has no ink of its
+// own, so the line takes the dim one.
+@(private = "file")
+guide :: proc(g: ^gfx.Grid, th: gfx.Theme, x, y, width, line, left: int, guides: []Guide) {
+    for gd in guides {
+        cell := gd.col - left
+        if line < gd.lo || line >= gd.hi || cell < 0 || cell >= width {
+            continue
+        }
+        if c := gfx.grid_at(g, x + cell, y); c != nil {
+            c.attrs += {.Guide}
+            if c.r == ' ' || c.r == 0 {
+                c.fg = th[.Dim]
+            }
         }
     }
 }
@@ -468,7 +495,6 @@ step :: proc(src: []u8, off, cell, tab: int) -> (w, next: int) {
 
 // The cell a byte offset sits at inside a row. An offset inside a cluster answers the cell
 // after it, the same way a cursor lands on a boundary.
-@(private)
 cell_of :: proc(src: []u8, off, tab: int) -> (cell: int) {
     for i := 0; i < len(src) && i < off; {
         w, next := step(src, i, cell, tab)
