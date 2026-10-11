@@ -168,6 +168,12 @@ own)
     ;;
 esac
 
+# DWARF is ~75% of a plugin. Compressed, it halves the `.so` and addr2line still reads it.
+# Binutils only (`zig objcopy` cannot); without it the plugin is just bigger.
+if command -v objcopy >/dev/null 2>&1; then
+    objcopy --compress-debug-sections=zlib "$SO"
+fi
+
 # What is not source rides along: a plugin is a directory, so its grammar, its data table or
 # its own fetch script lands in the folder the `.so` is in (§7).
 #
