@@ -64,7 +64,7 @@ if [ $DO_LOCAL -eq 1 ]; then
             -define:OKET_VERSION='"dev-local-asan"'
     else
         odin build "$PROJECT_DIR/src/oket" -out:"$RELEASE_DIR/$BIN_NAME" -collection:lues="$PROJECT_DIR/vendor/lues/src" \
-            -o:speed -extra-linker-flags:"-L$PROJECT_DIR/vendor/sdl3" \
+            -o:speed -extra-linker-flags:"-L$PROJECT_DIR/vendor/sdl3 -Wl,--gc-sections" \
             -define:OKET_VERSION="\"${VERSION:-dev-local}\""
         # release.yml strips too, so a local build matches the download.
         strip --strip-all "$RELEASE_DIR/$BIN_NAME"

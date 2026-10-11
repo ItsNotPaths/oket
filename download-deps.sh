@@ -118,6 +118,9 @@ echo "==> sdl3 (the window, input and clipboard backend; static lib)"
 #
 # Left on the system cc: cmake wants CMAKE_C_COMPILER to be one executable, and this is a
 # link-time archive, not part of the LTO path $CC exists for.
+#
+# LEAN_AND_MEAN drops the software blitters (~760 KB); oket draws through GL, and SDL's own
+# cursor blits fall back to the slow path.
 SDL_VERSION="3.4.16"
 SDL_SRC="$VENDOR/sdl3-src"
 SDL_A="$VENDOR/sdl3/libSDL3.a"
@@ -143,7 +146,9 @@ else
         -DSDL_AUDIO=OFF -DSDL_GPU=OFF -DSDL_RENDER=OFF -DSDL_CAMERA=OFF \
         -DSDL_JOYSTICK=OFF -DSDL_HAPTIC=OFF -DSDL_HIDAPI=OFF -DSDL_SENSOR=OFF \
         -DSDL_POWER=OFF -DSDL_DIALOG=OFF -DSDL_TRAY=OFF -DSDL_VULKAN=OFF \
-        -DSDL_X11_XTEST=OFF -DSDL_TEST_LIBRARY=OFF >/dev/null
+        -DSDL_X11_XTEST=OFF -DSDL_TEST_LIBRARY=OFF \
+        -DSDL_KMSDRM=OFF -DSDL_OFFSCREEN=OFF -DSDL_DUMMYVIDEO=OFF \
+        -DCMAKE_C_FLAGS="-DSDL_LEAN_AND_MEAN=1 -ffunction-sections -fdata-sections" >/dev/null
     cmake --build "$SDL_SRC/build" --parallel >/dev/null
     mkdir -p "$(dirname "$SDL_A")"
     cp "$SDL_SRC/build/libSDL3.a" "$SDL_A"
