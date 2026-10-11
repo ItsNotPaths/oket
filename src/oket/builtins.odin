@@ -85,6 +85,12 @@ BUILTINS := [?]Builtin {
     {"np", "new-panel", "panel", ":np",
      "a panel to the right of this one, standing on nothing",
      builtin_np},
+    {"binds", "", "file", ":binds",
+     "open binds.conf; a save is read at once",
+     builtin_binds},
+    {"config", "", "file", ":config",
+     "open config.conf; a save is read at once",
+     builtin_config},
     {"home", "", "file", ":home [enter]",
      "open the home page; `enter` takes the offer the row point is on",
      builtin_home},
@@ -206,6 +212,29 @@ builtin_home :: proc(a: ^App, args: string, _: cl.Step) -> bool {
     }
     ring_add(a, home_open(a))
     return true
+}
+
+@(private = "file")
+builtin_binds :: proc(a: ^App, _: string, _: cl.Step) -> bool {
+    return conf_open(a, binds_path(a))
+}
+
+@(private = "file")
+builtin_config :: proc(a: ^App, _: string, _: cl.Step) -> bool {
+    return conf_open(a, config_path(a))
+}
+
+// A binds.conf nobody has written yet is made empty, so there is a file to open.
+@(private = "file")
+conf_open :: proc(a: ^App, path: string) -> bool {
+    if !os.exists(path) && home_writable(a.home.config) {
+        _ = os.write_entire_file(path, nil)
+    }
+    id, ok := open_path(a, path)
+    if ok {
+        ring_add(a, id)
+    }
+    return ok
 }
 
 @(private = "file")
