@@ -18,7 +18,8 @@ Attr :: enum u8 {
     Reverse,
     Rule,  // a line across the cell at mid-height: a tab's indent
     Dot,   // a dot in the cell's middle: a space's indent
-    Guide, // a line down the cell's left edge: a scope
+    Guide, // a line down the cell's middle: a scope
+    Stop,  // the kernel's, not a plugin's: the first cell of a tab, where a Rule breaks
 }
 
 Attrs :: bit_set[Attr;u8]
@@ -150,6 +151,7 @@ Field :: struct {
 #assert(int(Attr.Rule) == 4) // OKET_ATTR_RULE      1 << 4
 #assert(int(Attr.Dot) == 5) // OKET_ATTR_DOT       1 << 5
 #assert(int(Attr.Guide) == 6) // OKET_ATTR_GUIDE     1 << 6
+#assert(int(Attr.Stop) == 7) // OKET_ATTR_STOP      1 << 7
 #assert(size_of(Attrs) == 1) // the uint8_t oket_span.attrs is
 #assert(int(Style.Fg) == 0) // OKET_TOK_FG
 #assert(int(Style.Bg) == 1) // OKET_TOK_BG

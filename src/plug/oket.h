@@ -117,7 +117,8 @@ enum {
     OKET_ATTR_REVERSE   = 1 << 3,
     OKET_ATTR_RULE      = 1 << 4, /* a line at mid-height: a tab's indent */
     OKET_ATTR_DOT       = 1 << 5, /* a dot in the middle: a space's indent */
-    OKET_ATTR_GUIDE     = 1 << 6  /* a line down the left edge */
+    OKET_ATTR_GUIDE     = 1 << 6, /* a line down the middle */
+    OKET_ATTR_STOP      = 1 << 7  /* the kernel sets it: a tab's first cell */
 };
 
 /* Scope guides are DATA spans, so they overlap anyone's looks. A `guide.open` run's start is

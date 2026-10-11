@@ -68,6 +68,9 @@ const uint ATTR_UNDERLINE = 4u;
 const uint ATTR_RULE = 16u;
 const uint ATTR_DOT = 32u;
 const uint ATTR_GUIDE = 64u;
+const uint ATTR_STOP = 128u;
+const uint RULE_FIRST = 256u; // painter_draw's: the first and last cells of a run of tabs
+const uint RULE_LAST = 512u;
 
 // 1 per axis where px is in the centred band w wide. Whole pixels, so a 1px band lands on one.
 vec2 mid(vec2 px, vec2 cell, float w) {
@@ -85,14 +88,23 @@ void main() {
     // Indent marks scale with the cell, one pixel at the smallest. Ink, like the underline.
     vec2 px = v_at * u_cell_px;
     float t = max(1.0, floor(u_cell_px.y / 16.0));
-    if ((v_attrs & ATTR_RULE) != 0u && mid(px, u_cell_px, t).y > 0.0) {
+    // Twice as thick, and broken around the middle of each tab's first cell, where a scope
+    // line stands.
+    vec2 m = mid(px, u_cell_px, t);
+    float gap = 3.0 * t;
+    float c = floor(0.5 * u_cell_px.x);
+    bool head = (v_attrs & ATTR_STOP) != 0u && abs(px.x - c) < gap;
+    bool first = (v_attrs & RULE_FIRST) != 0u && px.x < c;
+    bool last = (v_attrs & RULE_LAST) != 0u && px.x >= u_cell_px.x - gap;
+    if ((v_attrs & ATTR_RULE) != 0u && mid(px, u_cell_px, 2.0 * t).y > 0.0 && !head && !first && !last) {
         cov = 1.0;
     }
+    // A scope line through a space's cell takes the dot's place.
     vec2 dot = mid(px, u_cell_px, 2.0 * t);
-    if ((v_attrs & ATTR_DOT) != 0u && dot.x * dot.y > 0.0) {
+    if ((v_attrs & (ATTR_DOT | ATTR_GUIDE)) == ATTR_DOT && dot.x * dot.y > 0.0) {
         cov = 1.0;
     }
-    if ((v_attrs & ATTR_GUIDE) != 0u && px.x < t) {
+    if ((v_attrs & ATTR_GUIDE) != 0u && m.x > 0.0) {
         cov = 1.0;
     }
     // Premultiplied: OPAQUE INK over a background that carries its own alpha. At alpha 1 that
@@ -243,6 +255,22 @@ painter_scissor :: proc(clip: Rect, win_h: i32) -> (x, y, w, h: i32) {
     return x0, win_h - y1, max(x1 - x0, 0), max(y1 - y0, 0)
 }
 
+// Whether a cell opens or closes a run of tabs, as the shader's RULE_FIRST and RULE_LAST.
+@(private = "file")
+rule_ends :: proc(g: ^Grid, x, y: int) -> (bits: u32) {
+    row := g.cells[y * g.cols:][:g.cols]
+    if .Rule not_in row[x].attrs {
+        return
+    }
+    if x == 0 || .Rule not_in row[x - 1].attrs {
+        bits |= 256
+    }
+    if x + 1 == g.cols || .Rule not_in row[x + 1].attrs {
+        bits |= 512
+    }
+    return
+}
+
 // One grid, at an origin the caller decides, clipped to a rectangle the caller decides. The
 // origin is fractional because a panel slides by sub-pixels; the clip is the panel's edge, which
 // is what lets a grid hold a column it is only showing part of.
@@ -268,7 +296,7 @@ painter_draw :: proc(p: ^Painter, g: ^Grid, win_w, win_h: i32, origin: [2]f32, c
                     u32(c.slot != 0 ? c.slot : atlas_ensure(&p.atlas, c.r)),
                     fg,
                     bg,
-                    u32(transmute(u8)c.attrs),
+                    u32(transmute(u8)c.attrs) | rule_ends(g, x, y),
                 },
             )
         }

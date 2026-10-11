@@ -278,9 +278,23 @@ paint :: proc(g: ^gfx.Grid, th: gfx.Theme, pal: [][3]f32, d: ^desc.Descriptor, r
             c.fg, c.bg, c.attrs = fg, bg, st.attrs
         }
     }
+    if .Rule not_in st.attrs {
+        return
+    }
+    // Where each tab starts, so the painter breaks the rule there and a scope line fits between.
+    cell := cell_of(row, a, d.tab_width)
+    for i := a; i < b && cell < width; {
+        w, next := step(row, i, cell, d.tab_width)
+        if row[i] == '\t' {
+            if c := gfx.grid_at(g, x + cell, y); c != nil {
+                c.attrs += {.Stop}
+            }
+        }
+        cell, i = cell + w, next
+    }
 }
 
-// The scopes a line is inside, down the left edge of their column. A blank cell has no ink of its
+// The scopes a line is inside, down the middle of their column. A blank cell has no ink of its
 // own, so the line takes the dim one.
 @(private = "file")
 guide :: proc(g: ^gfx.Grid, th: gfx.Theme, x, y, width, line, left: int, guides: []Guide) {
