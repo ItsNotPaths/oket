@@ -4,6 +4,7 @@ import "lues:pt"
 import "core:c"
 import "lues:abi"
 import "core:slice"
+import "core:strings"
 import "../desc"
 import "../input"
 import "../plug"
@@ -123,11 +124,13 @@ side_fill :: proc(a: ^App, b: ^Side_Box, id: store.Id, t: ^pt.Text, dv: ^view.De
 Plug_World :: struct {
     world: plug.World, // FIRST, so the pointer a plugin holds casts straight back to this
     panes: []plug.Pane,
+    dir:   string, // owned
 }
 
 world_make :: proc(a: ^App) -> ^Plug_World {
     w := new(Plug_World)
     w.panes = make([]plug.Pane, len(a.panels))
+    w.dir = strings.clone(term_dir(a))
     for &p, i in a.panels {
         s := panel_slot(a, &p)
         w.panes[i] = {
@@ -154,6 +157,8 @@ world_make :: proc(a: ^App) -> ^Plug_World {
         line     = line,
         step     = c.size_t(at),
         step_len = len(step),
+        dir      = raw_data(w.dir),
+        dir_len  = len(w.dir),
     }
     return w
 }
@@ -163,6 +168,7 @@ world_free :: proc(w: ^Plug_World) {
         return
     }
     delete(w.panes)
+    delete(w.dir)
     free(w)
 }
 
