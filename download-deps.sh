@@ -5,8 +5,10 @@ set -euo pipefail
 VENDOR="$(cd "$(dirname "$0")" && pwd)/vendor"
 ODIN_ROOT="$(odin root)"
 
-# §4: one C toolchain, and it cross-compiles. Unquoted on use, because it is two words.
-CC=${CC:-zig cc}
+# §4: one C toolchain, and it cross-compiles. Unquoted on use, because it is several words.
+# zig targets the build host's CPU by default; pin Odin's x86-64-v2 so CI can't ship its CPU.
+CC=${CC:-zig cc -mcpu=x86_64_v2}
+CXX=${CXX:-zig c++ -mcpu=x86_64_v2}
 
 # Odin's vendor bindings hard-code paths relative to the bindings package, so archives we
 # build have to land inside the Odin install tree. That tree is often root-owned, so
@@ -214,7 +216,7 @@ else
     echo "  building static libharfbuzz.a..."
     (
         cd "$HB_SRC"
-        ${CXX:-zig c++} -c -O2 -fPIC -fno-exceptions -fno-rtti \
+        $CXX -c -O2 -fPIC -fno-exceptions -fno-rtti \
             -DHB_NO_MT -DHB_LEAN -DHB_NO_AAT \
             -Isrc src/harfbuzz.cc -o harfbuzz.o
         ar rcs libharfbuzz.a harfbuzz.o
