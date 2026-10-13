@@ -193,11 +193,11 @@ a_document_with_no_grammar_is_left_alone :: proc(t: ^testing.T) {
     testing.expect_value(t, len(all_styles(&a, id)), 0)
 }
 
-// A plugin is a directory, so what is not source rides in it. This plugin links tree-sitter and
-// the release ships the RECIPE rather than the archive, so losing the carry would ship a syntax
-// plugin nobody can rebuild.
+// A plugin is a directory, and all of it rides beside the `.so`: the source and build.flags so
+// the installed copy rebuilds in place, and get-tree-sitter because the release ships the RECIPE
+// rather than the archive.
 @(test)
-the_build_carries_what_is_not_source :: proc(t: ^testing.T) {
+the_build_carries_the_whole_plugin :: proc(t: ^testing.T) {
     a, ok := plug_app(t, "oket-syntax-carry", "plugins/syntax")
     if !ok {
         return
@@ -205,11 +205,10 @@ the_build_carries_what_is_not_source :: proc(t: ^testing.T) {
     defer close_plug_app(&a)
 
     beside := filepath.dir(app.plug_path(&a, "syntax")) // a slice of the path
-    recipe, _ := filepath.join({beside, "get-tree-sitter"}, context.temp_allocator)
-    testing.expect(t, os.exists(recipe), recipe)
-    // build.flags is a build input, not data, and has no business beside the library.
-    flags, _ := filepath.join({beside, "build.flags"}, context.temp_allocator)
-    testing.expect(t, !os.exists(flags), flags)
+    for name in ([]string{"get-tree-sitter", "syntax.c", "build.flags"}) {
+        path, _ := filepath.join({beside, name}, context.temp_allocator)
+        testing.expect(t, os.exists(path), path)
+    }
 }
 
 // A grammar built while oket is running is picked up by the chain that built it, which is the

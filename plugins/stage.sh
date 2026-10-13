@@ -174,17 +174,11 @@ if command -v objcopy >/dev/null 2>&1; then
     objcopy --compress-debug-sections=zlib "$SO"
 fi
 
-# What is not source rides along: a plugin is a directory, so its grammar, its data table or
-# its own fetch script lands in the folder the `.so` is in (§7).
-#
-# Not for `own`: a recipe stage.sh did not write can use any extension, so there is no way to
-# tell its source from its data. It was handed the output directory and it places its own files.
-if [ "$SRC_LANG" != "own" ]; then
+# The whole plugin rides along, source included: a plugin is a directory (§7), and the copy
+# beside the `.so` is one you can edit and `:pluginify` in place. Skipped when that IS the source.
+if [ "$SRC" != "$(cd "$OUT/$NAME" && pwd)" ]; then
     for f in "$SRC"/*; do
-        case "$f" in
-            *.c | *.h | *.cpp | *.hpp | *.zig | *.odin) continue ;;
-            */build.flags | */build.sh) continue ;;
-        esac
+        [ "$f" = "$SRC/$NAME.so" ] && continue
         rm -rf "${OUT:?}/$NAME/${f##*/}"
         cp -r "$f" "$OUT/$NAME/"
     done

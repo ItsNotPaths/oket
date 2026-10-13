@@ -430,6 +430,42 @@ stage_refuses_two_languages_and_no_source :: proc(t: ^testing.T) {
     testing.expect(t, !run(script, both, out), "two languages built")
 }
 
+// The installed copy is a plugin you can edit: staged from where it sits, it rebuilds its own
+// `.so` and its source survives. A `build.sh` that copies an ELF into place, so no compiler
+// runs beside the suite's frame-timing tests.
+@(test)
+an_installed_plugin_rebuilds_in_place :: proc(t: ^testing.T) {
+    dir, ok := scratch(t, "oket-plug-in-place")
+    if !ok {
+        return
+    }
+    defer os.remove_all(dir)
+    script, _ := filepath.join({REPO, "plugins", "stage.sh"}, context.temp_allocator)
+    src, _ := filepath.join({dir, "src", "tiny"}, context.temp_allocator)
+    out, _ := filepath.join({dir, "plugins"}, context.temp_allocator)
+    build, _ := filepath.join({src, "build.sh"}, context.temp_allocator)
+    testing.expect_value(t, os.make_directory_all(src), nil)
+    body := "#!/bin/sh\nmkdir -p \"$2\" && cp /bin/true \"$2/tiny.so\"\n"
+    testing.expect_value(t, os.write_entire_file(build, transmute([]u8)body), nil)
+    testing.expect_value(t, os.chmod(build, {.Read_User, .Write_User, .Execute_User}), nil)
+
+    run :: proc(script, src, out: string) -> bool {
+        state, _, _, err := os.process_exec({command = {script, src, out}},
+                                            context.temp_allocator)
+        return err == nil && state.success
+    }
+    testing.expect(t, run(script, src, out), "the first build failed")
+    installed, _ := filepath.join({out, "tiny"}, context.temp_allocator)
+    so, _ := filepath.join({installed, "tiny.so"}, context.temp_allocator)
+    shipped, _ := filepath.join({installed, "build.sh"}, context.temp_allocator)
+    testing.expect(t, os.exists(shipped), "the source did not ship beside the .so")
+
+    testing.expect_value(t, os.remove(so), nil)
+    testing.expect(t, run(script, installed, out), "the in-place build failed")
+    testing.expect(t, os.exists(so), so)
+    testing.expect(t, os.exists(shipped), shipped)
+}
+
 // The one thing that crosses the seam as a RAW BYTE. `oket_span.attrs` is a uint8_t in C and a
 // `shape.Attrs` in Odin, and nothing at runtime checked the two agreed — the `#assert`s in
 // shape.odin pin the Odin side only. So a plugin writes OKET_ATTR_BOLD and the renderer is
