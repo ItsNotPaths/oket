@@ -139,6 +139,23 @@ sel_pipes_a_selection_out_and_put_brings_it_back :: proc(t: ^testing.T) {
     testing.expect_value(t, doc_text(&a, id), "a\nb\nc\n")
 }
 
+// The selected word is the pattern, so find-and-replace never retypes what it replaces.
+@(test)
+sel_piped_into_find_replaces_every_match :: proc(t: ^testing.T) {
+    a, ok := bare_app(60, 6)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    id := scratch_doc(&a, "note", "foo one\nfoo two\nbar foo")
+    app.ring_add(&a, id)
+    txt.doc_select_word(store.store_doc(a.docs, id), {0, 0})
+
+    run_line(&a, ":sel | :find && printf baz | :put")
+    testing.expect_value(t, doc_text(&a, id), "baz one\nbaz two\nbar baz")
+}
+
 // `:put` with nothing piped into it is a refusal, not an insert of whatever happened to be
 // lying around: the `|` is what says text should cross.
 @(test)

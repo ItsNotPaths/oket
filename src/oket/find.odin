@@ -35,8 +35,13 @@ find_doc :: proc(a: ^App) -> ^txt.Doc {
 
 // `:find <pattern>` — every match at once, as selections. The primary is the first hit at or
 // after point rather than the first in the file, so the screen goes where you were looking.
-builtin_find :: proc(a: ^App, args: string, _: cl.Step) -> bool {
+// With no argument, the pattern is what was piped in: `:sel | :find`.
+builtin_find :: proc(a: ^App, args: string, step: cl.Step) -> bool {
     pattern := strings.trim_space(args)
+    if pattern == "" {
+        feed, _ := cl.piped(&a.chain, step)
+        pattern = strings.trim_space(feed)
+    }
     if pattern == "" {
         message_set(a, USAGE_FIND)
         return false

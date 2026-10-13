@@ -83,7 +83,7 @@ you can see and answer.
 ```
 make && :ls
 :sel | sort -u | :put                 # selection out through a pipeline, back at point
-:find thing && echo replaced | :put   # select all "thing"s, echo "replaced" and put it in selections
+:find thing && printf replaced | :put # select all "thing"s, then put "replaced" in each
 ```
 
 ## Binds
