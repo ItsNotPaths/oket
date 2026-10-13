@@ -1,5 +1,6 @@
 [tools]
-odin = "latest"
+# Pinned: dev-2026-10 breaks lues (interpose.odin link names). Matches CI and release.Dockerfile.
+odin = "dev-2026-09"
 # Pinned: `zig cc` is the C toolchain (§4) and the cross-compile story rides on it.
 # 0.x releases break the driver flags between versions.
 zig = "0.16.0"

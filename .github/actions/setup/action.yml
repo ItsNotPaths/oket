@@ -27,10 +27,13 @@ runs:
             libwayland-dev libwayland-bin libxkbcommon-dev libdecor-0-dev xorg-dev
 
     # Must precede Download deps: the stb step shells out to `odin root`.
+    # Pinned: dev-2026-10 breaks lues (interpose.odin link names clash with core:sys/posix).
+    # Matches release.Dockerfile.
     - name: Install Odin
       uses: laytan/setup-odin@v2
       with:
         token: ${{ inputs.token }}
+        release: dev-2026-09
 
     # The C toolchain (§4). Pinned here and in mise.toml; nowhere else.
     - name: Install Zig

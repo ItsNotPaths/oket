@@ -33,7 +33,7 @@ RUN curl -fsSL "https://gitlab.freedesktop.org/libdecor/libdecor/-/archive/${LIB
 
 # Pinned to the toolchain a dev machine runs (mise.toml pins zig the same way), so the
 # release and a local build cannot differ by compiler.
-ARG ODIN_VERSION=dev-2026-08
+ARG ODIN_VERSION=dev-2026-09
 RUN mkdir -p /opt/odin \
     && curl -fsSL "https://github.com/odin-lang/Odin/releases/download/${ODIN_VERSION}/odin-linux-amd64-${ODIN_VERSION}.tar.gz" \
         | tar xz --strip-components=1 -C /opt/odin
