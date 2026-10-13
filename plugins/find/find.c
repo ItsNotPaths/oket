@@ -1,6 +1,7 @@
 /* A live preview of `:find`: while the line's last builtin step is `:find <text>`, every match in the
  * focused document is marked, and the one enter would land on is reversed. up and down step
  * that one through the matches. Enter still runs the builtin; this plugin only shows it.
+ * `:grep` and its lane are grep.c.
  *
  *     :pluginify plugins/find
  */
@@ -8,7 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "oket_helpers.h"
+#include "grep.h"
 
 #define PREFIX ":find "
 
@@ -218,6 +219,9 @@ static int32_t prev(const lues_api *api, lues_self self, const lues_at *at, cons
 }
 
 LUES_MAIN {
+    if (grep_register(api, self) != 0) {
+        return 1;
+    }
     api->register_watch(api, self, on_moved);
     api->register_command(api, self, LIT("find.next"), LIT("the next :find match, as you type"),
                           next);
