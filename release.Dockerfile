@@ -44,4 +44,6 @@ RUN mkdir -p /opt/zig \
         | tar xJ --strip-components=1 -C /opt/zig
 
 ENV PATH="/opt/odin:/opt/zig:${PATH}"
+# /work is a host mount owned by the runner, not root; git refuses it (vendor/lues) without this.
+RUN git config --global --add safe.directory '*'
 WORKDIR /work
