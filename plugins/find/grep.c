@@ -1,15 +1,13 @@
-/* `:grep <args>`: `grep -rn <args>` from where oket started, as a document in the `grep` lane.
+/* `:grep <args>`: `grep -rn <args>` in the workspace, as a document in the `grep` lane.
  *
  * Each match is a block: a header that names `path:line`, then the lines grep printed around it.
  * Every line carries a `link` to itself, so `enter` opens the file there; up and down step a
  * block at a time. The jump is the kernel's `:openlink`, bound in binds.conf like any row.
  */
-#define _GNU_SOURCE /* getcwd */
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
 #include "grep.h"
 
@@ -147,7 +145,8 @@ static void render(const lues_api *api, lues_self self, lues_doc doc, grep_doc *
     for (i = 0; i < n; i++) {
         matches += (size_t)es[i].match;
     }
-    cell(&b, NULL, "%s%zu matches for %s", g->done ? "" : "searching, ", matches, g->query);
+    cell(&b, NULL, "%s%zu matches for %s in %s", g->done ? "" : "searching, ", matches, g->query,
+         g->cwd);
     oket_build_row(&b);
     free(g->heads);
     g->heads = calloc(n + 1, sizeof *g->heads);
@@ -200,14 +199,18 @@ static void render(const lues_api *api, lues_self self, lues_doc doc, grep_doc *
 static void *open_grep(const lues_api *api, lues_self self, lues_doc doc, const char *args,
                        size_t args_len) {
     grep_doc   *g = calloc(1, sizeof *g);
-    char       *cmd;
-    const char *argv[3];
+    char             *cmd;
+    const char       *argv[3];
+    const oket_world *w;
 
     if (!g) {
         return NULL;
     }
     g->query = oket_dup(args, args_len);
-    g->cwd = getcwd(NULL, 0);
+    if ((w = oket(api)->world(api, self))) {
+        g->cwd = oket_dup(w->dir, w->dir_len);
+        oket(api)->world_release(api, self, w);
+    }
     cmd = malloc(sizeof GREP + args_len);
     if (!g->query || !g->cwd || !cmd) {
         free(cmd);
