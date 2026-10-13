@@ -16,7 +16,7 @@ import "../shape"
 //   abi.Span.attrs      shape.Attrs bits
 //   .Forget (submit)    REGEN: derived text, so the carets stay on their rows and nothing undoes
 
-API :: 11
+API :: 12
 
 // Ids below this are the base vocabulary (shape.Style); the rest were interned.
 TOKEN_BASE :: abi.Token(len(shape.Style))
@@ -81,6 +81,22 @@ Side :: struct {
     nhidden:  c.size_t,
 }
 
+// The kernel's motions, in txt.Motion's order (plug.odin asserts it).
+Motion :: enum c.int32_t {
+    Left,
+    Right,
+    Word_Left,
+    Word_Right,
+    Home,
+    End,
+    Doc_Start,
+    Doc_End,
+    Up,
+    Down,
+    Para_Up,
+    Para_Down,
+}
+
 // Where a revealed span lands in the viewport (§11).
 Reveal :: enum c.int32_t {
     Nearest, // scroll as little as it takes
@@ -134,6 +150,9 @@ Api :: struct {
     register_view: proc "c" (api: ^abi.Api, self: abi.Self, fn: View_Fn),
     world:         proc "c" (api: ^abi.Api, self: abi.Self) -> ^World,
     world_release: proc "c" (api: ^abi.Api, self: abi.Self, w: ^World),
+    // Every caret, moved as the kernel's keys move them; queued like `cursors`.
+    move:          proc "c" (api: ^abi.Api, self: abi.Self, doc: abi.Doc_Handle, m: Motion,
+                             select: c.int32_t),
 }
 
 #assert(size_of(Pos) == 16)
@@ -145,4 +164,4 @@ Api :: struct {
 #assert(size_of(View_Out) == 32)
 #assert(size_of(Pane) == 32)
 #assert(size_of(World) == 24)
-#assert(size_of(Api) == size_of(abi.Api) + 6 * size_of(rawptr))
+#assert(size_of(Api) == size_of(abi.Api) + 7 * size_of(rawptr))

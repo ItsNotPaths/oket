@@ -513,3 +513,63 @@ vertical_motion_expands_tabs_into_the_goal :: proc(t: ^testing.T) {
     txt.doc_move(&d, .Up, tab = 4)
     testing.expect_value(t, d.cursors[0].head, txt.Pos{0, 1})
 }
+
+// Emacs paragraph motion: down lands on the blank line after the text, a whitespace-only line
+// counts as blank, and the document's ends stop it.
+@(test)
+para_motion_lands_on_blank_lines :: proc(t: ^testing.T) {
+    d := mk("one\ntwo\n\n  \nthree\n\nfour")
+    defer txt.doc_destroy(&d)
+
+    txt.doc_move(&d, .Para_Down)
+    testing.expect_value(t, d.cursors[0].head, txt.Pos{2, 0})
+    txt.doc_move(&d, .Para_Down)
+    testing.expect_value(t, d.cursors[0].head, txt.Pos{5, 0})
+    txt.doc_move(&d, .Para_Down)
+    testing.expect_value(t, d.cursors[0].head, txt.Pos{6, 4})
+
+    txt.doc_move(&d, .Para_Up)
+    testing.expect_value(t, d.cursors[0].head, txt.Pos{5, 0})
+    txt.doc_move(&d, .Para_Up)
+    testing.expect_value(t, d.cursors[0].head, txt.Pos{3, 0})
+    txt.doc_move(&d, .Para_Up)
+    testing.expect_value(t, d.cursors[0].head, txt.Pos{0, 0})
+}
+
+// Shift extends, as with every other motion.
+@(test)
+para_motion_extends_a_selection :: proc(t: ^testing.T) {
+    d := mk("one\ntwo\n\nthree", {0, 1})
+    defer txt.doc_destroy(&d)
+    txt.doc_move(&d, .Para_Down, true)
+    testing.expect_value(t, d.cursors[0].anchor, txt.Pos{0, 1})
+    testing.expect_value(t, d.cursors[0].head, txt.Pos{2, 0})
+}
+
+// A fold is one step: blank lines inside it are not stops.
+@(test)
+para_motion_steps_over_a_fold :: proc(t: ^testing.T) {
+    d := mk("one\n\ntwo\n\nthree")
+    defer txt.doc_destroy(&d)
+    hidden := []txt.Range{{lo = {0, 3}, hi = {2, 3}}} // lines 1-2 drawn as part of line 0
+    txt.doc_move(&d, .Para_Down, hidden = hidden)
+    testing.expect_value(t, d.cursors[0].head, txt.Pos{3, 0})
+}
+
+// Every caret jumps from its own line, and two that land on one blank line fuse.
+@(test)
+para_motion_moves_each_caret_and_fuses_the_ones_that_meet :: proc(t: ^testing.T) {
+    d := mk("a\nb\n\nc\n\nd")
+    defer txt.doc_destroy(&d)
+    txt.doc_add_cursor(&d, {3, 0}) // on "c"
+
+    txt.doc_move(&d, .Para_Down)
+    testing.expect_value(t, len(d.cursors), 2)
+    testing.expect_value(t, d.cursors[0].head, txt.Pos{2, 0})
+    testing.expect_value(t, d.cursors[1].head, txt.Pos{4, 0})
+
+    txt.doc_move(&d, .Para_Up)
+    txt.doc_move(&d, .Para_Up)
+    testing.expect_value(t, len(d.cursors), 1)
+    testing.expect_value(t, d.cursors[0].head, txt.Pos{0, 0})
+}

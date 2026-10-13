@@ -11,16 +11,14 @@
  *   - self-insert: what a typed rune MEANS. The kernel routes the rune and interprets none of
  *     it (§7) — a rune is the one input the bind table never sees, so the kernel deciding what
  *     it does would be an editing policy nobody could audit or rebind (§8).
- *   - the verbs that are policy rather than storage: a newline that keeps the indent, a Tab
- *     that lands on the next tab stop, and `left` / `right`, which are here because motion is
- *     where an editor stops agreeing with everything else. Each is a row in binds.conf,
- *     shadowing the kernel's plain one for this kind alone.
+ *   - the verbs that are policy rather than storage: a newline that keeps the indent and a
+ *     Tab that lands on the next tab stop. Each is a row in binds.conf, shadowing the kernel's
+ *     plain one for this kind alone.
  *
- * WHAT IS NOT HERE is everything the kernel still owns for every document (§12): the rest of
- * motion, the viewport, undo, the placement verbs and the plain deletes. An editor buffer gets
- * those with no code at all, which is the whole reason this file is a few hundred lines and
- * not 3,000 — and a verb moves over one at a time, so a quarantined build still navigates
- * (CURSORS.md §8).
+ * WHAT IS NOT HERE is everything the kernel owns for every document (§12): motion, the
+ * viewport, undo, the placement verbs and the plain deletes. An editor buffer gets those with no
+ * code at all, which is the whole reason this file is a few hundred lines and not 3,000. A
+ * plugin that wants motion calls `oket(api)->move`.
  *
  *     :pluginify plugins/edit         build it and load it
  *     :open <file>                    the kernel hands a regular file to the `edit` kind
@@ -360,51 +358,6 @@ static int32_t indent_cmd(const lues_api *api, lues_self self, const lues_at *at
     return 0;
 }
 
-/* --- motion (CURSORS.md stage 4) ---
- *
- * The set is computed here, out of the snapshot, and handed over whole; the kernel still
- * keeps, merges, draws and follows the array (§4). What crosses the line is who DECIDES.
- *
- * SHIFT IS WRITTEN OUT, and it has to be: the bind table's Shift retry hands its `extend` to
- * the kernel's own motion arm, and a command slot never sees it. A plugin that takes over
- * `left` takes over `shift+left` in the same breath, or the selection key goes quiet. */
-static int32_t move(const lues_api *api, lues_self self, const lues_at *at,
-                    oket_motion m, int select) {
-    if (!oket_mine(at)) {
-        return refuse(api, self, "ed: this document is not the editor's");
-    }
-    oket_move(api, self, at->snap, m, select);
-    return 0;
-}
-
-static int32_t left_cmd(const lues_api *api, lues_self self, const lues_at *at,
-                        const char *args, size_t args_len) {
-    (void)args;
-    (void)args_len;
-    return move(api, self, at, OKET_MOTION_LEFT, 0);
-}
-
-static int32_t right_cmd(const lues_api *api, lues_self self, const lues_at *at,
-                         const char *args, size_t args_len) {
-    (void)args;
-    (void)args_len;
-    return move(api, self, at, OKET_MOTION_RIGHT, 0);
-}
-
-static int32_t select_left_cmd(const lues_api *api, lues_self self, const lues_at *at,
-                               const char *args, size_t args_len) {
-    (void)args;
-    (void)args_len;
-    return move(api, self, at, OKET_MOTION_LEFT, 1);
-}
-
-static int32_t select_right_cmd(const lues_api *api, lues_self self, const lues_at *at,
-                                const char *args, size_t args_len) {
-    (void)args;
-    (void)args_len;
-    return move(api, self, at, OKET_MOTION_RIGHT, 1);
-}
-
 /* `ed.reload` — the file, back into the buffer, unsaved edits and all. It is `changed`'s third
  * answer overruled: the watch REFUSES to touch a buffer that has edits the file does not, and
  * this is how the user says take it anyway. The kernel kept no verb for this — it reads no file
@@ -512,14 +465,6 @@ LUES_MAIN {
                           LIT("split the line and keep its indent"), newline_cmd);
     api->register_command(api, self, LIT("ed.indent"), LIT("spaces to the next tab stop"),
                           indent_cmd);
-    api->register_command(api, self, LIT("ed.left"), LIT("move the caret left a rune"),
-                          left_cmd);
-    api->register_command(api, self, LIT("ed.right"), LIT("move the caret right a rune"),
-                          right_cmd);
-    api->register_command(api, self, LIT("ed.select_left"),
-                          LIT("extend the selection left a rune"), select_left_cmd);
-    api->register_command(api, self, LIT("ed.select_right"),
-                          LIT("extend the selection right a rune"), select_right_cmd);
     /* ASKED FOR, never claimed (§8). Each of these shadows a kernel row for this kind alone —
      * plain enter and plain tab go on serving the command line and anything else. */
     api->request_bind(api, self, LIT("edit"), LIT("enter"), LIT("ed.newline"));
@@ -529,12 +474,5 @@ LUES_MAIN {
     /* Off a link, :openlink selects the word, so double-click loses nothing to it. */
     api->request_bind(api, self, LIT("edit"), LIT("alt+enter"), LIT("exec :openlink"));
     api->request_bind(api, self, LIT("edit"), LIT("double-click"), LIT("exec :openlink"));
-    /* One verb at a time (§9): the two the editor computes for itself, and their Shift
-     * siblings. Everything else — the words, the line ends, the vertical arrows, the placement
-     * verbs — is still the kernel's row, over this kind and every other. */
-    api->request_bind(api, self, LIT("edit"), LIT("left"), LIT("ed.left"));
-    api->request_bind(api, self, LIT("edit"), LIT("right"), LIT("ed.right"));
-    api->request_bind(api, self, LIT("edit"), LIT("shift+left"), LIT("ed.select_left"));
-    api->request_bind(api, self, LIT("edit"), LIT("shift+right"), LIT("ed.select_right"));
     return 0;
 }

@@ -155,82 +155,40 @@ the_plugins_own_newline_shadows_the_kernels :: proc(t: ^testing.T) {
     testing.expect_value(t, doc_text(&a, id), "    indented\n        ")
 }
 
-// CURSORS.md stage 4's gate: the editor computes its own `left` and `right`. The set crosses the
-// seam whole (§4) and the kernel keeps the array — so the caret the frame draws, the merge and
-// the viewport are all unchanged, and what moved is who decided.
+// Motion is the kernel's in an editor buffer too: ctrl+arrows jump paragraphs, and the Shift
+// fallback makes ctrl+shift+arrows select.
 @(test)
-the_editor_plugin_owns_left_and_right :: proc(t: ^testing.T) {
-    a, _, ok := edit_app(t, "oket-edit-motion", "héllo\nbeta\n")
+ctrl_arrows_jump_paragraphs_in_the_editor :: proc(t: ^testing.T) {
+    a, _, ok := edit_app(t, "oket-edit-paras", "one\ntwo\n\nthree\n")
     if !ok {
         return
     }
     defer close_plug_app(&a)
 
-    id := focused(&a)
-    kind, _ := app.kind_named(&a, "edit")
-    rows := read_binds(&a)
-    testing.expect(t, strings.contains(rows, "left = ed.left"), rows)
-    testing.expect(t, strings.contains(rows, "# shadows nav.left"), rows)
-    // And the row RESOLVES to the plugin, which is what makes every move below the plugin's
-    // answer and not the kernel's.
-    want, _ := app.plug_cmd_named(&a, "ed.left")
-    b, _, found := input.bind_lookup(a.binds[:], chord("LEFT"), .Text, kind)
-    slot, is_slot := b.target.(input.Slot)
-    testing.expect(t, found && is_slot && slot == want, "LEFT is not the editor's row")
+    app.handle_chord(&a, chord("DOWN", {.Ctrl}))
+    testing.expect_value(t, point(&a).head, txt.Pos{2, 0})
+    app.handle_chord(&a, chord("DOWN", {.Ctrl, .Shift}))
+    testing.expect_value(t, point(&a).anchor, txt.Pos{2, 0})
+    testing.expect_value(t, point(&a).head, txt.Pos{4, 0})
+    app.handle_chord(&a, chord("UP", {.Ctrl}))
+    testing.expect_value(t, point(&a).head, txt.Pos{2, 0})
+}
 
-    gen, _ := store.store_gen(a.docs, id)
-    app.handle_chord(&a, chord("END")) // still the kernel's: one verb at a time (§9)
-    testing.expect_value(t, point(&a).head, txt.Pos{0, 6})
-    for _ in 0 ..< 3 {
-        app.handle_chord(&a, chord("LEFT"))
+// A plugin asks for kernel motion through the seam, and two moves in one call add up.
+@(test)
+a_plugin_moves_carets_with_kernel_motion :: proc(t: ^testing.T) {
+    a, ok := plug_app(t, "oket-edit-mover", "src/tests/mover")
+    if !ok {
+        return
     }
-    testing.expect_value(t, point(&a).head, txt.Pos{0, 3})
-    // A WHOLE RUNE, not a byte: `é` is two of them and one press crosses it.
-    app.handle_chord(&a, chord("LEFT"))
-    testing.expect_value(t, point(&a).head, txt.Pos{0, 1})
+    defer close_plug_app(&a)
+    if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, "mover")), a.message) {
+        return
+    }
+    app.ring_add(&a, scratch_doc(&a, "paras.txt", "a\n\nb\n\nc"))
 
-    // §3, and the reason `cursors` is not a submit: none of that was a transaction.
-    now, _ := store.store_gen(a.docs, id)
-    testing.expect_value(t, now, gen)
-
-    // Shift is a row of its own, because the bind table's Shift retry hands `extend` to the
-    // dispatch and a command slot never sees it.
-    app.handle_chord(&a, chord("LEFT", {.Shift}))
-    testing.expect_value(t, point(&a).head, txt.Pos{0, 0})
-    testing.expect_value(t, point(&a).anchor, txt.Pos{0, 1})
-    // A plain move over a selection collapses onto the edge it goes toward and steps no further.
-    app.handle_chord(&a, chord("RGHT"))
-    testing.expect_value(t, point(&a).head, txt.Pos{0, 1})
-    testing.expect_value(t, point(&a).anchor, txt.Pos{0, 1})
-
-    // The line break is a position like any other.
-    app.handle_chord(&a, chord("END"))
-    app.handle_chord(&a, chord("RGHT"))
-    testing.expect_value(t, point(&a).head, txt.Pos{1, 0})
-
-    // Motion is what the SET does: a second caret, one press, and every caret moves — each
-    // wrapping its own line break here — with the primary still the caret that was added.
-    app.handle_chord(&a, chord("DOWN", {.Ctrl, .Alt}))
-    app.handle_chord(&a, chord("LEFT"))
-    doc := store.store_doc(a.docs, id)
-    testing.expect_value(t, len(doc.cursors), 2)
-    testing.expect_value(t, doc.cursors[0].head, txt.Pos{0, 6})
-    testing.expect_value(t, doc.cursors[1].head, txt.Pos{1, 4})
-    testing.expect_value(t, doc.cursors[doc.primary].head, txt.Pos{1, 4})
-
-    // A document no plugin opened, in the same running app: the kernel's row answers it, because
-    // the editor's shadows nothing outside its own kind.
-    app.ring_add(&a, scratch_doc(&a, "orphan.txt", "ab"))
-    app.handle_chord(&a, chord("END"))
-    app.handle_chord(&a, chord("LEFT"))
-    testing.expect_value(t, point(&a).head, txt.Pos{0, 1})
-
-    // And with the plugin gone the shadowing row goes with it, rather than resolving to a dead
-    // slot: `nav.left` answers for the editor's kind again (§8).
-    app.plug_unload(&a, app.plug_find(&a, "edit"))
-    b, _, found = input.bind_lookup(a.binds[:], chord("LEFT"), .Text, kind)
-    cmd, is_cmd := b.target.(input.Command)
-    testing.expect(t, found && is_cmd && cmd == .Nav_Left, "a dead row still holds LEFT")
+    app.cl_exec(&a, ":paras")
+    testing.expect_value(t, point(&a).head, txt.Pos{3, 0})
 }
 
 // What oket_batch exists for: one edit per cursor, and each caret takes its OWN line's indent

@@ -218,6 +218,18 @@ store_cursors :: proc(s: ^Store, id: Id, curs: []txt.Cursor, primary: int) {
     }
 }
 
+// Where a caller's next move starts: the set it still has queued, else the document's own.
+store_cursors_next :: proc(s: ^Store, id: Id) -> (curs: []txt.Cursor, primary: int, ok: bool) {
+    x := extra(s, id)
+    if x == nil {
+        return
+    }
+    if len(x.curs) > 0 {
+        return x.curs[:], x.curs_primary, true
+    }
+    return x.doc.cursors[:], x.doc.primary, true
+}
+
 store_landed :: proc(s: ^Store) -> []u64 {
     return docs.store_landed(s)
 }

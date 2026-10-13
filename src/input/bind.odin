@@ -53,6 +53,8 @@ Command :: enum u8 {
     Line_End,
     Doc_Start,
     Doc_End,
+    Para_Up,
+    Para_Down,
     Delete_Back,
     Delete_Forward,
     Delete_Word_Back,
@@ -201,6 +203,8 @@ COMMANDS := [Command]Command_Info {
     .Line_End            = {"edit.end", "to the end of the line", {.Text}},
     .Doc_Start           = {"edit.doc_start", "to the start of the document", {.Text}},
     .Doc_End             = {"edit.doc_end", "to the end of the document", {.Text}},
+    .Para_Up             = {"edit.para_up", "to the blank line before the paragraph", {.Text}},
+    .Para_Down           = {"edit.para_down", "to the blank line after the paragraph", {.Text}},
     .Delete_Back         = {"edit.delete_back", "delete the selection or the rune to the left", {.Text}},
     .Delete_Forward      = {"edit.delete_forward", "delete the selection or the rune to the right", {.Text}},
     .Delete_Word_Back    = {"edit.delete_word_back", "delete the word to the left", {.Text}},
@@ -343,6 +347,8 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     bind_put(&b, "END", {}, .Line_End)
     bind_put(&b, "HOME", {.Ctrl}, .Doc_Start)
     bind_put(&b, "END", {.Ctrl}, .Doc_End)
+    bind_put(&b, "UP", {.Ctrl}, .Para_Up)
+    bind_put(&b, "DOWN", {.Ctrl}, .Para_Down)
     bind_put(&b, "BKSP", {}, .Delete_Back)
     bind_put(&b, "DELE", {}, .Delete_Forward)
     bind_put(&b, "BKSP", {.Ctrl}, .Delete_Word_Back)

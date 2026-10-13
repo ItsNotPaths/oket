@@ -487,6 +487,8 @@ Motion :: enum {
     Doc_End,
     Up,
     Down,
+    Para_Up,
+    Para_Down,
 }
 
 // A run of the ORIGINAL that a view stage deleted, so no cell on screen stands for it
@@ -508,10 +510,17 @@ Range :: struct {
 // document that are not on screen. Empty is a document nobody folded.
 doc_move :: proc(d: ^Doc, motion: Motion, select := false, count := 1, hidden: []Range = nil,
                  tab := 4) {
-    for &c in d.cursors {
+    cursors_move(d, d.cursors[:], motion, select, count, hidden, tab)
+    doc_merge_cursors(d)
+}
+
+// The same motion over a set the document does not hold yet, which is what a plugin's queued
+// set is. Unmerged: the set merges where it lands.
+cursors_move :: proc(d: ^Doc, set: []Cursor, motion: Motion, select := false, count := 1,
+                     hidden: []Range = nil, tab := 4) {
+    for &c in set {
         move_cursor(d, &c, motion, select, count, hidden, tab)
     }
-    doc_merge_cursors(d)
 }
 
 @(private = "file")
@@ -575,6 +584,46 @@ move_cursor :: proc(d: ^Doc, c: ^Cursor, motion: Motion, select: bool, count := 
             }
             cursor_place(c, Pos{line, doc_goal_byte(d, line, c.goal, tab)}, select)
         }
+    case .Para_Up:
+        cursor_place(c, para_pos(d, hidden, c.head.line, -1), select)
+        c.goal = doc_goal_col(d, c.head, tab)
+    case .Para_Down:
+        cursor_place(c, para_pos(d, hidden, c.head.line, +1), select)
+        c.goal = doc_goal_col(d, c.head, tab)
+    }
+}
+
+// Emacs paragraph motion: off the blank lines point is on, then to the next blank line past the
+// text. The document's start or end when there is none.
+@(private = "file")
+para_pos :: proc(d: ^Doc, hidden: []Range, from, by: int) -> Pos {
+    line, edge := from, false
+    if line_is_blank(doc_line(d, line)) {
+        line, edge = para_skip(d, hidden, line, by, true)
+    }
+    if !edge {
+        line, edge = para_skip(d, hidden, line, by, false)
+    }
+    if !edge {
+        return Pos{line, 0}
+    }
+    return by < 0 ? Pos{0, 0} : Pos{line, doc_line_len(d, line)}
+}
+
+// Steps to the first visible line whose blankness is not `blank`. `edge` when the document ends
+// first, with `line` on its last visible line.
+@(private = "file")
+para_skip :: proc(d: ^Doc, hidden: []Range, from, by: int, blank: bool) -> (line: int, edge: bool) {
+    line = from
+    for {
+        next := visible_line(d, hidden, line, by, 1)
+        if next == line {
+            return line, true
+        }
+        line = next
+        if line_is_blank(doc_line(d, line)) != blank {
+            return line, false
+        }
     }
 }
 
@@ -585,7 +634,7 @@ move_cursor :: proc(d: ^Doc, c: ^Cursor, motion: Motion, select: bool, count := 
 // Which edge an arm ends on. Doc_Start is rightward because the first visible position of a
 // document that opens inside a fold is to the RIGHT of it.
 @(private = "file")
-RIGHTWARD :: bit_set[Motion]{.Right, .Word_Right, .End, .Doc_Start}
+RIGHTWARD :: bit_set[Motion]{.Right, .Word_Right, .End, .Doc_Start, .Para_Down}
 
 @(private = "file")
 VERTICAL :: bit_set[Motion]{.Up, .Down}

@@ -25,7 +25,7 @@
 extern "C" {
 #endif
 
-#define OKET_API 11 /* lues_api.app_version, under app "oket" */
+#define OKET_API 12 /* lues_api.app_version, under app "oket" */
 
 /* --- the descriptor's vocabulary (§5). The kernel's enum order, and it is an ABI. --- */
 
@@ -52,6 +52,22 @@ typedef struct {
     uint32_t  id;
     uint8_t   _pad[4];
 } oket_cursor;
+
+/* The kernel's motions, in its enum order; an ABI. */
+typedef enum {
+    OKET_MOTION_LEFT       = 0,
+    OKET_MOTION_RIGHT      = 1,
+    OKET_MOTION_WORD_LEFT  = 2,
+    OKET_MOTION_WORD_RIGHT = 3,
+    OKET_MOTION_HOME       = 4,
+    OKET_MOTION_END        = 5,
+    OKET_MOTION_DOC_START  = 6,
+    OKET_MOTION_DOC_END    = 7,
+    OKET_MOTION_UP         = 8,
+    OKET_MOTION_DOWN       = 9,
+    OKET_MOTION_PARA_UP    = 10,
+    OKET_MOTION_PARA_DOWN  = 11
+} oket_motion;
 
 /* A run of the document no cell on screen stands for (a fold). lo and hi draw at the same
  * cell; motion that crosses one steps over it. */
@@ -197,6 +213,12 @@ typedef struct oket_api {
 
     const oket_world *(*world)(const lues_api *api, lues_self self);
     void (*world_release)(const lues_api *api, lues_self self, const oket_world *w);
+
+    /* Every caret in `doc`, moved the way the kernel's own keys move them: goal column, tab
+     * width and folds included. It queues like `cursors`, and starts from a set still queued,
+     * so two moves in one call add up. */
+    void (*move)(const lues_api *api, lues_self self, lues_doc doc, oket_motion m,
+                 int32_t select);
 } oket_api;
 
 static inline const oket_api *oket(const lues_api *api) {
@@ -216,7 +238,7 @@ LUES_SIZE(oket_side, 48);
 LUES_SIZE(oket_view_out, 32);
 LUES_SIZE(oket_pane, 32);
 LUES_SIZE(oket_world, 24);
-LUES_SIZE(oket_api, sizeof(lues_api) + 6 * sizeof(void *));
+LUES_SIZE(oket_api, sizeof(lues_api) + 7 * sizeof(void *));
 
 #ifdef __cplusplus
 }

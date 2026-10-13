@@ -1,5 +1,7 @@
 package main
 
+import "core:c"
+import "core:slice"
 import "core:unicode/utf8"
 import "lues:abi"
 import "lues:docs"
@@ -58,6 +60,7 @@ kernel_open :: proc(a: ^App, unguarded := false) -> bool {
     k.box.api.register_view = api_register_view
     k.box.api.world = api_world
     k.box.api.world_release = api_world_release
+    k.box.api.move = api_move
     a.docs = &k.store
     return ok
 }
@@ -313,6 +316,32 @@ api_cursors :: proc "c" (api: ^abi.Api, self: abi.Self, doc: abi.Doc_Handle,
     context = k.host
     set := transmute([]txt.Cursor)curs[:n]
     store.store_cursors(a.docs, store_id(doc), set, int(min(primary, n - 1)))
+}
+
+#assert(len(plug.Motion) == len(txt.Motion))
+#assert(int(plug.Motion.Para_Down) == int(txt.Motion.Para_Down))
+
+// Moved from the set still queued, if any, and queued again, so it lands in order with the
+// caller's `cursors` and submits.
+@(private = "file")
+api_move :: proc "c" (api: ^abi.Api, self: abi.Self, doc: abi.Doc_Handle, m: plug.Motion,
+                      select: c.int32_t) {
+    a, k, _, ok := tail(api, self)
+    defer lues.api_done()
+    if !ok || m < min(plug.Motion) || m > max(plug.Motion) {
+        return
+    }
+    context = k.host
+    id := store_id(doc)
+    from, primary, found := store.store_cursors_next(a.docs, id)
+    d := store.store_doc(a.docs, id)
+    if !found || d == nil {
+        return
+    }
+    set := slice.clone(from, context.temp_allocator)
+    txt.cursors_move(d, set, txt.Motion(m), select != 0, hidden = views_hidden(&a, id),
+                     tab = doc_tab(&a, id))
+    store.store_cursors(a.docs, id, set, primary)
 }
 
 // Registering twice replaces, with one ledger record.

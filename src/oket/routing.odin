@@ -387,6 +387,10 @@ motion_of :: proc(cmd: input.Command) -> (txt.Motion, bool) {
         return .Doc_Start, true
     case .Doc_End:
         return .Doc_End, true
+    case .Para_Up:
+        return .Para_Up, true
+    case .Para_Down:
+        return .Para_Down, true
     }
     return {}, false
 }
@@ -939,16 +943,21 @@ reading :: proc(a: ^App, s: ^Slot) -> (^pt.Snapshot, ^desc.Descriptor, bool) {
     return snap, store.store_descriptor(a.docs, s.doc), true
 }
 
-// The active descriptor's tab width, for the verbs whose goal column expands tabs
-// (IME.md §4). The descriptor's and never a constant: tab_width is live plugin API.
-@(private = "file")
-active_tab :: proc(a: ^App) -> int {
-    _, d := active_desc(a)
+// A document's tab width, for the verbs whose goal column expands tabs (IME.md §4). The
+// descriptor's and never a constant: tab_width is live plugin API.
+doc_tab :: proc(a: ^App, id: store.Id) -> int {
+    d := store.store_descriptor(a.docs, id)
     if d == nil {
         return 4
     }
     defer desc.release(d)
     return d.tab_width
+}
+
+@(private = "file")
+active_tab :: proc(a: ^App) -> int {
+    s := active(a)
+    return s != nil ? doc_tab(a, s.doc) : 4
 }
 
 point_move :: proc(a: ^App, motion: txt.Motion, extend: bool) {
