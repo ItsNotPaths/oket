@@ -131,7 +131,7 @@ world_make :: proc(a: ^App) -> ^Plug_World {
     for &p, i in a.panels {
         s := panel_slot(a, &p)
         w.panes[i] = {
-            doc     = s != nil ? plug_doc(s.doc) : 0,
+            doc     = s != nil ? plug_doc(s.doc) : abi.NO_DOC,
             x       = i32(p.body.x),
             y       = i32(p.body.y),
             w       = i32(p.body.w),

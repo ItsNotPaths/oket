@@ -121,7 +121,7 @@ View_Fn :: #type proc "c" (api: ^abi.Api, self: abi.Self, at: ^abi.At, out: ^Vie
 // --- the world (§12) ---
 
 Pane :: struct {
-    doc:        abi.Doc_Handle,
+    doc:        abi.Doc_Handle, // NO_DOC for an empty panel
     // The BODY, in cells: the gutter is outside it, and `y` counts from the top of the surface.
     x, y, w, h: c.int32_t,
     top:        c.int32_t, // the first line drawn, in the DERIVED document

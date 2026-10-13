@@ -172,7 +172,7 @@ typedef int32_t (*oket_view_fn)(const lues_api *api, lues_self self, const lues_
 /* --- the world (§12): the layout, built per call and read as memory --- */
 
 typedef struct {
-    lues_doc doc;
+    lues_doc doc; /* LUES_NO_DOC for an empty panel */
     /* The BODY, in cells: the gutter is outside it, and `y` counts from the top of the
      * surface. */
     int32_t  x, y, w, h;
