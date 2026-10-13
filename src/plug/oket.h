@@ -185,6 +185,7 @@ typedef struct {
     const oket_pane *panes;
     size_t           npanes;
     int32_t          cols, rows; /* the whole surface, in cells */
+    lues_doc         line;       /* the command line while it is open, 0 when it is closed */
 } oket_world;
 
 /* --- oket's calls, after lues's --- */
@@ -237,7 +238,7 @@ LUES_SIZE(oket_descriptor, 64);
 LUES_SIZE(oket_side, 48);
 LUES_SIZE(oket_view_out, 32);
 LUES_SIZE(oket_pane, 32);
-LUES_SIZE(oket_world, 24);
+LUES_SIZE(oket_world, 32);
 LUES_SIZE(oket_api, sizeof(lues_api) + 7 * sizeof(void *));
 
 #ifdef __cplusplus

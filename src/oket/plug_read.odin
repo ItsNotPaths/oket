@@ -146,6 +146,7 @@ world_make :: proc(a: ^App) -> ^Plug_World {
         // The whole surface in cells: the window floored over the cell (§11).
         cols   = i32(a.win.x / max(a.cell.x, 1)),
         rows   = i32(a.win.y / max(a.cell.y, 1)),
+        line   = cl_active(a) ? plug_doc(a.cl.doc) : 0,
     }
     return w
 }
