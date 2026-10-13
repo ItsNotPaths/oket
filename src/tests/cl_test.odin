@@ -283,3 +283,28 @@ a_name_no_row_holds_is_not_a_builtin :: proc(t: ^testing.T) {
     _, empty := app.builtin_named("")
     testing.expect(t, !empty, "an empty name reached a row")
 }
+
+// A `[cmdline]` row answers only while the line is open, and the line still takes every `[text]`
+// row under it.
+@(test)
+cmdline_rows_answer_only_on_the_open_line :: proc(t: ^testing.T) {
+    a, ok := bare_app()
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+    app.ring_add(&a, scratch_doc(&a, "note", "x"))
+    app.binds_parse(&a, "[cmdline]\nf5 = stage :hit\n", "binds.conf")
+
+    app.handle_chord(&a, chord("FK05"))
+    testing.expect(t, !app.cl_active(&a), "a cmdline row fired in a text document")
+
+    app.cl_show(&a)
+    type(&a, "ab")
+    app.handle_chord(&a, chord("LEFT"))
+    type(&a, "x")
+    testing.expect_value(t, app.cl_line(&a), "axb")
+
+    app.handle_chord(&a, chord("FK05"))
+    testing.expect_value(t, app.cl_line(&a), ":hit")
+}

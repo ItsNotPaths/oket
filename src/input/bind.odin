@@ -14,6 +14,8 @@ Bind_Ctx :: enum u8 {
     // The armed picker (PANELS.md §6). Entered when a `pick` row fires and left when its held
     // key comes up, so left and right choose a panel for exactly as long as the gesture lasts.
     Pick,
+    // The open command line. Falls back to Text, so a row here only adds to what the line answers.
+    Cmdline,
 }
 
 Bind_Ctxs :: bit_set[Bind_Ctx;u8]
@@ -28,6 +30,12 @@ CTX_NAMES := [Bind_Ctx]string {
     .Surface  = "surface",
     .Terminal = "terminal",
     .Pick     = "pick",
+    .Cmdline  = "cmdline",
+}
+
+// What a context falls back to before Global. Itself when it has nothing under it.
+ctx_parent :: proc(ctx: Bind_Ctx) -> Bind_Ctx {
+    return ctx == .Cmdline ? .Text : ctx
 }
 
 ctx_named :: proc(name: string) -> (Bind_Ctx, bool) {
@@ -600,7 +608,7 @@ bind_reachable :: proc(b: Bind, ctx: Bind_Ctx, kind: Kind) -> bool {
     if b.kind != 0 {
         return b.kind == kind && ctx in b.ctx
     }
-    return ctx in b.ctx || .Global in b.ctx
+    return b.ctx & {ctx, ctx_parent(ctx), .Global} != {}
 }
 
 // The children of a primer, spelled `chord verb` and joined, for the label the bar shows. Capped
@@ -633,8 +641,11 @@ bind_find :: proc(binds: []Bind, chord: Chord, ctx: Bind_Ctx, kind: Kind = 0,
             return b, true
         }
     }
-    if ctx != .Global {
-        if b, ok := bind_scan(binds, chord, {ctx}, 0, prefix); ok {
+    for c in ([2]Bind_Ctx{ctx, ctx_parent(ctx)}) {
+        if c == .Global {
+            break
+        }
+        if b, ok := bind_scan(binds, chord, {c}, 0, prefix); ok {
             return b, true
         }
     }
@@ -806,7 +817,7 @@ describe_chord :: proc(
     name, doc := target_info(b.target, names)
     // The tier the row actually won on. A kind row is narrower than its context, and saying
     // `surface` for one would be describe lying about which of two rows answered.
-    claimed := CTX_NAMES[.Global in b.ctx ? Bind_Ctx.Global : ctx]
+    claimed := CTX_NAMES[ctx in b.ctx ? ctx : ctx_parent(ctx) in b.ctx ? ctx_parent(ctx) : .Global]
     if b.kind != 0 && names.kind != nil {
         if n := names.kind(names.user, b.kind); n != "" {
             claimed = n

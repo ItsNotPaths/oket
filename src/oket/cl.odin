@@ -36,7 +36,7 @@ cl_init :: proc(a: ^App) {
     a.cl.live = true
     gen, _ := store.store_gen(a.docs, a.cl.doc)
     // A widget, not a surface (§5): no kind, so it takes no ring slot and appears in no lane.
-    d := desc.new_from({ctx = .Text, selection = .Char, editable = true, tab_width = 4})
+    d := desc.new_from({ctx = .Cmdline, selection = .Char, editable = true, tab_width = 4})
     store.store_submit(a.docs, a.cl.doc, gen, nil, d)
     desc.release(d)
     lues.kernel_settle(a.kernel)
