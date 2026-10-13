@@ -25,7 +25,7 @@
 extern "C" {
 #endif
 
-#define OKET_API 12 /* lues_api.app_version, under app "oket" */
+#define OKET_API 13 /* lues_api.app_version, under app "oket" */
 
 /* --- the descriptor's vocabulary (§5). The kernel's enum order, and it is an ABI. --- */
 
@@ -221,6 +221,11 @@ typedef struct oket_api {
      * so two moves in one call add up. */
     void (*move)(const lues_api *api, lues_self self, lues_doc doc, oket_motion m,
                  int32_t select);
+
+    /* A document of `kind`, opened with `args` (your `open` gets them), put in the ring and
+     * focused once the call that asked returns, as `:open` does for a path. */
+    void (*open)(const lues_api *api, lues_self self, lues_kind kind, const char *args,
+                 size_t args_len);
 } oket_api;
 
 static inline const oket_api *oket(const lues_api *api) {
@@ -240,7 +245,7 @@ LUES_SIZE(oket_side, 48);
 LUES_SIZE(oket_view_out, 32);
 LUES_SIZE(oket_pane, 32);
 LUES_SIZE(oket_world, 48);
-LUES_SIZE(oket_api, sizeof(lues_api) + 7 * sizeof(void *));
+LUES_SIZE(oket_api, sizeof(lues_api) + 8 * sizeof(void *));
 
 #ifdef __cplusplus
 }

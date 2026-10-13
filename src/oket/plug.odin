@@ -2,6 +2,7 @@ package main
 
 import "core:c"
 import "core:slice"
+import "core:strings"
 import "core:unicode/utf8"
 import "lues:abi"
 import "lues:docs"
@@ -61,6 +62,7 @@ kernel_open :: proc(a: ^App, unguarded := false) -> bool {
     k.box.api.world = api_world
     k.box.api.world_release = api_world_release
     k.box.api.move = api_move
+    k.box.api.open = api_open
     a.docs = &k.store
     return ok
 }
@@ -81,6 +83,10 @@ kernel_close :: proc(a: ^App) {
         desc.release(d)
     }
     delete(a.staged)
+    for o in a.opens {
+        delete(o.args)
+    }
+    delete(a.opens)
     delete(a.viewers)
     free(k)
     a.kernel, a.docs = nil, nil
@@ -155,7 +161,28 @@ plug_command :: proc(a: ^App, slot: input.Slot, args: string) -> bool {
     }
     // What it wrote is landed and drawn before the next step of a chain reads it.
     defer docs_settle(a)
-    return lues.cmd_run(a.kernel, int(slot), focused, cl.arg_whole(args))
+    ran := lues.cmd_run(a.kernel, int(slot), focused, cl.arg_whole(args))
+    plug_opens(a)
+    return ran
+}
+
+Plug_Open :: struct {
+    kind: input.Kind,
+    args: string, // owned
+}
+
+// What `open` queued, into the ring and focused. Taken off the queue first: an `open` callback
+// may queue another.
+plug_opens :: proc(a: ^App) {
+    queued := a.opens
+    a.opens = {}
+    defer delete(queued)
+    for o in queued {
+        if id, ok := plug_open(a, o.kind, o.args); ok {
+            ring_add(a, id)
+        }
+        delete(o.args)
+    }
 }
 
 plug_cmd_named :: proc(a: ^App, name: string) -> (input.Slot, bool) {
@@ -316,6 +343,18 @@ api_cursors :: proc "c" (api: ^abi.Api, self: abi.Self, doc: abi.Doc_Handle,
     context = k.host
     set := transmute([]txt.Cursor)curs[:n]
     store.store_cursors(a.docs, store_id(doc), set, int(min(primary, n - 1)))
+}
+
+@(private = "file")
+api_open :: proc "c" (api: ^abi.Api, self: abi.Self, kind: abi.Kind, args: [^]u8,
+                      args_len: c.size_t) {
+    a, k, _, ok := tail(api, self)
+    defer lues.api_done()
+    if !ok {
+        return
+    }
+    context = k.host
+    append(&a.opens, Plug_Open{input.Kind(kind), strings.clone_from_ptr(args, int(args_len))})
 }
 
 #assert(len(plug.Motion) == len(txt.Motion))

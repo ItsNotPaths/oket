@@ -16,7 +16,7 @@ import "../shape"
 //   abi.Span.attrs      shape.Attrs bits
 //   .Forget (submit)    REGEN: derived text, so the carets stay on their rows and nothing undoes
 
-API :: 12
+API :: 13
 
 // Ids below this are the base vocabulary (shape.Style); the rest were interned.
 TOKEN_BASE :: abi.Token(len(shape.Style))
@@ -156,6 +156,9 @@ Api :: struct {
     // Every caret, moved as the kernel's keys move them; queued like `cursors`.
     move:          proc "c" (api: ^abi.Api, self: abi.Self, doc: abi.Doc_Handle, m: Motion,
                              select: c.int32_t),
+    // A document of `kind`, opened with `args` into the ring and focused once the call returns.
+    open:          proc "c" (api: ^abi.Api, self: abi.Self, kind: abi.Kind, args: [^]u8,
+                             args_len: c.size_t),
 }
 
 #assert(size_of(Pos) == 16)
@@ -167,4 +170,4 @@ Api :: struct {
 #assert(size_of(View_Out) == 32)
 #assert(size_of(Pane) == 32)
 #assert(size_of(World) == 48)
-#assert(size_of(Api) == size_of(abi.Api) + 7 * size_of(rawptr))
+#assert(size_of(Api) == size_of(abi.Api) + 8 * size_of(rawptr))

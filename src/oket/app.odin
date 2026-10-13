@@ -61,6 +61,7 @@ State :: struct {
     // each plugin staged for its next submit to a doc.
     viewers:      map[int]plug.View_Fn,
     staged:       map[Staged]^desc.Descriptor,
+    opens:        [dynamic]Plug_Open, // what plugins asked to open, done when their call returns
     // Transactions and caret sets landed since docs_settle last looked (hooks.drained).
     settled:      int,
     // §10's recovery journal, per document: what is journaled is a descriptor read, not a
