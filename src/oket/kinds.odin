@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:slice"
 import "core:strings"
 import "lues:lues"
 import "../desc"
@@ -42,6 +43,16 @@ KIND_HOME :: input.Kind(2)
 KIND_EDIT :: "edit"
 KIND_BROWSE :: "files"
 
+// A `[:find]` section: the command line while it starts with that verb. The id is the verb's
+// token past every real kind, so the kind tier serves it unchanged.
+KIND_VERB :: input.Kind(1 << 31)
+
+// Looked up, never interned: typing a line must not grow the token table.
+verb_kind :: proc(a: ^App, verb: string) -> (input.Kind, bool) {
+    i, found := slice.linear_search(a.kernel.tokens[:], verb)
+    return found ? KIND_VERB | input.Kind(i) : 0, found
+}
+
 kind_named :: proc(a: ^App, name: string) -> (input.Kind, bool) {
     for k, i in KINDS {
         if k.name == name {
@@ -64,6 +75,10 @@ kind_ctx :: proc(a: ^App, kind: input.Kind) -> input.Bind_Ctx {
 
 @(private = "file")
 kind_info :: proc(a: ^App, kind: input.Kind) -> Kind_Info {
+    if kind & KIND_VERB != 0 {
+        verb := lues.token_name(a.kernel, lues.Token(kind &~ KIND_VERB))
+        return {strings.concatenate({":", verb}, context.temp_allocator), .Cmdline}
+    }
     i := int(kind) - 1
     if i >= 0 && i < len(KINDS) {
         return KINDS[i]

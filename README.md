@@ -99,9 +99,10 @@ alt+g         = exec git diff -- <path> | :put
 ctrl+b ctrl+f = exec :ring files
 ```
 
-A section is a context or a kind. A value is a verb's name, or `exec`/`stage`/`pick` and a
-command line. `<name>` holes fill from the fields of the line under point, so a bind acts on
-document data with no callback. A click is a chord like any other.
+A section is a context, a kind, or a builtin: `[:find]` is the command line while its last
+builtin step is a `:find`, then `[cmdline]`, then `[text]` under it. A value is a verb's name,
+or `exec`/`stage`/`pick` and a command line. `<name>` holes fill from the fields of the line
+under point, so a bind acts on document data with no callback. A click is a chord like any other.
 
 Two-chord binds work, and both chords carry a modifier. That is what keeps a primer
 transparent: an unmodified key after one clears it and does what it always did.

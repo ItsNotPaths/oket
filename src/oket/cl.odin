@@ -7,6 +7,7 @@ import "core:strings"
 import "../desc"
 import "../gfx"
 import "../input"
+import "../cl"
 import "../store"
 import "../txt"
 import "../view"
@@ -80,6 +81,29 @@ cl_line :: proc(a: ^App, alloc := context.temp_allocator) -> string {
         return ""
     }
     return strings.trim_space(txt.doc_string(doc, alloc))
+}
+
+// The last builtin step, `:find foo` in `:find foo && echo x`, and where it starts in the line's
+// text. "" when no step is a builtin.
+cl_step :: proc(a: ^App) -> (step: string, at: int) {
+    doc := store.store_doc(a.docs, a.cl.doc)
+    if doc == nil {
+        return
+    }
+    line := txt.doc_string(doc, context.temp_allocator)
+    for seg in cl.split(line) {
+        if s := strings.trim_space(seg.text); strings.has_prefix(s, ":") {
+            step, at = s, int(uintptr(raw_data(s)) - uintptr(raw_data(line)))
+        }
+    }
+    return
+}
+
+// That step's verb, `find` for `:find foo`; "" when there is none.
+cl_verb :: proc(a: ^App) -> string {
+    step, _ := cl_step(a)
+    verb, _, _ := strings.partition(step[min(1, len(step)):], " ")
+    return verb
 }
 
 cl_submit :: proc(a: ^App) {

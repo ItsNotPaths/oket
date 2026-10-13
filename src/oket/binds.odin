@@ -103,12 +103,17 @@ binds_parse :: proc(a: ^App, text, origin_name: string) {
     }
 }
 
-// The four kernel contexts, then the kinds. A kind's section binds in that kind's own context
-// and narrows to it, so the two tiers come out of one lookup; a plugin's kind answers through
-// the same lookup.
+// The kernel contexts, then `[:verb]`, then the kinds. A kind's section binds in that kind's own
+// context and narrows to it, so the two tiers come out of one lookup; a plugin's kind and a verb
+// answer through the same lookup.
 binds_ctx :: proc(a: ^App, name: string) -> (ctx: input.Bind_Ctx, kind: input.Kind, ok: bool) {
     if c, found := input.ctx_named(name); found {
         return c, 0, true
+    }
+    if len(name) > 1 && name[0] == ':' {
+        token_intern(a, name[1:])
+        k, _ := verb_kind(a, name[1:])
+        return .Cmdline, k, k != 0
     }
     if k, found := kind_named(a, name); found {
         return kind_ctx(a, k), k, true

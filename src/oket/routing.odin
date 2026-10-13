@@ -66,6 +66,10 @@ bind_ctx :: proc(a: ^App) -> (input.Bind_Ctx, input.Kind) {
     if _, armed := a.pending.(input.Pending_Pick); armed {
         return .Pick, 0
     }
+    if cl_active(a) {
+        kind, _ := verb_kind(a, cl_verb(a))
+        return .Cmdline, kind
+    }
     _, d := active_desc(a)
     if d == nil {
         return .Global, 0
