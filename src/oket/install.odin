@@ -1,8 +1,10 @@
 package main
 
 import "core:fmt"
+import "core:hash"
 import "core:os"
 import "core:path/filepath"
+import "core:strconv"
 import "core:strings"
 import "../cl"
 
@@ -102,7 +104,15 @@ install_run :: proc(a: ^App, t: Install_Target) -> (ok: bool, msg: string) {
     for name in PAYLOAD {
         src, _ := filepath.join({from, name}, context.temp_allocator)
         dst, _ := filepath.join({t.dirs.data, name}, context.temp_allocator)
-        if n := copy_tree(dst, src); n > 0 {
+        if name == PLUGIN_DIR {
+            n, held := install_plugins(dst, src, t.dirs.data)
+            if n > 0 {
+                fmt.sbprintfln(&b, "  %s -> %s (%d file%s)", name, dst, n, n == 1 ? "" : "s")
+            }
+            for h in held {
+                fmt.sbprintfln(&b, "  kept your edited %s; this release's was not installed", h)
+            }
+        } else if n := copy_tree(dst, src); n > 0 {
             fmt.sbprintfln(&b, "  %s -> %s (%d file%s)", name, dst, n, n == 1 ? "" : "s")
         }
     }
@@ -350,4 +360,175 @@ install_cli :: proc(a: ^App, args: []string) -> (handled: bool) {
         return true
     }
     return false
+}
+
+// --- plugins you edited ---
+
+// What the last install laid down under plugins/, a `<hash> <plugin>/<path>` line per file, so
+// the next one can tell a plugin you changed from one it shipped.
+PLUGINS_SUM :: "plugins.sum"
+
+// The plugins the last install left as you had them while the release carried a different one,
+// a name per line. The home page lists them.
+PLUGINS_HELD :: "plugins.held"
+
+// copy_tree for plugins/, a plugin at a time. One whose files no longer match what the last
+// install wrote is yours, and is left alone; it is HELD when the release's differs from what was
+// last shipped. Not file-private: tested (install_test.odin).
+install_plugins :: proc(dst, src, data: string) -> (n: int, held: [dynamic]string) {
+    held = make([dynamic]string, context.temp_allocator)
+    if !os.is_dir(src) {
+        return
+    }
+    sum_path, _ := filepath.join({data, PLUGINS_SUM}, context.temp_allocator)
+    old := sums_read(sum_path)
+    shipped := make(map[string]u64, context.temp_allocator)
+    tree_sums(&shipped, src, "")
+    next := make(map[string]u64, context.temp_allocator)
+
+    for name in dir_entries(src) {
+        from, _ := filepath.join({src, name}, context.temp_allocator)
+        to, _ := filepath.join({dst, name}, context.temp_allocator)
+        if !os.is_dir(from) {
+            n += copy_tree(to, from)
+            continue
+        }
+        kept := edited(old, dst, name)
+        if kept && !sums_match(old, shipped, name) {
+            append(&held, name)
+        }
+        if !kept {
+            n += copy_tree(to, from)
+        }
+        for k, v in (kept ? old : shipped) {
+            if under(k, name) {
+                next[k] = v
+            }
+        }
+    }
+    sums_write(sum_path, next)
+
+    held_path, _ := filepath.join({data, PLUGINS_HELD}, context.temp_allocator)
+    if len(held) == 0 {
+        _ = os.remove(held_path)
+    } else {
+        _ = os.write_entire_file(held_path, transmute([]u8)strings.join(held[:], "\n", context.temp_allocator))
+    }
+    return
+}
+
+// What the last install held back, for the home page.
+plugins_held :: proc(data: string) -> []string {
+    if data == "" {
+        return nil
+    }
+    path, _ := filepath.join({data, PLUGINS_HELD}, context.temp_allocator)
+    raw, err := os.read_entire_file(path, context.temp_allocator)
+    if err != nil {
+        return nil
+    }
+    return strings.split_lines(strings.trim_space(string(raw)), context.temp_allocator)
+}
+
+// A plugin is yours once a file the last install wrote is changed or gone. A plugin with no
+// record, or no folder, is the release's to write.
+@(private = "file")
+edited :: proc(old: map[string]u64, dst, name: string) -> bool {
+    dir, _ := filepath.join({dst, name}, context.temp_allocator)
+    if !os.is_dir(dir) {
+        return false
+    }
+    for k, v in old {
+        if !under(k, name) {
+            continue
+        }
+        path, _ := filepath.join({dst, k}, context.temp_allocator)
+        raw, err := os.read_entire_file(path, context.temp_allocator)
+        if err != nil || hash.fnv64a(raw) != v {
+            return true
+        }
+    }
+    return false
+}
+
+// Whether `name`'s files are the same in both.
+@(private = "file")
+sums_match :: proc(a, b: map[string]u64, name: string) -> bool {
+    count := 0
+    for k, v in a {
+        if !under(k, name) {
+            continue
+        }
+        if w, ok := b[k]; !ok || w != v {
+            return false
+        }
+        count += 1
+    }
+    for k in b {
+        if under(k, name) {
+            count -= 1
+        }
+    }
+    return count == 0
+}
+
+@(private = "file")
+under :: proc(key, name: string) -> bool {
+    return len(key) > len(name) && key[len(name)] == '/' && strings.has_prefix(key, name)
+}
+
+@(private = "file")
+dir_entries :: proc(dir: string) -> []string {
+    out := make([dynamic]string, context.temp_allocator)
+    f, err := os.open(dir)
+    if err != nil {
+        return nil
+    }
+    defer os.close(f)
+    it := os.read_directory_iterator_create(f)
+    defer os.read_directory_iterator_destroy(&it)
+    for info in os.read_directory_iterator(&it) {
+        append(&out, strings.clone(info.name, context.temp_allocator))
+    }
+    return out[:]
+}
+
+// Every file under `dir`, keyed by its path below the plugins folder.
+@(private = "file")
+tree_sums :: proc(sums: ^map[string]u64, dir, rel: string) {
+    for name in dir_entries(dir) {
+        path, _ := filepath.join({dir, name}, context.temp_allocator)
+        key := rel == "" ? name : strings.concatenate({rel, "/", name}, context.temp_allocator)
+        if os.is_dir(path) {
+            tree_sums(sums, path, key)
+        } else if raw, err := os.read_entire_file(path, context.temp_allocator); err == nil {
+            sums[key] = hash.fnv64a(raw)
+        }
+    }
+}
+
+@(private = "file")
+sums_read :: proc(path: string) -> map[string]u64 {
+    out := make(map[string]u64, context.temp_allocator)
+    raw, err := os.read_entire_file(path, context.temp_allocator)
+    if err != nil {
+        return out
+    }
+    rest := string(raw)
+    for line in strings.split_lines_iterator(&rest) {
+        h, _, key := strings.partition(line, " ")
+        if v, ok := strconv.parse_u64_of_base(h, 16); ok && key != "" {
+            out[key] = v
+        }
+    }
+    return out
+}
+
+@(private = "file")
+sums_write :: proc(path: string, sums: map[string]u64) {
+    b := strings.builder_make(context.temp_allocator)
+    for k, v in sums {
+        fmt.sbprintfln(&b, "%016x %s", v, k)
+    }
+    _ = os.write_entire_file(path, b.buf[:])
 }

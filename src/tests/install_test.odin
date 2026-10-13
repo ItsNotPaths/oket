@@ -333,3 +333,88 @@ a_start_that_cannot_write_writes_nothing :: proc(t: ^testing.T) {
     testing.expect(t, strings.contains(doc_text(&a, page), ":oket install"),
                    "the page did not say why nothing can be saved")
 }
+
+// One release's plugin tree, written into `root/name/plugins`.
+@(private = "file")
+release_at :: proc(root, name, edit_so: string) -> string {
+    src, _ := filepath.join({root, name, "plugins"}, context.temp_allocator)
+    for file in ([]struct {
+            path, body: string,
+        }{{"edit/edit.so", edit_so}, {"edit/edit.c", "int main;"}, {"fold/fold.so", name}}) {
+        path, _ := filepath.join({src, file.path}, context.temp_allocator)
+        _ = os.make_directory_all(filepath.dir(path))
+        _ = os.write_entire_file(path, transmute([]u8)string(file.body))
+    }
+    return src
+}
+
+@(private = "file")
+read :: proc(parts: ..string) -> string {
+    path, _ := filepath.join(parts, context.temp_allocator)
+    raw, _ := os.read_entire_file(path, context.temp_allocator)
+    return string(raw)
+}
+
+// A plugin you edited survives an update, and the home page says the release had another one.
+// A plugin you did not touch is replaced as before.
+@(test)
+an_update_keeps_an_edited_plugin_and_says_so :: proc(t: ^testing.T) {
+    root, ok := scratch(t, "oket-install-edited")
+    if !ok {
+        return
+    }
+    data, _ := filepath.join({root, "data"}, context.temp_allocator)
+    dst, _ := filepath.join({data, "plugins"}, context.temp_allocator)
+
+    app.install_plugins(dst, release_at(root, "one", "v1"), data)
+    edit_c, _ := filepath.join({dst, "edit", "edit.c"}, context.temp_allocator)
+    testing.expect_value(t, os.write_entire_file(edit_c, transmute([]u8)string("mine")), nil)
+
+    _, held := app.install_plugins(dst, release_at(root, "two", "v2"), data)
+    testing.expect_value(t, len(held), 1)
+    testing.expect_value(t, read(dst, "edit", "edit.c"), "mine")
+    testing.expect_value(t, read(dst, "edit", "edit.so"), "v1")
+    testing.expect_value(t, read(dst, "fold", "fold.so"), "two")
+
+    a, made := bare_app()
+    if !testing.expect(t, made, "no App") {
+        return
+    }
+    defer close_app(&a)
+    app.app_home(&a, data)
+    page := app.home_open(&a)
+    app.ring_add(&a, page)
+    text := doc_text(&a, page)
+    edit_dir, _ := filepath.join({dst, "edit"}, context.temp_allocator)
+    testing.expect(t, strings.contains(text, "plugins you edited"), text)
+    testing.expect(t, strings.contains(text, edit_dir), text)
+}
+
+// An edit stays yours when the release did not change the plugin, but there is nothing to say.
+// Deleting the folder hands it back: the next install writes the release's and the notice goes.
+@(test)
+a_deleted_plugin_folder_takes_the_release_again :: proc(t: ^testing.T) {
+    root, ok := scratch(t, "oket-install-handback")
+    if !ok {
+        return
+    }
+    data, _ := filepath.join({root, "data"}, context.temp_allocator)
+    dst, _ := filepath.join({data, "plugins"}, context.temp_allocator)
+
+    app.install_plugins(dst, release_at(root, "one", "v1"), data)
+    edit_c, _ := filepath.join({dst, "edit", "edit.c"}, context.temp_allocator)
+    testing.expect_value(t, os.write_entire_file(edit_c, transmute([]u8)string("mine")), nil)
+
+    _, held := app.install_plugins(dst, release_at(root, "same", "v1"), data)
+    testing.expect_value(t, len(held), 0)
+    testing.expect_value(t, read(dst, "edit", "edit.c"), "mine")
+
+    app.install_plugins(dst, release_at(root, "two", "v2"), data)
+    testing.expect_value(t, len(app.plugins_held(data)), 1)
+    edit_dir, _ := filepath.join({dst, "edit"}, context.temp_allocator)
+    testing.expect_value(t, os.remove_all(edit_dir), nil)
+    _, held = app.install_plugins(dst, release_at(root, "three", "v3"), data)
+    testing.expect_value(t, len(held), 0)
+    testing.expect_value(t, read(dst, "edit", "edit.so"), "v3")
+    testing.expect_value(t, len(app.plugins_held(data)), 0)
+}

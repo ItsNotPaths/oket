@@ -60,7 +60,8 @@ home_news :: proc(a: ^App) -> bool {
     return len(recover_scan(a)) > 0 ||
            len(a.kernel.quarantined) > 0 ||
            len(binds_unmet(a, context.temp_allocator)) > 0 ||
-           len(a.gripes) > 0
+           len(a.gripes) > 0 ||
+           len(plugins_held(a.home.data)) > 0
 }
 
 // `enter` over a row, as the verb the row's own field asks for. The lines are the ones you
@@ -192,6 +193,15 @@ home_fill :: proc(a: ^App, id: store.Id) {
             row(&p, "plug", name, "")
         }
         say(&p, "  (:plug load <name> takes one again, once it is fixed)")
+    }
+
+    if held := plugins_held(a.home.data); len(held) > 0 {
+        head(&p, "plugins you edited, which the last update left as they were:")
+        for name in held {
+            dir, _ := filepath.join({a.home.data, PLUGIN_DIR, name}, context.temp_allocator)
+            row(&p, "file", dir, "   the release had a different one")
+        }
+        say(&p, "  (delete the folder and :oket update to take the release's)")
     }
 
     home_binds(a, &p)
