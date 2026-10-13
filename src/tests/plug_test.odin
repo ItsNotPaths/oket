@@ -2,6 +2,7 @@ package tests
 
 import "lues:lues"
 import "lues:pt"
+import "lues:abi"
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
@@ -587,7 +588,8 @@ c_constant :: proc(header, name: string) -> (value: i64, ok: bool) {
     }
 }
 
-// A plugin finds the command line through the world, and only while it is open.
+// A plugin finds the command line through the world, and only while it is open, with its last
+// builtin step.
 @(test)
 world_names_the_line_only_while_it_is_open :: proc(t: ^testing.T) {
     a, ok := bare_app()
@@ -598,12 +600,14 @@ world_names_the_line_only_while_it_is_open :: proc(t: ^testing.T) {
     app.ring_add(&a, scratch_doc(&a, "note", "x"))
 
     closed := app.world_make(&a)
-    testing.expect_value(t, closed.world.line, 0)
+    testing.expect_value(t, closed.world.line, abi.NO_DOC)
     app.world_free(closed)
 
-    app.cl_show(&a, ":find x")
+    app.cl_show(&a, "ls | :find x && echo")
     open := app.world_make(&a)
     defer app.world_free(open)
     testing.expect_value(t, open.world.line, app.plug_doc(a.cl.doc))
-    testing.expect(t, open.world.line != 0)
+    // The last builtin step, as bytes of the line.
+    testing.expect_value(t, open.world.step, 5)
+    testing.expect_value(t, open.world.step_len, 7)
 }

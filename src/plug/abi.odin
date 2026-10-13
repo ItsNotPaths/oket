@@ -134,7 +134,9 @@ World :: struct {
     npanes: c.size_t,
     cols:   c.int32_t, // the whole surface, in cells
     rows:   c.int32_t,
-    line:   abi.Doc_Handle, // the command line while it is open, 0 when it is closed
+    line:   abi.Doc_Handle, // the command line while it is open, NO_DOC when closed
+    // Its last builtin step, `:find foo`, as bytes of it.
+    step, step_len: c.size_t,
 }
 
 // lues's calls, then oket's. Every call takes the api a plugin was handed.
@@ -164,5 +166,5 @@ Api :: struct {
 #assert(size_of(Side) == 48)
 #assert(size_of(View_Out) == 32)
 #assert(size_of(Pane) == 32)
-#assert(size_of(World) == 32)
+#assert(size_of(World) == 48)
 #assert(size_of(Api) == size_of(abi.Api) + 7 * size_of(rawptr))

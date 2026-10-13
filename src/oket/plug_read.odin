@@ -140,13 +140,20 @@ world_make :: proc(a: ^App) -> ^Plug_World {
             focused = b8(i == a.focus),
         }
     }
+    line, step, at := abi.NO_DOC, "", 0
+    if cl_active(a) {
+        line = plug_doc(a.cl.doc)
+        step, at = cl_step(a)
+    }
     w.world = {
-        panes  = raw_data(w.panes),
-        npanes = len(w.panes),
+        panes    = raw_data(w.panes),
+        npanes   = len(w.panes),
         // The whole surface in cells: the window floored over the cell (§11).
-        cols   = i32(a.win.x / max(a.cell.x, 1)),
-        rows   = i32(a.win.y / max(a.cell.y, 1)),
-        line   = cl_active(a) ? plug_doc(a.cl.doc) : 0,
+        cols     = i32(a.win.x / max(a.cell.x, 1)),
+        rows     = i32(a.win.y / max(a.cell.y, 1)),
+        line     = line,
+        step     = c.size_t(at),
+        step_len = len(step),
     }
     return w
 }
