@@ -44,7 +44,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: vendor
-          key: vendor-el8-${{ hashFiles('download-deps.sh', 'release.Dockerfile') }}
+          key: vendor-el8-${{ hashFiles('download-deps.sh', 'release.Dockerfile', 'plugins/syntax/get-tree-sitter', 'patches/**') }}
 
       # release.sh --local is what a developer runs, so the layout a release ships and the
       # layout you build on your own machine cannot drift. It builds the kernel AND every
