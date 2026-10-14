@@ -96,6 +96,9 @@ fi
 # fault trace names every frame `browser.so(+0x1a4c)` and nothing resolves the offset. `zig cc`
 # emits DWARF anyway; the flag is here for $CC, because a plain clang emits none and a trace that
 # resolves is not a property to inherit from whichever compiler somebody points at us.
+# zig targets the build host's CPU by default; pin x86-64-v2 so a release box can't ship its CPU.
+CC=${CC:-zig cc -mcpu=x86_64_v2}
+CXX=${CXX:-zig c++ -mcpu=x86_64_v2}
 CFLAGS="-fPIC -O2 -g -flto -Wall -Wextra -I$SEAM -I$LUES -I$HELPERS -fvisibility=hidden"
 CFLAGS="$CFLAGS -ffunction-sections -fdata-sections"
 LDFLAGS="-flto -Wl,--gc-sections"
@@ -118,7 +121,7 @@ trap 'if [ -n "$WORK" ]; then rm -rf "$WORK"; fi' EXIT INT TERM
 # the parent's WORK empty and the trap with nothing to remove.
 helpers_archive() {
     WORK="$(mktemp -d)"
-    ( cd "$WORK" && ${CC:-zig cc} -c -std=c11 -fPIC -O2 -I"$SEAM" -I"$LUES" -I"$HELPERS" "$HELPERS"/*.c )
+    ( cd "$WORK" && $CC -c -std=c11 -fPIC -O2 -I"$SEAM" -I"$LUES" -I"$HELPERS" "$HELPERS"/*.c )
     ar rcs "$WORK/liboket_helpers.a" "$WORK"/*.o
     HELPERS_A="$WORK/liboket_helpers.a"
 }
@@ -127,7 +130,7 @@ helpers_archive() {
 # shellcheck disable=SC2086
 case "$SRC_LANG" in
 c)
-    ${CC:-zig cc} -shared -std=c11 $CFLAGS $LDFLAGS -o "$SO" \
+    $CC -shared -std=c11 $CFLAGS $LDFLAGS -o "$SO" \
         "$SRC"/*.c "$HELPERS"/*.c $FLAGS
     ;;
 cpp)
@@ -136,7 +139,7 @@ cpp)
     # A COLD zig cache prints a few hundred nullability warnings here. They are zig building
     # its own libc++, in compilations that never see our flags, and they do not come back.
     helpers_archive
-    ${CXX:-zig c++} -shared -std=c++17 $CFLAGS $LDFLAGS -o "$SO" \
+    $CXX -shared -std=c++17 $CFLAGS $LDFLAGS -o "$SO" \
         "$SRC"/*.cpp "$HELPERS_A" $FLAGS
     ;;
 zig)
@@ -144,7 +147,7 @@ zig)
     # rest through `@import`. The helper sources go in beside it, so `@cImport("oket_helpers.h")`
     # resolves to definitions and not just declarations.
     [ -f "$SRC/$NAME.zig" ] || { echo "stage.sh: a zig plugin's root is $NAME.zig" >&2; exit 1; }
-    zig build-lib -dynamic -fPIC -OReleaseFast -femit-bin="$SO" \
+    zig build-lib -dynamic -fPIC -OReleaseFast -mcpu=x86_64_v2 -femit-bin="$SO" \
         -I"$SEAM" -I"$LUES" -I"$HELPERS" "$SRC/$NAME.zig" -lc "$HELPERS"/*.c $FLAGS
     ;;
 odin)
