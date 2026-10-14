@@ -11,8 +11,9 @@ VERSION="v0.26.9"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 DEST="${1:-$ROOT/vendor/tree-sitter}"
 
-# §4: one C toolchain. Unquoted on use, because it is two words.
-CC=${CC:-zig cc}
+# §4: one C toolchain. Unquoted on use, because it is several words.
+# zig targets the build host's CPU by default; pin x86-64-v2 like stage.sh.
+CC=${CC:-zig cc -mcpu=x86_64_v2}
 
 if [ -f "$DEST/libtree-sitter.a" ]; then
     echo "already present: $DEST/libtree-sitter.a"
