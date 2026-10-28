@@ -180,7 +180,7 @@ one_row_gives_a_listing_the_mouse :: proc(t: ^testing.T) {
     testing.expect_value(t, line, fmt.tprintf(":open %s/beta.txt", dir))
 
     // describe answers for the click now, and names the file the row came from.
-    answer := input.describe_chord(a.binds[:], {input.mouse_code(.Click), {}}, .Surface, nil)
+    answer := input.describe_chord(a.binds[:], {input.mouse_code(.Click), {}}, .Surface, nil, app.names(nil))
     defer delete(answer)
     testing.expect_value(
         t,

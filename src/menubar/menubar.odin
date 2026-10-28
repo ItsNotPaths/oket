@@ -99,7 +99,7 @@ rows :: proc(src: Source, holds: []string, allocator := context.temp_allocator) 
         if b.prefix != (input.Chord{}) || !answers(src, b) {
             continue
         }
-        verb, doc := input.target_info(b.target, src.names)
+        verb, doc, _ := input.line_info(b.line, src.names)
         if !slice.contains(holds, verb_menu(verb)) {
             continue
         }
@@ -156,7 +156,7 @@ kids :: proc(src: Source, prefix: input.Chord, allocator := context.temp_allocat
         if b.prefix != prefix || !answers(src, b) {
             continue
         }
-        verb, _ := input.target_info(b.target, src.names)
+        verb, _, _ := input.line_info(b.line, src.names)
         append(&out, menu.Row{
             chord = input.chord_format(b.chord, src.layout, allocator),
             name  = verb,
@@ -188,11 +188,11 @@ cmds :: proc(src: Source, list: []Cmd, allocator := context.temp_allocator) -> [
 UNBOUND :: "·"
 
 // The key that runs a `:` row's name here, or UNBOUND. A line counts by its first word, so
-// `stage :open <path>` is :open's key; a primed row reads as both chords.
+// `:stage :open <path>` is :open's key; a primed row reads as both chords.
 @(private = "file")
 bound :: proc(src: Source, name: string, allocator := context.temp_allocator) -> string {
     for b in src.binds {
-        if runs(b.target, src.names) != name || !answers(src, b) {
+        if runs(b.line) != name || !answers(src, b) {
             continue
         }
         chord := input.chord_format(b.chord, src.layout, allocator)
@@ -205,20 +205,11 @@ bound :: proc(src: Source, name: string, allocator := context.temp_allocator) ->
     return UNBOUND
 }
 
-// The bare `:` name a target runs. A kernel verb is not one: it has its own row.
+// The bare `:` name a line runs, read past a `:stage` so a staged line is its verb's key.
 @(private = "file")
-runs :: proc(t: input.Bind_Target, names: input.Names) -> string {
-    switch v in t {
-    case input.Command:
-        return ""
-    case input.Slot:
-        name, _ := input.target_info(v, names)
-        return name
-    case input.Bind_Line:
-        head, _, _ := strings.partition(string(v), " ")
-        return strings.trim_prefix(head, ":")
-    }
-    return ""
+runs :: proc(line: string) -> string {
+    head, _, _ := strings.partition(strings.trim_prefix(line, ":stage "), " ")
+    return strings.trim_prefix(head, ":")
 }
 
 // The row a chord REACHES, and not merely one the table holds: binds.conf is PREPENDED over the

@@ -3,6 +3,7 @@ package tests
 import "core:strings"
 import "core:testing"
 import "../input"
+import app "../oket"
 
 // Stage 4's mouse half in the input package: a click is a chord like any other, and describe
 // answers for one. routing_test.odin has the same gate end to end, through the kernel.
@@ -43,16 +44,16 @@ mouse_codes_sit_above_every_key :: proc(t: ^testing.T) {
 
 @(test)
 describe_answers_for_a_click :: proc(t: ^testing.T) {
-    binds := input.binds_default()
+    binds := app.binds_base()
     defer input.binds_destroy(&binds)
 
     // Unbound is not the same as inert: a button chord moves point whether or not a row claims
     // it, and describe must say so rather than call it a no-op.
-    click := input.describe_chord(binds[:], {input.mouse_code(.Click), {}}, .Surface, nil)
+    click := input.describe_chord(binds[:], {input.mouse_code(.Click), {}}, .Surface, nil, app.names(nil))
     defer delete(click)
     testing.expect_value(t, click, "click moves point; nothing further is bound")
 
-    double := input.describe_chord(binds[:], {input.mouse_code(.Double_Click), {}}, .Surface, nil)
+    double := input.describe_chord(binds[:], {input.mouse_code(.Double_Click), {}}, .Surface, nil, app.names(nil))
     defer delete(double)
     testing.expect_value(
         t,
@@ -62,7 +63,7 @@ describe_answers_for_a_click :: proc(t: ^testing.T) {
 
     // The wheel scrolls what is under it and leaves the caret alone, so it says nothing about
     // point.
-    wheel := input.describe_chord(binds[:], {input.mouse_code(.Wheel_Up), {}}, .Surface, nil)
+    wheel := input.describe_chord(binds[:], {input.mouse_code(.Wheel_Up), {}}, .Surface, nil, app.names(nil))
     defer delete(wheel)
     testing.expect_value(
         t,
@@ -75,7 +76,7 @@ describe_answers_for_a_click :: proc(t: ^testing.T) {
 // resolves through the same table lookup a config row does, mouse included.
 @(test)
 every_default_chord_is_a_row :: proc(t: ^testing.T) {
-    binds := input.binds_default()
+    binds := app.binds_base()
     defer input.binds_destroy(&binds)
 
     mice := 0
@@ -83,7 +84,7 @@ every_default_chord_is_a_row :: proc(t: ^testing.T) {
         ctx := .Global in b.ctx ? input.Bind_Ctx.Global : ctx_of(b.ctx)
         found, ok := input.bind_lookup(binds[:], b.chord, ctx, b.kind)
         testing.expectf(t, ok, "%v resolves to nothing in %v", b.chord, ctx)
-        testing.expect_value(t, found.target, b.target)
+        testing.expect_value(t, found.line, b.line)
         if input.code_is_mouse(b.chord.code) {
             mice += 1
         }

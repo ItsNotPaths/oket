@@ -205,7 +205,7 @@ handle_chord :: proc(a: ^App, chord: input.Chord) {
         // The miss rule (§8, §14): a context whose documents have a job of their own forwards,
         // and everything else stays quiet. A chord that IS bound and does nothing is the thing
         // that section exists to prevent; an unbound one is just an unbound one.
-        if input.ctx_miss(ctx) == .Surface_Send {
+        if input.ctx_forwards(ctx) {
             surface_send(a, chord)
         }
         return
@@ -217,31 +217,22 @@ handle_chord :: proc(a: ^App, chord: input.Chord) {
 // the path its plain sibling takes (§4.2) — and so a row PRESSED in the menu takes it too, which
 // is the whole of "the menu does what typing it does" (MENU.md §1).
 bind_dispatch :: proc(a: ^App, chord: input.Chord, b: input.Bind) {
-    if line, is_line := b.target.(input.Bind_Line); is_line {
-        line_run(a, string(line))
-        return
-    }
-    if slot, registered := b.target.(input.Slot); registered {
-        plug_command(a, slot, "")
-        return
-    }
-    cmd, _ := input.bind_command(b) // the line and slot arms returned, so a Command is all that is left
+    cmd, named := line_command(b.line)
     // The line answers four chords for itself; everything else acts on it because `active`
     // says it is the document now.
-    if cl_active(a) && cl_take(a, cmd) {
+    if named && cl_active(a) && cl_take(a, cmd) {
         return
     }
-    #partial switch cmd {
-    case .Surface_Send:
-        // A ROW named this, so a document with no job of its own has to say so: a bound chord
-        // that quietly does nothing is the one thing §8 exists to prevent. The miss path above
-        // stays silent, because an unbound chord was never a promise.
+    // `surface.send` forwards the CHORD, which no typed line can carry. A row named it, so a
+    // document with no job of its own has to say so: a bound chord that quietly does nothing is
+    // the one thing §8 exists to prevent. The miss path above stays silent.
+    if named && cmd == .Surface_Send {
         if !surface_send(a, chord) {
             message_set(a, "this document has no job of its own")
         }
-    case:
-        command_run(a, cmd, 0, false)
+        return
     }
+    line_run(a, b.line)
 }
 
 Command_Arg :: enum {
@@ -251,7 +242,7 @@ Command_Arg :: enum {
 }
 
 // What a verb takes when it is typed: the slot alt+N carries, or the shift a motion carries.
-command_arg :: proc(cmd: input.Command) -> Command_Arg {
+command_arg :: proc(cmd: Command) -> Command_Arg {
     if cmd == .Ring_Goto {
         return .Slot
     }
@@ -261,8 +252,8 @@ command_arg :: proc(cmd: input.Command) -> Command_Arg {
     return .None
 }
 
-command_usage :: proc(cmd: input.Command) -> string {
-    name := input.COMMANDS[cmd].name
+command_usage :: proc(cmd: Command) -> string {
+    name := COMMANDS[cmd].name
     switch command_arg(cmd) {
     case .Slot:
         return fmt.tprintf(":%s <N>", name)
@@ -275,7 +266,7 @@ command_usage :: proc(cmd: input.Command) -> string {
 
 // A verb, run. Keyed on the enum, so a keystroke never goes through cl.parse and never resets
 // a chain. `n` is the slot for ring.goto; `extend` is for motions.
-command_run :: proc(a: ^App, cmd: input.Command, n: int, extend: bool) {
+command_run :: proc(a: ^App, cmd: Command, n: int, extend: bool) {
     // A cycle only means anything straight after a paste, so every other verb puts the mark
     // down. That is what keeps ctrl+shift+v config rather than a mode.
     if cmd != .Paste && cmd != .Paste_Cycle {
@@ -365,13 +356,13 @@ command_run :: proc(a: ^App, cmd: input.Command, n: int, extend: bool) {
         //
         // Nothing reaches this today — every name in COMMANDS dispatches above. The arm stays
         // as the net for the next verb named before it is built.
-        message_set(a, fmt.tprintf("%s is not built yet", input.COMMANDS[cmd].name))
+        message_set(a, fmt.tprintf("%s is not built yet", COMMANDS[cmd].name))
     }
 }
 
 // Which range a kill verb takes, in the shape motion_of already answers.
 @(private = "file")
-kill_of :: proc(cmd: input.Command) -> (txt.Kill, bool) {
+kill_of :: proc(cmd: Command) -> (txt.Kill, bool) {
     #partial switch cmd {
     case .Kill_Line:
         return .To_Line_End, true
@@ -384,7 +375,7 @@ kill_of :: proc(cmd: input.Command) -> (txt.Kill, bool) {
 }
 
 @(private = "file")
-motion_of :: proc(cmd: input.Command) -> (txt.Motion, bool) {
+motion_of :: proc(cmd: Command) -> (txt.Motion, bool) {
     #partial switch cmd {
     case .Nav_Up:
         return .Up, true
@@ -422,7 +413,7 @@ motion_of :: proc(cmd: input.Command) -> (txt.Motion, bool) {
 // and no document's policy, so a plugin's buffer gets them with no code — and a plugin that
 // wants its own indent rule shadows the row for its kind, which is what plugins/edit does.
 @(private = "file")
-writes :: proc(cmd: input.Command) -> bool {
+writes :: proc(cmd: Command) -> bool {
     #partial switch cmd {
     case .Delete_Back, .Delete_Forward, .Delete_Word_Back, .Delete_Word_Forward, .Tab,
          .Newline, .Undo, .Redo, .Cut, .Paste, .Paste_Cycle,
@@ -436,7 +427,7 @@ writes :: proc(cmd: input.Command) -> bool {
 // same code a document gets (§11). A document that does not take typing refuses, which is what
 // stops a Backspace over a listing from eating the row it is standing on.
 @(private = "file")
-edit_command :: proc(a: ^App, cmd: input.Command) -> bool {
+edit_command :: proc(a: ^App, cmd: Command) -> bool {
     if !writes(cmd) {
         return false
     }
@@ -490,7 +481,7 @@ edit_command :: proc(a: ^App, cmd: input.Command) -> bool {
 // same reason `writes` is: the refusal is decided once, and a verb that only grows the set is
 // not caught by the typing gate.
 @(private = "file")
-places :: proc(cmd: input.Command) -> bool {
+places :: proc(cmd: Command) -> bool {
     #partial switch cmd {
     case .Cursor_Add, .Cursor_Add_Below, .Cursor_Add_Above, .Cursor_Add_Next, .Cursor_Add_All,
          .Cursor_Split, .Cursor_Collapse:
@@ -502,7 +493,7 @@ places :: proc(cmd: input.Command) -> bool {
 // The placement verbs (VIEWS.md §4). Selecting is not editing, so a listing gets them with no
 // `editable` gate, the same way select.all and select.expand already reach one.
 @(private = "file")
-cursor_command :: proc(a: ^App, cmd: input.Command) -> bool {
+cursor_command :: proc(a: ^App, cmd: Command) -> bool {
     if !places(cmd) {
         return false
     }
@@ -992,7 +983,7 @@ point_place :: proc(a: ^App, cx, cy: int, extend := false) {
 point_press :: proc(a: ^App, m: input.Mouse, mods: input.Mods, cx, cy: int) {
     ctx, kind := bind_ctx(a)
     if b, ok := input.bind_lookup(a.binds[:], {input.mouse_code(m), mods}, ctx, kind); ok {
-        if cmd, named := input.bind_command(b); named && input.command_places_point(cmd) {
+        if cmd, named := line_command(b.line); named && command_places_point(cmd) {
             return
         }
     }
@@ -1054,7 +1045,17 @@ scroll_by :: proc(a: ^App, lines: int) {
 
 // --- hover (§8) ---
 
-// Would a click here run a command line. Either button chord, because a document whose single
+// A lone `:verb` line naming a kernel or plugin verb, as opposed to a line that does something
+// with what is under point.
+@(private = "file")
+verb_line :: proc(a: ^App, line: string) -> bool {
+    name := lone_verb(line) or_return
+    _, kernel := command_named(name)
+    _, registered := plug_cmd_named(a, name)
+    return kernel || registered
+}
+
+// Would a click here run a command line rather than a verb. Either button chord, because a document whose single
 // click only moves point may still answer the second one — which is what a listing you can also
 // type into wants (the row navigates, the click lands a caret).
 @(private = "file")
@@ -1062,7 +1063,7 @@ clickable :: proc(a: ^App, d: ^desc.Descriptor) -> bool {
     for button in ([?]input.Mouse{.Click, .Double_Click}) {
         chord := input.Chord{input.mouse_code(button), {}}
         if bind, bound := input.bind_lookup(a.binds[:], chord, d.ctx, d.kind); bound {
-            if _, is_line := bind.target.(input.Bind_Line); is_line {
+            if !verb_line(a, bind.line) {
                 return true
             }
         }

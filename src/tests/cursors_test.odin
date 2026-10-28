@@ -324,7 +324,7 @@ esc_puts_the_trail_down_before_it_quits :: proc(t: ^testing.T) {
     testing.expect(t, a.quit, "with one caret escape means what it always meant")
 }
 
-// The keyboard rows, end to end and through the bind table, so the chords in binds_default are
+// The keyboard rows, end to end and through the bind table, so the chords in binds_base are
 // the ones the verbs answer to.
 @(test)
 the_cursor_rows_reach_their_verbs :: proc(t: ^testing.T) {
@@ -391,7 +391,7 @@ describe_answers_the_cursor_rows :: proc(t: ^testing.T) {
 
     Row :: struct {
         chord: input.Chord,
-        cmd:   input.Command,
+        cmd:   app.Command,
     }
     rows := [?]Row {
         {chord("DOWN", {.Ctrl, .Alt}), .Cursor_Add_Below},
@@ -401,9 +401,9 @@ describe_answers_the_cursor_rows :: proc(t: ^testing.T) {
         {{input.mouse_code(.Click), {.Alt}}, .Cursor_Add},
     }
     for row in rows {
-        answer := input.describe_chord(a.binds[:], row.chord, .Surface, nil)
+        answer := input.describe_chord(a.binds[:], row.chord, .Surface, nil, app.names(nil))
         defer delete(answer)
-        info := input.COMMANDS[row.cmd]
+        info := app.COMMANDS[row.cmd]
         testing.expectf(t, strings.contains(answer, info.name), "%s: %s", info.name, answer)
         testing.expectf(t, strings.contains(answer, info.doc), "%s: %s", info.name, answer)
         testing.expectf(t, !strings.contains(answer, "moves point, then"),

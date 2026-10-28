@@ -182,7 +182,7 @@ a_kind_section_narrows_over_its_context :: proc(t: ^testing.T) {
     testing.expect(t, strings.contains(answer, "[home,"), answer)
 
     // The wider row still answers for a surface that is not this kind.
-    wide := input.describe_chord(a.binds[:], chord("AC03"), .Surface, nil)
+    wide := input.describe_chord(a.binds[:], chord("AC03"), .Surface, nil, app.names(nil))
     defer delete(wide)
     testing.expect(t, strings.contains(wide, ":ls"), wide)
 }

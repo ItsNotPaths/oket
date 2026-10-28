@@ -3,17 +3,18 @@ package tests
 import "core:strings"
 import "core:testing"
 import "../input"
+import app "../oket"
 
 // The gate for build order step 2: describe answers for every chord, including unbound ones.
 
 @(test)
 describe_answers_every_chord :: proc(t: ^testing.T) {
-    binds := input.binds_default()
+    binds := app.binds_base()
     defer input.binds_destroy(&binds)
 
     for e in input.KEY_NAMES {
         for mods in ([?]input.Mods{{}, {.Ctrl}, {.Ctrl, .Alt, .Shift}}) {
-            s := input.describe_chord(binds[:], {e.code, mods}, .Global, nil)
+            s := input.describe_chord(binds[:], {e.code, mods}, .Global, nil, app.names(nil))
             defer delete(s)
             testing.expectf(t, s != "", "no answer for @%s", e.name)
             _, bound := input.bind_lookup(binds[:], {e.code, mods}, .Global)
@@ -22,7 +23,7 @@ describe_answers_every_chord :: proc(t: ^testing.T) {
     }
 
     // A code outside the name table still gets an answer, and its spelling parses back.
-    s := input.describe_chord(binds[:], {999, {.Alt}}, .Global, nil)
+    s := input.describe_chord(binds[:], {999, {.Alt}}, .Global, nil, app.names(nil))
     defer delete(s)
     testing.expect_value(t, s, "alt+@999 is unbound")
 }
@@ -31,27 +32,27 @@ describe_answers_every_chord :: proc(t: ^testing.T) {
 // hides them (PANELS.md §5). Rebind the row and this answer changes with it.
 @(test)
 describe_reads_the_width_row_out :: proc(t: ^testing.T) {
-    binds := input.binds_default()
+    binds := app.binds_base()
     defer input.binds_destroy(&binds)
     w, _ := input.key_code("AD02")
 
-    s := input.describe_chord(binds[:], {w, {.Alt}}, .Global, nil)
+    s := input.describe_chord(binds[:], {w, {.Alt}}, .Global, nil, app.names(nil))
     defer delete(s)
     testing.expect(t, strings.contains(s, "runs :width 30 50 100"), s)
 }
 
 @(test)
 describe_names_the_command :: proc(t: ^testing.T) {
-    binds := input.binds_default()
+    binds := app.binds_base()
     defer input.binds_destroy(&binds)
     esc, _ := input.key_code("ESC")
 
-    s := input.describe_chord(binds[:], {esc, {}}, .Global, nil)
+    s := input.describe_chord(binds[:], {esc, {}}, .Global, nil, app.names(nil))
     defer delete(s)
     testing.expect_value(t, s, "esc (@ESC) runs file.quit: close the window [global, kernel default]")
 
     // The same key with a modifier is a different chord, and says so.
-    s2 := input.describe_chord(binds[:], {esc, {.Ctrl}}, .Global, nil)
+    s2 := input.describe_chord(binds[:], {esc, {.Ctrl}}, .Global, nil, app.names(nil))
     defer delete(s2)
     testing.expect_value(t, s2, "ctrl+esc (ctrl+@ESC) is unbound")
 }
@@ -60,34 +61,31 @@ describe_names_the_command :: proc(t: ^testing.T) {
 // the defaults keep: motions extend, and the few a held shift reaches by accident or by habit.
 @(test)
 shift_rows_are_written_out :: proc(t: ^testing.T) {
-    binds := input.binds_default()
+    binds := app.binds_base()
     defer input.binds_destroy(&binds)
     key :: proc(name: string, mods: input.Mods) -> input.Chord {
         code, _ := input.key_code(name)
         return {code, mods}
     }
-    line :: proc(text: string) -> input.Bind_Target {
-        return input.Bind_Line(text)
-    }
     for row in ([?]struct {
             chord: input.Chord,
             ctx:   input.Bind_Ctx,
-            want:  input.Bind_Target,
+            want:  string,
         }{
-            {key("DOWN", {.Shift}), .Text, line(":nav.down extend")},
-            {key("DOWN", {.Shift}), .Surface, line(":nav.down extend")},
-            {key("LEFT", {.Ctrl, .Shift}), .Text, line(":edit.word_left extend")},
-            {key("HOME", {.Shift}), .Text, line(":edit.home extend")},
-            {key("END", {.Ctrl, .Shift}), .Text, line(":edit.doc_end extend")},
-            {key("UP", {.Ctrl, .Shift}), .Text, line(":edit.para_up extend")},
-            {key("AC01", {.Ctrl, .Shift}), .Text, line(":edit.home extend")},
-            {key("BKSP", {.Shift}), .Text, input.Command.Delete_Back},
-            {key("RTRN", {.Shift}), .Text, input.Command.Newline},
-            {key("AB04", {.Ctrl, .Shift}), .Terminal, input.Command.Term_Paste},
-            {key("AB01", {.Ctrl, .Shift}), .Text, input.Command.Redo},
+            {key("DOWN", {.Shift}), .Text, ":nav.down extend"},
+            {key("DOWN", {.Shift}), .Surface, ":nav.down extend"},
+            {key("LEFT", {.Ctrl, .Shift}), .Text, ":edit.word_left extend"},
+            {key("HOME", {.Shift}), .Text, ":edit.home extend"},
+            {key("END", {.Ctrl, .Shift}), .Text, ":edit.doc_end extend"},
+            {key("UP", {.Ctrl, .Shift}), .Text, ":edit.para_up extend"},
+            {key("AC01", {.Ctrl, .Shift}), .Text, ":edit.home extend"},
+            {key("BKSP", {.Shift}), .Text, ":edit.delete_back"},
+            {key("RTRN", {.Shift}), .Text, ":edit.newline"},
+            {key("AB04", {.Ctrl, .Shift}), .Terminal, ":term.paste"},
+            {key("AB01", {.Ctrl, .Shift}), .Text, ":edit.redo"},
         }) {
         b, ok := input.bind_lookup(binds[:], row.chord, row.ctx)
-        testing.expectf(t, ok && b.target == row.want, "%v in %v is %v", row.chord, row.ctx, b.target)
+        testing.expectf(t, ok && b.line == row.want, "%v in %v is %v", row.chord, row.ctx, b.line)
     }
 
     // No retry: a shifted chord nothing names is unbound, not its bare twin.
@@ -101,7 +99,7 @@ shift_rows_are_written_out :: proc(t: ^testing.T) {
 
 @(test)
 every_command_has_a_doc :: proc(t: ^testing.T) {
-    for info, cmd in input.COMMANDS {
+    for info, cmd in app.COMMANDS {
         testing.expectf(t, info.name != "" && info.doc != "", "%v is undocumented", cmd)
     }
 }
@@ -109,9 +107,9 @@ every_command_has_a_doc :: proc(t: ^testing.T) {
 // A second spelling reaches the same verb as its name, in binds.conf and on the line alike.
 @(test)
 a_verb_answers_to_its_second_spelling :: proc(t: ^testing.T) {
-    cmd, found := input.command_named("q")
+    cmd, found := app.command_named("q")
     testing.expect(t, found && cmd == .Quit)
-    cmd, found = input.command_named("np")
+    cmd, found = app.command_named("np")
     testing.expect(t, found && cmd == .Panel_Open)
 }
 
@@ -131,17 +129,17 @@ pending_states_always_have_a_label :: proc(t: ^testing.T) {
 // everywhere else.
 @(test)
 terminal_esc_shadows_quit :: proc(t: ^testing.T) {
-    binds := input.binds_default()
+    binds := app.binds_base()
     defer input.binds_destroy(&binds)
     esc, _ := input.key_code("ESC")
 
     b, ok := input.bind_lookup(binds[:], {esc, {}}, .Terminal)
     testing.expect(t, ok)
-    testing.expect_value(t, b.target, input.Bind_Target(input.Command.Surface_Send))
+    testing.expect_value(t, b.line, ":surface.send")
 
     b, ok = input.bind_lookup(binds[:], {esc, {}}, .Text)
     testing.expect(t, ok)
-    testing.expect_value(t, b.target, input.Bind_Target(input.Command.Quit))
+    testing.expect_value(t, b.line, ":file.quit")
 }
 
 // The ctx column is the whole safety argument for putting cut and the kills on ctrl+x
@@ -151,7 +149,7 @@ terminal_esc_shadows_quit :: proc(t: ^testing.T) {
 // ctrl+c and ctrl+v are claimed, by the terminal's own verbs rather than by editing's.
 @(test)
 the_terminal_keeps_the_chords_editing_took :: proc(t: ^testing.T) {
-    binds := input.binds_default()
+    binds := app.binds_base()
     defer input.binds_destroy(&binds)
 
     ctrl :: proc(key: string) -> input.Chord {
@@ -161,14 +159,14 @@ the_terminal_keeps_the_chords_editing_took :: proc(t: ^testing.T) {
 
     for e in ([?]struct {
             key: string,
-            cmd: input.Command,
+            cmd: app.Command,
         }{
             {"AB02", .Cut},
             {"AC08", .Kill_Line},
             {"AD07", .Kill_To_Line_Start},
         }) {
         b, bound := input.bind_lookup(binds[:], ctrl(e.key), .Surface)
-        got, _ := input.bind_command(b)
+        got, _ := app.line_command(b.line)
         testing.expectf(t, bound && got == e.cmd, "@%s does not reach %v", e.key, e.cmd)
 
         _, claimed := input.bind_lookup(binds[:], ctrl(e.key), .Terminal)
@@ -179,25 +177,25 @@ the_terminal_keeps_the_chords_editing_took :: proc(t: ^testing.T) {
     for mods in ([?]input.Mods{{.Ctrl}, {.Ctrl, .Shift}}) {
         v, _ := input.key_code("AB04")
         paste, _ := input.bind_lookup(binds[:], {v, mods}, .Terminal)
-        got, _ := input.bind_command(paste)
-        testing.expect_value(t, got, input.Command.Term_Paste)
+        got, _ := app.line_command(paste.line)
+        testing.expect_value(t, got, app.Command.Term_Paste)
     }
 
     // ctrl+c means copy in every document, the terminal included, so the chord resolves in both
     // contexts — to editing's verb in a surface and to the terminal's own in a session.
     surface, _ := input.bind_lookup(binds[:], ctrl("AB03"), .Surface)
-    in_surface, _ := input.bind_command(surface)
-    testing.expect_value(t, in_surface, input.Command.Copy)
+    in_surface, _ := app.line_command(surface.line)
+    testing.expect_value(t, in_surface, app.Command.Copy)
 
     session, _ := input.bind_lookup(binds[:], ctrl("AB03"), .Terminal)
-    in_term, _ := input.bind_command(session)
-    testing.expect_value(t, in_term, input.Command.Term_Copy)
+    in_term, _ := app.line_command(session.line)
+    testing.expect_value(t, in_term, app.Command.Term_Copy)
 
     // So the interrupt is a row of its own, and a shell still has a way to say stop.
     c, _ := input.key_code("AB03")
     stop, _ := input.bind_lookup(binds[:], {c, {.Ctrl, .Shift}}, .Terminal)
-    interrupt, _ := input.bind_command(stop)
-    testing.expect_value(t, interrupt, input.Command.Surface_Send)
+    interrupt, _ := app.line_command(stop.line)
+    testing.expect_value(t, interrupt, app.Command.Surface_Send)
 
     // And narrowed to the terminal. A browser has no job to send to, so it must NOT reach
     // surface.send and report "this document has no job of its own".
@@ -215,5 +213,5 @@ the_terminal_keeps_the_chords_editing_took :: proc(t: ^testing.T) {
             testing.expectf(t, !claimed, "@%s was taken from %v", key, ctx)
         }
     }
-    testing.expect_value(t, input.ctx_miss(.Terminal), input.Command.Surface_Send)
+    testing.expect(t, input.ctx_forwards(.Terminal), "the terminal does not take what nothing claims")
 }

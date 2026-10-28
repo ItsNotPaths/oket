@@ -118,18 +118,18 @@ builtin_named :: proc(name: string) -> (Builtin, bool) {
             return b, true
         }
     }
-    cmd, is_verb := input.command_named(name)
+    cmd, is_verb := command_named(name)
     if !is_verb || cmd == .Surface_Send {
         return {}, false
     }
-    info := input.COMMANDS[cmd]
+    info := COMMANDS[cmd]
     group, _, _ := strings.partition(info.name, ".")
-    return {info.name, input.COMMAND_ALSO[cmd], group, command_usage(cmd), info.doc, builtin_verb}, true
+    return {info.name, COMMAND_ALSO[cmd], group, command_usage(cmd), info.doc, builtin_verb}, true
 }
 
 @(private = "file")
 builtin_verb :: proc(a: ^App, args: string, step: cl.Step) -> bool {
-    cmd, _ := input.command_named(cl.first_field(step.text))
+    cmd, _ := command_named(cl.first_field(step.text))
     n, extend, ok := 0, false, args == ""
     switch command_arg(cmd) {
     case .None:

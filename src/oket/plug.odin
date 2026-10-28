@@ -154,14 +154,14 @@ plug_type :: proc(a: ^App, id: store.Id, r: rune) -> bool {
 }
 
 // A registered command, from the command line or a bind row (§12), on the focused document.
-plug_command :: proc(a: ^App, slot: input.Slot, args: string) -> bool {
+plug_command :: proc(a: ^App, slot: int, args: string) -> bool {
     focused: Maybe(store.Id)
     if s := ring_focused(a); s != nil {
         focused = s.doc
     }
     // What it wrote is landed and drawn before the next step of a chain reads it.
     defer docs_settle(a)
-    ran := lues.cmd_run(a.kernel, int(slot), focused, cl.arg_whole(args))
+    ran := lues.cmd_run(a.kernel, slot, focused, cl.arg_whole(args))
     plug_opens(a)
     return ran
 }
@@ -185,9 +185,8 @@ plug_opens :: proc(a: ^App) {
     }
 }
 
-plug_cmd_named :: proc(a: ^App, name: string) -> (input.Slot, bool) {
-    slot, ok := lues.cmd_named(a.kernel, name)
-    return input.Slot(slot), ok
+plug_cmd_named :: proc(a: ^App, name: string) -> (int, bool) {
+    return lues.cmd_named(a.kernel, name)
 }
 
 plug_kind :: proc(a: ^App, kind: input.Kind) -> (lues.Plug_Kind, bool) {

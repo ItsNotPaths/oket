@@ -134,9 +134,7 @@ the_home_page_offers_recovered_work :: proc(t: ^testing.T) {
     if !testing.expect(t, bound, "enter is not bound over a home page") {
         return
     }
-    liner, is_line := b.target.(input.Bind_Line)
-    testing.expect(t, is_line, "enter over a home page is not a command line")
-    testing.expect_value(t, string(liner), ":do $o_act")
+    testing.expect_value(t, b.line, ":do $o_act")
 
     // A row that is prose says so rather than running anything.
     app.active(&a).view.point.head.line = 0

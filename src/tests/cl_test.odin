@@ -293,7 +293,7 @@ no_two_builtins_share_a_spelling :: proc(t: ^testing.T) {
 // checks BUILTINS first, so a clash would make the verb unreachable from the line.
 @(test)
 every_verb_is_a_builtin :: proc(t: ^testing.T) {
-    for info, cmd in input.COMMANDS {
+    for info, cmd in app.COMMANDS {
         if cmd == .None || cmd == .Surface_Send {
             continue
         }
@@ -303,10 +303,10 @@ every_verb_is_a_builtin :: proc(t: ^testing.T) {
                         "%s: the usage does not start with the name (%s)", info.name, b.usage)
     }
     for b in app.BUILTINS {
-        _, clash := input.command_named(b.name)
+        _, clash := app.command_named(b.name)
         testing.expectf(t, !clash, "builtin %s hides a verb", b.name)
         if b.also != "" {
-            _, clash = input.command_named(b.also)
+            _, clash = app.command_named(b.also)
             testing.expectf(t, !clash, "builtin %s hides a verb", b.also)
         }
     }

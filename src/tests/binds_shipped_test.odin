@@ -36,7 +36,7 @@ the_shipped_file_is_the_defaults :: proc(t: ^testing.T) {
     for d in base {
         for ctx in d.ctx {
             b, found := input.bind_at(a.binds[:], d.chord, ctx, d.kind, d.prefix)
-            testing.expectf(t, found && b.origin.src == .Config && b.target == d.target,
+            testing.expectf(t, found && b.origin.src == .Config && b.line == d.line,
                             "%v in %v is not the file's", d.chord, ctx)
         }
     }
@@ -78,7 +78,7 @@ a_deleted_row_is_reported_and_none_unbinds :: proc(t: ^testing.T) {
     }
     f3, _ := input.key_code("FK03")
     b, found := input.bind_lookup(a.binds[:], {f3, {}}, .Text)
-    testing.expect(t, found && b.target == input.Bind_Target(input.Command.Search_Next),
+    testing.expect(t, found && b.line == ":search.next",
                    "the default stopped running")
 
     key, _, _ := strings.partition(row, " = ")

@@ -165,7 +165,7 @@ a_chord_that_is_both_is_reported :: proc(t: ^testing.T) {
     defer close_app(&a)
     app.binds_parse(&a, "[global]\nctrl+@AB05 = :file.quit\nctrl+@AB05 ctrl+@AC04 = :file.dump\n", "binds.conf")
 
-    hits := input.bind_collisions(a.binds[:], nil, {}, context.temp_allocator)
+    hits := input.bind_collisions(a.binds[:], nil, app.names(nil), context.temp_allocator)
     testing.expect_value(t, len(hits), 1)
     testing.expect_value(t, hits[0].runs, "file.quit")
     testing.expect_value(t, hits[0].kids, 1)

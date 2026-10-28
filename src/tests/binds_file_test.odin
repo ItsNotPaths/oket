@@ -15,7 +15,7 @@ import app "../oket"
 @(private = "file")
 fixture :: proc() -> (a: app.App) {
     a, _ = app.app_make()
-    a.binds = input.binds_default()
+    a.binds = app.binds_base()
     return
 }
 
@@ -40,22 +40,20 @@ binds_file_lays_over_the_defaults :: proc(t: ^testing.T) {
     defer close(&a)
 
     before, _ := find(&a, "f3", .Text)
-    testing.expect_value(t, before.target, input.Bind_Target(input.Command.Search_Next))
+    testing.expect_value(t, before.line, ":search.next")
 
     app.binds_parse(&a, "[text]\nf3 = :file.dump\nclick = :open $o_path\n", "binds.conf")
 
     after, found := find(&a, "f3", .Text)
     testing.expect(t, found)
-    testing.expect_value(t, after.target, input.Bind_Target(input.Command.Save))
+    testing.expect_value(t, after.line, ":file.dump")
     testing.expect_value(t, after.origin.src, input.Origin_Src.Config)
     testing.expect_value(t, after.origin.line, 2)
 
     // A mouse row is an ordinary row: same file, same parser, same table.
     click, clicked := find(&a, "click", .Text)
     testing.expect(t, clicked)
-    line, is_line := click.target.(input.Bind_Line)
-    testing.expect(t, is_line)
-    testing.expect_value(t, string(line), ":open $o_path")
+    testing.expect_value(t, click.line, ":open $o_path")
 }
 
 // A row naming nothing is reported and skipped. One typo does not cost the rest of the file.
@@ -70,11 +68,11 @@ binds_file_skips_what_it_cannot_read :: proc(t: ^testing.T) {
         "binds.conf",
     )
     still, _ := find(&a, "f3", .Text)
-    testing.expect_value(t, still.target, input.Bind_Target(input.Command.Search_Next))
+    testing.expect_value(t, still.line, ":search.next")
 
     b, found := find(&a, "f7", .Text)
     testing.expect(t, found, "a good row after two bad ones was dropped")
-    testing.expect_value(t, b.target, input.Bind_Target(input.Command.Save))
+    testing.expect_value(t, b.line, ":file.dump")
     testing.expect(t, strings.contains(a.message, "binds.conf:4"))
 }
 
@@ -86,19 +84,17 @@ a_value_is_a_command_line :: proc(t: ^testing.T) {
     defer close(&a)
     for row in ([?]struct {
             value: string,
-            want:  input.Bind_Target,
+            want:  string,
         }{
-            {":file.dump", input.Command.Save},
-            {"none", input.Command.None},
-            {":file.dump now", input.Bind_Line(":file.dump now")},
-            {":not.a.verb", input.Bind_Line(":not.a.verb")},
-            {"file.dump", input.Bind_Line("file.dump")},
+            {":file.dump", ":file.dump"},
+            {"none", ""},
+            {":file.dump now", ":file.dump now"},
+            {"file.dump", "file.dump"},
         }) {
-        got := app.binds_target(&a, row.value)
-        defer if l, is_line := got.(input.Bind_Line); is_line {
-            delete(string(l))
-        }
-        testing.expectf(t, got == row.want, "%q parsed as %v", row.value, got)
+        got := app.binds_line(row.value)
+        defer delete(got)
+        testing.expectf(t, got == row.want, "%q parsed as %q", row.value, got)
+        testing.expect_value(t, app.binds_value(got), row.value)
     }
 }
 
@@ -160,7 +156,7 @@ a_taken_chord_is_written_commented_and_reported :: proc(t: ^testing.T) {
 
     // The default still answers, so the refusal cost nothing.
     b, _ := find(&a, "wheel-down", .Global)
-    testing.expect_value(t, b.target, input.Bind_Target(input.Command.View_Scroll_Down))
+    testing.expect_value(t, b.line, ":view.scroll_down")
 }
 
 // A narrower row covering a wider one is the point of context scoping, so it goes in LIVE — with
@@ -187,11 +183,10 @@ a_shadowing_row_goes_in_live_with_a_note :: proc(t: ^testing.T) {
 
 
     b, _ := find(&a, "f1", .Surface)
-    _, is_line := b.target.(input.Bind_Line)
-    testing.expect(t, is_line, "the narrow row did not win where it applies")
+    testing.expect_value(t, b.line, ":help $o_path")
 
     wider, _ := find(&a, "f1", .Global)
-    testing.expect_value(t, wider.target, input.Bind_Target(input.Command.Describe_Key))
+    testing.expect_value(t, wider.line, ":describe.key")
 }
 
 @(private = "file")

@@ -119,7 +119,7 @@ cl_submit :: proc(a: ^App) {
 
 // The four chords the line answers for itself. Everything else falls through to the ordinary
 // dispatch, which acts on the line because `active` says the line is the document now.
-cl_take :: proc(a: ^App, cmd: input.Command) -> bool {
+cl_take :: proc(a: ^App, cmd: Command) -> bool {
     #partial switch cmd {
     case .Quit:
         cl_hide(a)

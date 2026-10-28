@@ -119,24 +119,26 @@ files_open :: proc(a: ^App, dir: string) -> (store.Id, bool) {
     return plug_open(a, kind, dir)
 }
 
-// The App as a name table, lent to `input`, which holds a Kind and a Slot as identity and
-// never the tables that name them. One reader per table, one borrow. Both stay TOTAL: a kind
-// or a command whose plugin unloaded still has to answer, or describe would go quiet on the
-// one row a user is most likely to be asking about (§8).
+// The App as a name table, lent to `input`, which holds a line as text and a Kind as identity
+// and never the tables that name them. A lone `:verb` line reads as its verb; any other line,
+// or one whose plugin unloaded, reads as itself (§8). A nil App names the kernel's verbs only.
 names :: proc(a: ^App) -> input.Names {
     return {
         user = a,
-        slot = proc(user: rawptr, slot: input.Slot) -> (name, doc: string) {
-            a := (^App)(user)
-            i := int(slot)
-            cmds := a.kernel.cmds[:]
-            if i < 0 || i >= len(cmds) || cmds[i].owner < 0 {
-                return "?", "a command whose plugin is not loaded"
+        line = proc(user: rawptr, line: string) -> (name, doc: string, places_point: bool) {
+            if cmd, named := line_command(line); named {
+                return COMMANDS[cmd].name, COMMANDS[cmd].doc, command_places_point(cmd)
             }
-            return cmds[i].name, cmds[i].doc
+            a := (^App)(user)
+            if name, lone := lone_verb(line); lone && a != nil {
+                if i, registered := plug_cmd_named(a, name); registered {
+                    return a.kernel.cmds[i].name, a.kernel.cmds[i].doc, false
+                }
+            }
+            return line, "run as typed", false
         },
         kind = proc(user: rawptr, kind: input.Kind) -> string {
-            return kind_name((^App)(user), kind)
+            return user == nil ? "" : kind_name((^App)(user), kind)
         },
     }
 }
