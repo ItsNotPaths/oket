@@ -88,7 +88,7 @@ name_of :: proc(a: ^app.App, line: int) -> string {
     return out
 }
 
-// What `<name>` hands on from one row of the focused listing, and where its span sits.
+// What `$o_name` hands on from one row of the focused listing, and where its span sits.
 @(private = "file")
 value_of :: proc(a: ^app.App, line: int, name: string) -> (string, bool) {
     f, ok := field_at(a, app.ring_focused(a).doc, line, name)
@@ -150,11 +150,6 @@ a_row_is_ls_la_with_a_link_on_the_name :: proc(t: ^testing.T) {
     lo, hi, _ := span_of(&a, 3, "name")
     testing.expect_value(t, lo, PREFIX)
     testing.expect_value(t, hi, PREFIX + len("top.txt"))
-    mode_lo, mode_hi, _ := span_of(&a, 3, "mode")
-    testing.expect_value(t, mode_lo, 0)
-    testing.expect_value(t, mode_hi, 10)
-    size, _ := value_of(&a, 3, "size")
-    testing.expect_value(t, size, "3")
 
     // And `..` is a link like the rest: it acts on the directory above, so `enter` over it
     // needs no case of its own anywhere.
@@ -180,14 +175,14 @@ enter_is_a_row_and_the_chain_is_the_navigation :: proc(t: ^testing.T) {
     defer close_plug_app(&a)
 
     // Asked for, never claimed — and loud about what it met: this row shadows the surface-tier
-    // `:open <path>` and the writeback says so above it.
+    // `:open $o_path` and the writeback says so above it.
     rows := read_binds(&a)
-    testing.expect(t, strings.contains(rows, "# shadows :open <path>\nenter = exec :fs.enter <path> && :open <path>"),
+    testing.expect(t, strings.contains(rows, "# shadows :open $o_path\nenter = exec :fs.enter $o_path && :open $o_path"),
                    rows)
     // The same line on the mouse, which is the whole of what a document does to get one: a row,
     // and the plugin never sees an event (§8). DOUBLE click, because a single one lands the
     // caret on the name — clicking into a row to rename it must not also take you somewhere.
-    testing.expect(t, strings.contains(rows, "double-click = exec :fs.enter <path> && :open <path>"),
+    testing.expect(t, strings.contains(rows, "double-click = exec :fs.enter $o_path && :open $o_path"),
                    rows)
     testing.expect(t, strings.contains(rows, "click = fs.snap"), rows)
 
@@ -364,28 +359,7 @@ hover_underlines_the_link_it_would_follow :: proc(t: ^testing.T) {
     testing.expect(t, !app.panel_focused(&a).hover.on, "the mode column underlined as though a click acted on it")
 }
 
-// §8's rule as data: a directory row carries no `file` field, so a row asking for one REPORTS
-// rather than running with a hole still in it. A file row fills the same hole.
-@(test)
-a_directory_row_cannot_fill_the_file_hole :: proc(t: ^testing.T) {
-    a, root, ok := tree_app(t, "oket-files-hole")
-    if !ok {
-        return
-    }
-    defer close_plug_app(&a)
-
-    go_row(&a, 3) // top.txt
-    line, filled := app.bind_expand(&a, "echo <file>")
-    testing.expect(t, filled, a.message)
-    testing.expect_value(t, line, fmt.tprintf("echo %s/top.txt", root))
-
-    go_row(&a, 2) // sub, a directory
-    _, dir_filled := app.bind_expand(&a, "echo <file>")
-    testing.expect(t, !dir_filled, "a directory filled a hole only a file carries")
-    testing.expect(t, strings.contains(a.message, "nothing here has a file"), a.message)
-}
-
-// A value that is not the text it is drawn over. `<path>` resolves to a whole path from a span
+// A value that is not the text it is drawn over. `$o_path` resolves to a whole path from a span
 // that shows a bare name, which is the other half of the link and the thing a span alone could
 // never say.
 @(test)
@@ -583,7 +557,7 @@ the_filter_hides_rows_and_keeps_the_way_out :: proc(t: ^testing.T) {
     testing.expect_value(t, pt.text_line_count(snap), 4)
 }
 
-// A hole fills QUOTED when its value would re-parse (§8), so the step that reaches a plugin
+// A field fills QUOTED when its value would re-parse (§8), so the step that reaches a plugin
 // carries the quotes. `fs.enter` is where that line ends and it wants the value: a directory
 // whose name holds a space is visited like any other, and nothing in the plugin reads a quote.
 @(test)

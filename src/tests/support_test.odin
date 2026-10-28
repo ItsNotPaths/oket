@@ -75,7 +75,7 @@ panel_toggle :: proc(a: ^app.App) {
 }
 
 // The same, with a listing of a fresh scratch directory focused and drawn once — the document
-// that declares `fields` and selects by row, so it is what the mouse and the holes are tested
+// that declares `fields` and selects by row, so it is what the mouse and the `$o_` fields are tested
 // against.
 listing_app :: proc(t: ^testing.T, name: string) -> (a: app.App, dir: string, ok: bool) {
     dir = scratch(t, name) or_return
@@ -222,7 +222,7 @@ chord :: proc(name: string, mods: input.Mods = {}, held := "") -> input.Chord {
 // The kernel opens no listing of its own any more: a directory goes to whoever registers the
 // `files` kind, exactly as a file goes to `edit`, and that is the browser plugin. What these
 // tests need is not a browser — it is A DOCUMENT THAT DECLARES `fields` AND SELECTS BY ROW, to
-// point a click, a hole or a wheel at. So the shape the kernel used to build lives here, where
+// point a click, a `$o_` field or a wheel at. So the shape the kernel used to build lives here, where
 // it is a stand-in and not a second implementation of anything.
 //
 // It carries `home`'s kind so it lands in a lane and answers `[home]` rows; nothing here is
@@ -327,7 +327,7 @@ all_fields :: proc(a: ^app.App, id: store.Id) -> []desc.Field {
     return app.doc_fields(a, id, &snap.text, 0, max(int))
 }
 
-// The field `<name>` reads on one line of a document, as the kernel reads it: off the store.
+// The field `$o_name` reads on one line of a document, as the kernel reads it: off the store.
 field_at :: proc(a: ^app.App, id: store.Id, line: int, name: string) -> (desc.Field, bool) {
     snap := store.store_snapshot(a.docs, id)
     if snap == nil {

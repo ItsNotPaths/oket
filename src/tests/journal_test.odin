@@ -32,8 +32,8 @@ crash_app :: proc(t: ^testing.T, name, text: string) ->
         close_plug_app(&a)
         return {}, "", "", false
     }
-    // A space in the name on purpose: the page's `enter` fills a hole, and the quote pair a
-    // hole adds has to come off again at the builtin.
+    // A space in the name on purpose: the row's `act` quotes it, and `:do` and `:recover` must
+    // each take the quotes back off.
     path, _ = filepath.join({home_dir(a.home), "my note.txt"}, context.allocator)
     if err := os.write_entire_file(path, transmute([]u8)text); err != nil {
         testing.expectf(t, false, "cannot write %s: %v", path, err)
@@ -114,7 +114,7 @@ work_survives_a_crash_and_a_restart :: proc(t: ^testing.T) {
 @(private = "file")
 home_row :: proc(a: ^app.App, page: store.Id) -> int {
     for f in all_fields(a, page) {
-        if f.name == "path" {
+        if f.name == "act" && strings.has_prefix(f.value, ":recover ") {
             return f.line
         }
     }

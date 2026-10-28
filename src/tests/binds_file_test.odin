@@ -42,7 +42,7 @@ binds_file_lays_over_the_defaults :: proc(t: ^testing.T) {
     before, _ := find(&a, "f3", .Text)
     testing.expect_value(t, before.target, input.Bind_Target(input.Command.Search_Next))
 
-    app.binds_parse(&a, "[text]\nf3 = file.dump\nclick = exec :open <path>\n", "binds.conf")
+    app.binds_parse(&a, "[text]\nf3 = file.dump\nclick = exec :open $o_path\n", "binds.conf")
 
     after, found := find(&a, "f3", .Text)
     testing.expect(t, found)
@@ -55,7 +55,7 @@ binds_file_lays_over_the_defaults :: proc(t: ^testing.T) {
     testing.expect(t, clicked)
     line, is_line := click.target.(input.Bind_Line)
     testing.expect(t, is_line)
-    testing.expect_value(t, line.text, ":open <path>")
+    testing.expect_value(t, line.text, ":open $o_path")
     testing.expect_value(t, line.mode, input.Bind_Mode.Exec)
 }
 
@@ -85,7 +85,7 @@ binds_file_skips_what_it_cannot_read :: proc(t: ^testing.T) {
 binds_file_stages_and_picks_as_well_as_runs :: proc(t: ^testing.T) {
     a := fixture()
     defer close(&a)
-    app.binds_parse(&a, "[surface]\nclick = stage :open <path>\ntab+f2 = pick :open <path> @\n",
+    app.binds_parse(&a, "[surface]\nclick = stage :open $o_path\ntab+f2 = pick :open $o_path @\n",
                     "binds.conf")
 
     b, _ := find(&a, "click", .Surface)
@@ -122,13 +122,13 @@ a_requested_row_becomes_a_file_row :: proc(t: ^testing.T) {
     defer close(&a)
     app.app_home(&a, dir)
 
-    lues.bind_request(a.kernel, "files", "surface", "click", "exec :open <path>")
+    lues.bind_request(a.kernel, "files", "surface", "click", "exec :open $o_path")
     app.binds_sync(&a)
 
     text := read(t, app.binds_path(&a))
     testing.expect(t, strings.contains(text, lues.owner_marker("files")))
     testing.expect(t, strings.contains(text, "[surface]"))
-    testing.expect(t, strings.contains(text, "click = exec :open <path>"))
+    testing.expect(t, strings.contains(text, "click = exec :open $o_path"))
 
     b, found := find(&a, "click", .Surface)
     testing.expect(t, found)
@@ -155,11 +155,11 @@ a_taken_chord_is_written_commented_and_reported :: proc(t: ^testing.T) {
     app.app_home(&a, dir)
 
     // wheel-down is a kernel default at Global, so a Global request for it collides.
-    lues.bind_request(a.kernel, "noisy", "global", "wheel-down", "exec :open <path>")
+    lues.bind_request(a.kernel, "noisy", "global", "wheel-down", "exec :open $o_path")
     app.binds_sync(&a)
 
     text := read(t, app.binds_path(&a))
-    testing.expect(t, strings.contains(text, "# wheel-down = exec :open <path>"))
+    testing.expect(t, strings.contains(text, "# wheel-down = exec :open $o_path"))
     testing.expect(t, strings.contains(text, "taken by view.scroll_down"))
 
     testing.expect(t, strings.contains(a.message, "wheel-down is taken by view.scroll_down"), a.message)
@@ -184,12 +184,12 @@ a_shadowing_row_goes_in_live_with_a_note :: proc(t: ^testing.T) {
     app.app_home(&a, dir)
 
     // f1 is describe.key at Global; a surface row covers it there and nowhere else.
-    lues.bind_request(a.kernel, "files", "surface", "f1", "exec :help <path>")
+    lues.bind_request(a.kernel, "files", "surface", "f1", "exec :help $o_path")
     app.binds_sync(&a)
 
     text := read(t, app.binds_path(&a))
     testing.expect(t, strings.contains(text, "# shadows describe.key"))
-    testing.expect(t, strings.contains(text, "f1 = exec :help <path>"))
+    testing.expect(t, strings.contains(text, "f1 = exec :help $o_path"))
 
 
     b, _ := find(&a, "f1", .Surface)

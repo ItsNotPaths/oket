@@ -356,7 +356,7 @@ fields_app :: proc(text: string, fields: []desc.Field) -> (a: app.App, id: store
 }
 
 // A link whose text is gone is GONE. Leaving it would be a span pointing at bytes it no longer
-// covers, and a `<path>` that resolves to the wrong row is worse than one that reports.
+// covers, and a `$o_path` that resolves to the wrong row is worse than one that reports.
 @(test)
 a_field_whose_text_is_deleted_is_dropped :: proc(t: ^testing.T) {
     fields := [?]desc.Field{{0, "path", 0, 7, "/tmp/top.txt"}}

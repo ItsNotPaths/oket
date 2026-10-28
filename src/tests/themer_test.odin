@@ -9,9 +9,9 @@ import "../desc"
 import "../store"
 import app "../oket"
 
-// The themer (plugins/themer): rows from the platter and the cache, and the two chains a bind
-// stages. The stage mode itself is binds_file_test's; what is gated here is that each row
-// carries the chain its state means — and that a hand-made file never grows an `rm`.
+// The themer (plugins/themer): rows from the platter and the cache, and the chain a bind stages.
+// The stage mode itself is binds_file_test's; what is gated here is that each row carries the
+// chain its state means — and that `th.rm` never takes a hand-made file.
 
 @(private = "file")
 themes_write :: proc(dir, file, body: string) {
@@ -63,16 +63,11 @@ each_row_carries_the_chain_its_state_means :: proc(t: ^testing.T) {
 
     act, _ := field_at(&a, id, 2, "act") // dracula is here: a bare switch
     testing.expect_value(t, act.value, ":set theme.name dracula")
-    rm, _ := field_at(&a, id, 2, "rm") // and pulled: the one kind of row del may remove
-    testing.expect(t, strings.contains(rm.value, "rm '"), rm.value)
-    testing.expect(t, strings.contains(rm.value, "dracula.toml"), rm.value)
-    testing.expect(t, strings.contains(rm.value, ":set theme.name gruvbox"), rm.value)
-    testing.expect(t, strings.contains(rm.value, ".themer"), rm.value)
+    name, _ := field_at(&a, id, 2, "name") // what `del` hands th.rm
+    testing.expect_value(t, name.value, "dracula")
 
-    act2, _ := field_at(&a, id, 3, "act") // gruvbox is here but hand-made: switch only
+    act2, _ := field_at(&a, id, 3, "act") // gruvbox is here but hand-made
     testing.expect_value(t, act2.value, ":set theme.name gruvbox")
-    rm2, held := field_at(&a, id, 3, "rm") // NO removal: an empty value fills an empty hole
-    testing.expect(t, held && rm2.value == "", "a hand-made file grew an rm")
 
     act3, _ := field_at(&a, id, 4, "act") // nord is a curl away: pull, manifest, switch, done
     testing.expect(t, strings.contains(act3.value, "curl -fsSL"), act3.value)
@@ -123,8 +118,32 @@ backspace_widens_the_filter :: proc(t: ^testing.T) {
     testing.expect(t, strings.contains(text, "2 shown"), text) // `n`: nord and zenburn
 }
 
+// `th.rm` takes a pulled theme's file and its manifest line, and nothing else: a hand-made file
+// shares no provenance with the list, so it stays.
+@(test)
+th_rm_removes_only_what_was_pulled :: proc(t: ^testing.T) {
+    a, dir, ok := themer_app(t, "oket-themer-rm")
+    if !ok {
+        return
+    }
+    defer close_plug_app(&a)
+
+    gruvbox, _ := filepath.join({dir, "gruvbox.toml"}, context.temp_allocator)
+    dracula, _ := filepath.join({dir, "dracula.toml"}, context.temp_allocator)
+    manifest, _ := filepath.join({dir, ".themer"}, context.temp_allocator)
+
+    app.cl_exec(&a, ":th.rm gruvbox")
+    testing.expect(t, os.exists(gruvbox), "th.rm took a hand-made file")
+
+    app.cl_exec(&a, ":th.rm dracula")
+    testing.expect(t, !os.exists(dracula), "th.rm left the pulled file")
+    body, _ := os.read_entire_file(manifest, context.temp_allocator)
+    testing.expect(t, !strings.contains(string(body), "dracula"), string(body))
+    testing.expect(t, strings.contains(doc_text(&a, app.ring_focused(&a).doc), "1 here of 4"))
+}
+
 // A manifest line whose file is gone marks nothing: `pulled` must mean there is a file to
-// remove, so a stale line cannot hand `del` an rm for a path that is not there.
+// remove, so a stale line cannot make `th.rm` act on a path that is not there.
 @(test)
 a_stale_manifest_line_marks_nothing :: proc(t: ^testing.T) {
     a, dir, ok := themer_app(t, "oket-themer-stale")
@@ -135,7 +154,6 @@ a_stale_manifest_line_marks_nothing :: proc(t: ^testing.T) {
 
     themes_write(dir, ".themer", "dracula\nnord\n") // nord's file was never pulled
     app.cl_exec(&a, ":th.done")
-
-    rm, held := field_at(&a, app.ring_focused(&a).doc, 3, "rm") // nord's row
-    testing.expect(t, held && rm.value == "", "a stale manifest line grew an rm")
+    app.cl_exec(&a, ":th.rm nord")
+    testing.expect(t, strings.contains(a.message, "was not pulled"), a.message)
 }

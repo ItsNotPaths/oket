@@ -412,9 +412,10 @@ typing_into_the_list_filters_it :: proc(t: ^testing.T) {
     testing.expect_value(t, len(lines_of(&a, id)), whole)
 }
 
-// THE ROW IS THE INSTALL. Four holes over one row, filled from fields the plugin published, so
-// the whole of what it takes to build a grammar is a line in binds.conf — and a rev or a
-// subpath the registry does not carry fills as an EMPTY argument rather than as the row's name.
+// THE ROW IS THE INSTALL. The row carries its whole build line, so building a grammar is one
+// binds.conf row — and a rev or a subpath the registry does not carry is an EMPTY argument
+// rather than the row's name. Three steps, and the shell one is `|| true` so the LAST always
+// runs: a chain that stopped on a failure would leave the bar running with nothing behind it.
 @(test)
 a_row_carries_its_whole_registry_entry :: proc(t: ^testing.T) {
     a, ok := syntax_app(t, "oket-grammars-row")
@@ -430,31 +431,24 @@ a_row_carries_its_whole_registry_entry :: proc(t: ^testing.T) {
     app.handle_chord(&a, chord("AC04", {.Ctrl})) // ctrl+f, then the filter
     type_text(&a, "rust") // the first match, and point is on it
 
-    line, filled := app.bind_expand(&a, "oket-grammar <lang> <repo> <rev> <sub>")
-    if !testing.expect(t, filled, a.message) {
+    act, carried := field_at(&a, app.active(&a).doc, app.active(&a).view.point.head.line, "act")
+    if !testing.expect(t, carried, "the row carries no act") {
         return
     }
-    testing.expect(t, strings.has_prefix(line,
-                   "oket-grammar rust https://github.com/tree-sitter/tree-sitter-rust "), line)
-    testing.expect(t, strings.has_suffix(line, " ''"), line)
-    testing.expect_value(t, len(strings.fields(line, context.temp_allocator)), 5)
+    testing.expect(t, strings.contains(act.value,
+                   "oket-grammar rust 'https://github.com/tree-sitter/tree-sitter-rust' "), act.value)
+    testing.expect(t, strings.contains(act.value, "'' || true"), act.value) // no subpath: empty
 
-    // The row the plugin actually asked for, read back off the request list rather than typed
-    // in again here: three steps, and the shell one is `|| true` so the LAST always runs. A
-    // chain that stopped on a failure would leave the bar running with nothing behind it.
+    // The row the plugin actually asked for, read back off the request list: it runs the line
+    // the row carries.
     asked := ""
     for r in a.kernel.reqs {
         if r.ctx == "grammars" && r.chord == "enter" {
             asked = r.line
         }
     }
-    if !testing.expect(t, asked != "", "nothing asked for enter over the grammar list") {
-        return
-    }
-    line, filled = app.bind_expand(&a, strings.trim_prefix(asked, "exec "))
-    if !testing.expect(t, filled, a.message) {
-        return
-    }
+    testing.expect_value(t, asked, "exec :do $o_act")
+    line := act.value
     // Through cl_parse rather than the raw split: `||` is a step operator, so `|| true` is
     // its own segment until the coalesce puts it back inside the shell step.
     app.cl_parse(&a, line)

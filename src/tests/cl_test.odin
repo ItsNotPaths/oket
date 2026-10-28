@@ -8,6 +8,7 @@ import "core:testing"
 import "../store"
 import "../txt"
 import app "../oket"
+import "../cl"
 import "../input"
 
 // The rest of the gate for build order stage 5: the command line, and `exec` / `stage` reaching
@@ -140,7 +141,7 @@ exec_runs_a_bind_line_and_stage_aims_it :: proc(t: ^testing.T) {
 
     // The chord is spelled PHYSICALLY: a layout glyph needs the scancode base input_init sets,
     // and a test has no window to set it from.
-    app.binds_parse(&a, "[files]\nenter = stage :open <path>\n", "binds.conf")
+    app.binds_parse(&a, "[files]\nenter = stage :open $o_path\n", "binds.conf")
     // Row 3 after filter: 0 filter, 1 .., 2 plugins, 3 sub
     txt.doc_set_head(store.store_doc(a.docs, id), {3, 0}, false)
     app.point_sync(&a)
@@ -162,7 +163,7 @@ exec_runs_a_bind_line_and_stage_aims_it :: proc(t: ^testing.T) {
 // A value only reaches the shell as ONE argument (§8). A filename is attacker-controlled input:
 // anyone who can write a file into a directory you list can otherwise put `&&` in a bind line.
 @(test)
-a_hole_value_cannot_break_out_of_its_line :: proc(t: ^testing.T) {
+a_field_value_cannot_break_out_of_its_line :: proc(t: ^testing.T) {
     dir, made := scratch(t, "oket-cl-quote")
     if !made {
         return
@@ -183,7 +184,7 @@ a_hole_value_cannot_break_out_of_its_line :: proc(t: ^testing.T) {
     app.surface_draw(&a)
     app.point_place(&a, 2, 0) // the row whose name holds the operator
 
-    line, filled := app.bind_expand(&a, "rm <path>")
+    line, filled := app.vars_fill(&a, "rm $o_path")
     testing.expect(t, filled)
     testing.expect_value(t, line, fmt.tprintf("rm '%s'", evil))
 
@@ -193,44 +194,57 @@ a_hole_value_cannot_break_out_of_its_line :: proc(t: ^testing.T) {
 
     // An ordinary path is still bare, so a staged line stays readable.
     app.point_place(&a, 2, 1)
-    plain, _ := app.bind_expand(&a, ":open <path>")
+    plain, _ := app.vars_fill(&a, ":open $o_path")
     testing.expect_value(t, plain, fmt.tprintf(":open %s/alpha.txt", dir))
 }
 
-// §14's open question, answered: a hole the document cannot fill REPORTS. A fall-through to a
+// A value holding a quote still arrives as ONE argument, with its bytes as they were: the
+// builtin's own reader takes the quoting back off.
+@(test)
+a_field_value_with_a_quote_arrives_whole :: proc(t: ^testing.T) {
+    for v in ([?]string{"it's", `it's "$HOME" \ ` + "`x`", "a'b && c"}) {
+        quoted := cl.sh_arg(v)
+        raw, got := cl.first_arg(quoted)
+        testing.expect_value(t, got, v)
+        testing.expect_value(t, raw, quoted)
+        testing.expect_value(t, cl.arg_whole(quoted), v)
+    }
+}
+
+// §14's open question, answered: a field the document does not carry REPORTS. A fall-through to a
 // key job that may not exist is a silent no-op, which is the thing §8 exists to prevent.
 @(test)
-a_hole_that_cannot_be_filled_says_so :: proc(t: ^testing.T) {
-    a, dir, ok := listing_app(t, "oket-cl-hole")
+a_missing_field_says_so :: proc(t: ^testing.T) {
+    a, dir, ok := listing_app(t, "oket-cl-missing")
     if !ok {
         return
     }
     defer close_app(&a)
 
-    app.binds_parse(&a, "[home]\n@AC03 = exec :open <nothing>\n", "binds.conf")
+    app.binds_parse(&a, "[home]\n@AC03 = exec :open $o_nothing\n", "binds.conf")
     app.handle_chord(&a, chord("AC03")) // the d position
 
     testing.expect(t, !app.cl_active(&a), "the line never ran")
-    testing.expect_value(t, a.message, "nothing here has a nothing")
+    testing.expect_value(t, a.message, "nothing here has $o_nothing")
     _ = dir
 }
 
-// The other half of the rule: a line with no hole needs no point, so it runs on a panel
+// The other half of the rule: a line naming no `$o_` field needs no point, so it runs on a panel
 // standing on nothing rather than swallowing the chord (§8). alt+w on a fresh strip is this.
 @(test)
-a_line_without_a_hole_needs_no_document :: proc(t: ^testing.T) {
+a_line_without_a_field_needs_no_document :: proc(t: ^testing.T) {
     a, ok := bare_app()
     if !ok {
         return
     }
     defer close_app(&a)
 
-    line, filled := app.bind_expand(&a, ":width 100 50")
+    line, filled := app.vars_fill(&a, ":width 100 50")
     testing.expect(t, filled, "the chord was swallowed")
     testing.expect_value(t, line, ":width 100 50")
 
-    _, holed := app.bind_expand(&a, ":open <path>") // a hole still needs a document
-    testing.expect(t, !holed)
+    _, filled = app.vars_fill(&a, ":open $o_path") // a field still needs a document
+    testing.expect(t, !filled)
 }
 
 // The table is the definition of the core set (MENU.md §3), so a row with a hole in it is a

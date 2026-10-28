@@ -14,7 +14,7 @@
  * Note what is NOT here. No draw call, because plugins do not draw (§12): each half produces a
  * document, a descriptor or a stage's edits, and the kernel's one renderer draws them. No
  * generation bookkeeping, because oket_set reads the newest one (§6). No `enter` handler for
- * the surface, because `enter` over a row is a binds.conf line reading the `<name>` field this
+ * the surface, because `enter` over a row is a binds.conf line reading the `$o_name` field this
  * file records — data the kernel reads, not a callback it makes (§5).
  *
  *     :pluginify plugins/example      build it and load it

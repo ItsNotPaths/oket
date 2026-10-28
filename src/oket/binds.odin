@@ -13,14 +13,14 @@ import "../input"
 //
 //     # --- files ---
 //     [files]
-//     enter       = stage :open <path>
-//     click       = exec :open <path>
-//     right-click = stage :open <path>
+//     enter       = stage :open $o_path
+//     click       = exec :open $o_path
+//     right-click = stage :open $o_path
 //
 // A section is a bind context: `global`, `text`, `surface`, `terminal`, or a KIND's name —
 // `[files]` is narrower than `[surface]` and wins where it applies, which is how `enter` means
 // one thing in a listing and another in the editor while both are surfaces. A value is a verb's
-// registry name, or `exec`/`stage`/`pick` and a command line whose `<name>` holes fill from
+// registry name, or `exec`/`stage`/`pick` and a command line whose `$o_` names fill from
 // point.
 //
 // Appended, never rewritten: a rewrite would have to re-emit what it read, and that eats
@@ -42,10 +42,10 @@ binds_path :: proc(a: ^App) -> string {
 binds_base :: proc() -> [dynamic]input.Bind {
     b := input.binds_default()
     // A home-page row is an offer, and `enter` is what takes it: the work a crash left, the
-    // plugin that is held back, the file to open. Which one is the row's own field, so one row
-    // covers every section (home.odin). Narrower than the surface row it shadows, which would
+    // plugin that is held back, the file to open. Each row carries the line it runs as `act`, so
+    // one row covers every section (home.odin). Narrower than the surface row it shadows, which would
     // open a recovered file and leave the journal sitting beside it (§13).
-    input.bind_line(&b, "RTRN", {}, ":home enter", ctx = {.Surface}, kind = KIND_HOME)
+    input.bind_line(&b, "RTRN", {}, ":do $o_act", ctx = {.Surface}, kind = KIND_HOME)
     // A session's links (term_links.odin). Off a link :openlink selects the word, which is what
     // a double-click did before.
     input.bind_line(&b, "RTRN", {.Alt}, ":openlink", ctx = {.Terminal}, kind = KIND_TERM)

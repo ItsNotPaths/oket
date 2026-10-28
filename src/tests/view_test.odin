@@ -11,7 +11,7 @@ import "../view"
 import app "../oket"
 
 // The gate for build order stage 3: the kernel draws a document from a descriptor, and a
-// `<name>` hole reads a field the descriptor named. The screen is text, so this diffs in CI.
+// `$o_name` reads a field the descriptor named. The screen is text, so this diffs in CI.
 
 @(private = "file")
 LISTING :: "src\tdir\t4\nmain.odin\tfile\t512\nREADME.md\tfile\t1024"
@@ -124,7 +124,7 @@ README.md    file   1024
     )
 }
 
-// `<path>` resolved as data, not as a callback into whoever drew the document (§5).
+// `$o_path` resolved as data, not as a callback into whoever drew the document (§5).
 @(test)
 field_resolves_off_the_store :: proc(t: ^testing.T) {
     fields := LISTING_FIELDS
@@ -340,7 +340,7 @@ a_selection_carries_its_swap_as_far_as_the_percent_says :: proc(t: ^testing.T) {
 }
 
 // A field's span is what it DRAWS and its value is what it ACTS on (desc.Field). A row showing
-// a bare name while `<path>` hands on the whole of where it lives is the one thing a span alone
+// a bare name while `$o_path` hands on the whole of where it lives is the one thing a span alone
 // could not say, and it is what makes a line a link.
 @(test)
 a_field_with_a_value_answers_with_it :: proc(t: ^testing.T) {

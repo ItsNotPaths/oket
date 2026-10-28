@@ -6,7 +6,7 @@ import "../input"
 // The picker (PANELS.md §6). Hold a key, press the chord, steer, let the key go:
 //
 //   1. holding tab does nothing at all — it is not a chord, and no context is entered
-//   2. `tab+enter` fires the `pick` row, and the line EXPANDS NOW, so `<path>` reads the field
+//   2. `tab+enter` fires the `pick` row, and the line EXPANDS NOW, so `$o_path` reads the field
 //      point was on rather than one it may have wandered off
 //   3. left and right steer, because arming enters the `[pick]` context
 //   4. the chord again MAKES a panel and steers to it — `[pick] tab+enter = :np`, a row
@@ -25,9 +25,9 @@ pick_arm :: proc(a: ^App, chord: input.Chord, line: input.Bind_Line) {
         message_set(a, "a pick row needs a held key, as in tab+enter")
         return
     }
-    text, filled := bind_expand(a, line.text)
+    text, filled := vars_fill(a, line.text)
     if !filled {
-        return // bind_expand said which hole it could not fill
+        return // vars_fill said which name it could not fill
     }
     panels_ready(a)
     input.pending_set(&a.pending, input.Pending_Pick{chord, strings.clone(text), a.focus})

@@ -1,7 +1,6 @@
 package main
 
 import "lues:lues"
-import "lues:pt"
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
@@ -10,6 +9,7 @@ import "../desc"
 import "../input"
 import "../store"
 import "../txt"
+import "../cl"
 
 // The home page (§13): what the kernel has to tell you at a start, as a document rather than as
 // a screen. What a crash left behind, the plugins it took with it, how this start came up, the
@@ -18,8 +18,8 @@ import "../txt"
 // IT IS THE DEFAULT DOCUMENT. A start with no session to restore opens this and not a listing:
 // the working directory is one row away on the page, and a listing cannot say any of the above.
 //
-// A DOCUMENT because it is acted on. `enter` over a row runs the verb the row's own field asks
-// for, and that is one `binds.conf` row over one lookup — the same shape a listing's `enter`
+// A DOCUMENT because it is acted on. `enter` over a row runs the line the row carries as `act`,
+// and that is one `binds.conf` row over one field — the same shape a listing's `enter`
 // has, so recovery needs no key job, no dialog and no mode. screen.odin stays what it was: the
 // floor with nothing focused, which is a different question.
 //
@@ -64,50 +64,6 @@ home_news :: proc(a: ^App) -> bool {
            len(plugins_held(a.home.data)) > 0
 }
 
-// `enter` over a row, as the verb the row's own field asks for. The lines are the ones you
-// could have typed, and the order is the page's own: work a crash left, then a plugin held
-// back, then a file to open. A row carrying none of them is prose, and says so.
-// Not file-private: the link renderer reads the same table (routing.odin), so what is drawn as
-// an offer and what `enter` takes cannot come apart.
-@(rodata)
-// (hole home-row :tags home :needs (vars-per-step) :sev refactor) a hidden dispatch table; each row publishes its line as `act`, one `[home] enter = :do $o_act`
-HOME_VERBS := [?]struct {
-    field: string,
-    line:  string,
-} {
-    {"path", ":recover <path>"},
-    {"plug", ":plug load <plug>"},
-    {"file", ":open <file>"},
-}
-
-home_enter :: proc(a: ^App) -> bool {
-    s := active(a)
-    snap, d, ok := reading(a, s)
-    if !ok {
-        message_set(a, ":home enter: nothing is focused")
-        return false
-    }
-    defer pt.snapshot_release(snap)
-    defer desc.release(d)
-    at := s.view.point.head
-    fields := doc_fields(a, s.doc, &snap.text, at.line, at.line + 1)
-    for v in HOME_VERBS {
-        if _, carried := desc.field_under(fields, at.line, at.col, v.field); !carried {
-            continue
-        }
-        // bind_expand, so a hole fills here exactly the way it fills for a chord, and the
-        // value a field carries is what runs rather than the bytes it drew.
-        line, filled := bind_expand(a, v.line)
-        if !filled {
-            return false
-        }
-        cl_exec(a, line)
-        return true
-    }
-    message_set(a, ":home enter: this row is not an offer")
-    return false
-}
-
 // The page as it is being written: the bytes, the data spans named in them, and how many lines
 // are down. One struct rather than four pointers threaded through every call.
 @(private = "file")
@@ -134,23 +90,20 @@ head :: proc(p: ^Page, s: string) {
     say(p, s)
 }
 
-// A row: two spaces, the value a bind acts on, then whatever else the line says. The value is a
-// span of the line's own bytes, so hover underlines exactly what `enter` would take.
+// An offer: two spaces, the value it acts on, then whatever else the line says. The value is an
+// `act` span over the line's own bytes whose VALUE is the line `enter` runs (`[home] enter =
+// :do $o_act`), so hover underlines exactly what `enter` would take.
 @(private = "file")
-row :: proc(p: ^Page, name, value, tail: string) {
+offer :: proc(p: ^Page, value, tail, act: string) {
     at := strings.builder_len(p.text) + (p.line > 0 ? 1 : 0) + 2
     say(p, fmt.tprintf("  %s%s", value, tail))
-    append(&p.spans, store.Span{lo = at, hi = at + len(value), key = store.Key(token_intern(p.a, name)),
-                                open = true})
+    append(&p.spans, store.Span{lo = at, hi = at + len(value), key = store.Key(token_intern(p.a, "act")),
+                                open = true, text = act, valued = true})
 }
 
-// A second name over the row already written, whose VALUE is not the span it covers. What makes
-// a chord row a link: the line draws the chord, and `<file>` hands on binds.conf.
 @(private = "file")
-also :: proc(p: ^Page, name, value: string) {
-    last := p.spans[len(p.spans) - 1]
-    append(&p.spans, store.Span{lo = last.lo, hi = last.hi, key = store.Key(token_intern(p.a, name)),
-                                open = true, text = value, valued = true})
+open_line :: proc(path: string) -> string {
+    return fmt.tprintf(":open %s", cl.sh_arg(path))
 }
 
 @(private = "file")
@@ -180,18 +133,15 @@ home_fill :: proc(a: ^App, id: store.Id) {
     if work := recover_scan(a); len(work) > 0 {
         head(&p, "unsaved work a crash left behind — enter takes it back:")
         for r in work {
-            row(&p, "path", r.path, fmt.tprintf("   %d edit(s)", r.edits))
+            offer(&p, r.path, fmt.tprintf("   %d edit(s)", r.edits), fmt.tprintf(":recover %s", cl.sh_arg(r.path)))
         }
         say(&p, "  (:recover drop <path> throws one away)")
     }
 
-    // `plug` is named for the same reason `size` is named in a tree the browser never draws it
-    // in: no kernel row reads it, and a `[home] delete = exec :plug load <plug>` in binds.conf
-    // would, without this file learning a second verb.
     if len(a.kernel.quarantined) > 0 {
         head(&p, "plugins that took a start down, and are not loaded:")
         for name in a.kernel.quarantined {
-            row(&p, "plug", name, "")
+            offer(&p, name, "", fmt.tprintf(":plug load %s", cl.sh_arg(name)))
         }
         say(&p, "  (:plug load <name> takes one again, once it is fixed)")
     }
@@ -200,7 +150,7 @@ home_fill :: proc(a: ^App, id: store.Id) {
         head(&p, "plugins you edited, which the last update left as they were:")
         for name in held {
             dir, _ := filepath.join({a.home.data, PLUGIN_DIR, name}, context.temp_allocator)
-            row(&p, "file", dir, "   the release had a different one")
+            offer(&p, dir, "   the release had a different one", open_line(dir))
         }
         say(&p, "  (delete the folder and :oket update to take the release's)")
     }
@@ -212,7 +162,7 @@ home_fill :: proc(a: ^App, id: store.Id) {
     // the browser's, so a start with no browser reports that instead of drawing an empty page.
     if a.dir != "" {
         say(&p, "")
-        row(&p, "file", a.dir, "   the directory this start is in")
+        offer(&p, a.dir, "   the directory this start is in", open_line(a.dir))
     }
     say(&p, "alt+space the menu   alt+f files   alt+t term   " +
              "alt+c command line   f1 describes a chord")
@@ -249,9 +199,8 @@ home_binds :: proc(a: ^App, p: ^Page) {
     if len(clashes) > 0 {
         head(p, "chords that are a primer AND a row; one of the two never fires:")
         for c in clashes {
-            row(p, "chord", c.chord, fmt.tprintf("   runs %s, and %d row(s) hide behind it",
-                                                 c.runs, c.kids))
-            also(p, "file", path)
+            offer(p, c.chord, fmt.tprintf("   runs %s, and %d row(s) hide behind it", c.runs, c.kids),
+                  open_line(path))
         }
         say(p, fmt.tprintf("  (move one of them in %s)", BINDS_NAME))
     }
@@ -259,9 +208,8 @@ home_binds :: proc(a: ^App, p: ^Page) {
     if unmet := binds_unmet(a, context.temp_allocator); len(unmet) > 0 {
         head(p, fmt.tprintf("chords a plugin asked for that %s answers itself:", BINDS_NAME))
         for u in unmet {
-            row(p, "chord", u.chord, fmt.tprintf("   %s asked for it; it runs %s", u.owner,
-                                                 u.held))
-            also(p, "file", path)
+            offer(p, u.chord, fmt.tprintf("   %s asked for it; it runs %s", u.owner, u.held),
+                  open_line(path))
         }
         say(p, "  (the plugin's own row is in the file, commented out, under its name)")
     }
@@ -269,11 +217,9 @@ home_binds :: proc(a: ^App, p: ^Page) {
     if len(a.gripes) > 0 {
         head(p, "lines the config could not be read as anything:")
         for g in a.gripes {
-            // `at`, not `chord`: the span is where the line is, and what a row acts on is the
-            // file beside it.
-            row(p, "at", fmt.tprintf("%s:%d", g.file, g.line), fmt.tprintf("   %s", g.why))
+            // The span is where the line is; what the row opens is the file beside it.
             at, _ := filepath.join({a.home.config, g.file}, context.temp_allocator)
-            also(p, "file", at)
+            offer(p, fmt.tprintf("%s:%d", g.file, g.line), fmt.tprintf("   %s", g.why), open_line(at))
         }
     }
 }
@@ -308,9 +254,9 @@ home_notes :: proc(a: ^App, p: ^Page) {
         say(p, fmt.tprintf("  %s", line))
     }
     if has_file {
-        row(p, "file", path, "   the rest of them")
+        offer(p, path, "   the rest of them", open_line(path))
     } else {
-        row(p, "file", path, "   in the binary")
+        offer(p, path, "   in the binary", open_line(path))
     }
 }
 

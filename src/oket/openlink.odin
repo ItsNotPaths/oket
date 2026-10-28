@@ -48,7 +48,7 @@ builtin_openlink :: proc(a: ^App, args: string, _: cl.Step) -> bool {
     return true
 }
 
-// The `link` span the caret is on, by the rule every hole fills by (desc.field_under).
+// The `link` span the caret is on, by the rule every `$o_` name fills by (desc.field_under).
 @(private = "file")
 link_under :: proc(a: ^App) -> string {
     s := active(a)

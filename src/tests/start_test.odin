@@ -112,39 +112,36 @@ the_home_page_offers_recovered_work :: proc(t: ^testing.T) {
     fields := all_fields(&a, page)
     line := -1
     for f in fields {
-        if f.name == "path" {
+        if f.name == "act" && strings.has_prefix(f.value, ":recover ") {
             line = f.line
+            break
         }
     }
     if !testing.expect(t, line >= 0, "the page listed no recovered work") {
         return
     }
-    lo, hi, spanned := desc.field_span(fields, line, "path")
-    testing.expect(t, spanned, "the row named no path")
+    act, spanned := desc.field_of(fields, line, "act")
+    testing.expect(t, spanned, "the row carries no act")
     row := doc_line_text(&a, page, line)
-    testing.expect_value(t, row[lo:hi], file)
+    testing.expect_value(t, row[act.lo:act.hi], file)
+    // The row carries the line it runs. What it recovers is journal_test's, because taking work
+    // back needs the editor plugin.
 
     // The bind the page rests on: narrower than the surface row it shadows, because `:open`
     // there would open the file and leave the journal beside it. One row for every section,
-    // because the ROW says which verb it wants (home.odin).
+    // because the ROW carries the line it runs (home.odin).
     b, bound := input.bind_find(a.binds[:], chord("RTRN"), .Surface, app.KIND_HOME)
     if !testing.expect(t, bound, "enter is not bound over a home page") {
         return
     }
     liner, is_line := b.target.(input.Bind_Line)
     testing.expect(t, is_line, "enter over a home page is not a command line")
-    testing.expect_value(t, liner.text, ":home enter")
+    testing.expect_value(t, liner.text, ":do $o_act")
 
-    // Which verb that is, is the ROW's: this one carries a path and asks for `:recover`. What
-    // it recovers is journal_test's, because taking work back needs the editor plugin.
-    app.active(&a).view.point.head.line = line
-    testing.expect(t, app.home_enter(&a), a.message)
-    testing.expect(t, !strings.contains(a.message, "not an offer"), a.message)
-
-    // A row that is prose says so rather than running the first verb it can spell.
+    // A row that is prose says so rather than running anything.
     app.active(&a).view.point.head.line = 0
-    testing.expect(t, !app.home_enter(&a), "the version line was taken as an offer")
-    testing.expect(t, strings.contains(a.message, "not an offer"), a.message)
+    app.handle_chord(&a, chord("RTRN"))
+    testing.expect_value(t, a.message, "nothing here has $o_act")
 }
 
 // The page is the DEFAULT DOCUMENT, not a report that only opens after a crash: a quiet start
@@ -171,16 +168,15 @@ a_quiet_start_still_opens_the_page :: proc(t: ^testing.T) {
     fields := all_fields(&a, page)
     at := -1
     for f in fields {
-        if f.name == "file" {
+        if f.name == "act" && strings.has_prefix(f.value, ":open ") {
             at = f.line
         }
     }
     if !testing.expect(t, at >= 0, "the page offered no file to open") {
         return
     }
-    lo, hi, spanned := desc.field_span(fields, at, "file")
-    testing.expect(t, spanned, "the row named no file")
-    testing.expect_value(t, doc_line_text(&a, page, at)[lo:hi], cwd)
+    act, _ := desc.field_of(fields, at, "act")
+    testing.expect_value(t, doc_line_text(&a, page, at)[act.lo:act.hi], cwd)
 }
 
 // How this start came up, which a start cannot answer from the outside: every plugin held back
@@ -289,7 +285,7 @@ the_page_shows_the_newest_notes :: proc(t: ^testing.T) {
     // The file itself is a row, so `enter` over it opens what the page could not fit.
     offered := false
     for f in all_fields(&a, page) {
-        if f.name != "file" {
+        if f.name != "act" {
             continue
         }
         row := doc_line_text(&a, page, f.line)

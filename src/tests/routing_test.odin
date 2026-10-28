@@ -43,8 +43,8 @@ a_click_places_point_on_the_row_under_it :: proc(t: ^testing.T) {
 }
 
 // A link is drawn like one before anybody points at it, and WITHOUT a mouse row to make it one:
-// the field is a link because a line acts on it, and the lines are the rows reachable here plus
-// the table `:home enter` runs. A field no line names is not a link, whatever else it is.
+// the field is a link because its name is one a line can read as `$o_`. A field off that list is
+// not a link, whatever else it is.
 @(test)
 a_field_a_line_would_act_on_is_drawn_as_a_link :: proc(t: ^testing.T) {
     a, ok := bare_app(40, 6)
@@ -55,7 +55,7 @@ a_field_a_line_would_act_on_is_drawn_as_a_link :: proc(t: ^testing.T) {
     app.ring_add(&a, rows_doc(&a))
     app.surface_draw(&a)
 
-    // `path` is what `:recover <path>` takes, and nothing had to be bound to a button for it.
+    // `path` is on the list, and nothing had to be bound to a button for it.
     // The caret starts on row 0, so that row is the LIVE one — the offer enter would take.
     at, on := linked(&a, 0)
     testing.expect(t, on, "a row an offer would act on is not drawn as a link")
@@ -67,7 +67,7 @@ a_field_a_line_would_act_on_is_drawn_as_a_link :: proc(t: ^testing.T) {
 
     // And the pointer says the same thing from the other end, once a click would act there —
     // which is hover's own rule and is what puts the hand cursor up.
-    app.binds_parse(&a, "[surface]\nclick = exec :open <path>\n", "binds.conf")
+    app.binds_parse(&a, "[surface]\nclick = exec :open $o_path\n", "binds.conf")
     app.hover_update(&a, 0, 1, 1)
     app.surface_draw(&a)
     at, on = linked(&a, 1)
@@ -75,11 +75,11 @@ a_field_a_line_would_act_on_is_drawn_as_a_link :: proc(t: ^testing.T) {
     testing.expect_value(t, at.fg, app.token_color(&a, app.token_intern(&a, app.TOKEN_LINK_OVER)))
 }
 
-// `<name>` fills from the span the caret is on, not the first on its line, so a line holding two
+// `$o_path` fills from the span the caret is on, not the first on its line, so a line holding two
 // paths acts on the one you stand on. A caret at a name's END is on it, which is where the
 // browser pins it; of two names that meet there, the one ending at it wins, the one typing grows.
 @(test)
-a_hole_fills_from_the_span_under_the_caret :: proc(t: ^testing.T) {
+a_field_fills_from_the_span_under_the_caret :: proc(t: ^testing.T) {
     a, ok := bare_app(40, 6)
     if !ok {
         return
@@ -102,7 +102,7 @@ a_hole_fills_from_the_span_under_the_caret :: proc(t: ^testing.T) {
     path_at :: proc(a: ^app.App, id: store.Id, at: txt.Pos) -> string {
         txt.doc_set_head(store.store_doc(a.docs, id), at, false)
         app.point_sync(a)
-        line, _ := app.bind_expand(a, ":open <path>")
+        line, _ := app.vars_fill(a, ":open $o_path")
         return line
     }
     testing.expect_value(t, path_at(&a, id, {0, 13}), ":open /b.c") // inside the second
@@ -113,7 +113,7 @@ a_hole_fills_from_the_span_under_the_caret :: proc(t: ^testing.T) {
 }
 
 // Rows that are fields and nothing else: the browser's shape (no `columns`, so a caret and a
-// style run both reach the text). `path` is a field a line names; `tail` is one nothing does.
+// style run both reach the text). `path` is a field a line can read; `tail` is not.
 @(private = "file")
 rows_doc :: proc(a: ^app.App) -> store.Id {
     id := store.store_open(a.docs, "alpha x\nbeta x")
@@ -155,7 +155,7 @@ one_row_gives_a_listing_the_mouse :: proc(t: ^testing.T) {
     defer os.remove_all(dir)
     defer close_app(&a)
 
-    app.binds_parse(&a, "[surface]\nclick = exec :open <path>\n", "binds.conf")
+    app.binds_parse(&a, "[surface]\nclick = exec :open $o_path\n", "binds.conf")
 
     // Hover: the bind table is asked what a click here would do, and the field its line names is
     // the one offered.
@@ -169,14 +169,13 @@ one_row_gives_a_listing_the_mouse :: proc(t: ^testing.T) {
     testing.expect_value(t, app.panel_focused(&a).hover.lo, name.lo)
     testing.expect_value(t, app.panel_focused(&a).hover.hi, name.hi)
 
-    // Over the size column nothing is offered: the row's line acts on the path, and the size
-    // is not part of it.
+    // Over the size column nothing is offered: it is not a link.
     app.hover_update(&a, 0, 40, 1)
     testing.expect(t, !app.panel_focused(&a).hover.on)
 
-    // And the hole fills from point, exactly as it would for a key.
+    // And `$o_path` fills from point, exactly as it would for a key.
     app.point_place(&a, 2, 1)
-    line, filled := app.bind_expand(&a, ":open <path>")
+    line, filled := app.vars_fill(&a, ":open $o_path")
     testing.expect(t, filled)
     testing.expect_value(t, line, fmt.tprintf(":open %s/beta.txt", dir))
 
@@ -186,7 +185,7 @@ one_row_gives_a_listing_the_mouse :: proc(t: ^testing.T) {
     testing.expect_value(
         t,
         answer,
-        "click moves point, then runs :open <path>: run as typed [surface, binds.conf:2]",
+        "click moves point, then runs :open $o_path: run as typed [surface, binds.conf:2]",
     )
 }
 

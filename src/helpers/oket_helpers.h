@@ -182,7 +182,7 @@ void oket_cursor_span(const lues_snapshot *s, size_t i, size_t *lo, size_t *hi);
  *
  * A listing is text plus the spans that name its parts, and the two have to be built together
  * or the offsets drift. This writes both at once: append cells to a row, and every cell's span
- * is recorded as a DATA SPAN under the column's name. `<path>` in a bind row then resolves with
+ * is recorded as a DATA SPAN under the column's name. `$o_path` in a bind row then resolves with
  * no callback into your code at all (§5).
  *
  * One allocation per builder, grown as it goes. Free it with oket_build_free. */
@@ -215,14 +215,14 @@ void oket_build_cell(oket_build *b, const char *name, const char *text, size_t l
 void oket_build_span(oket_build *b, const char *name, size_t lo, size_t hi);
 
 /* The same span, pointing SOMEWHERE ELSE: what is drawn is [lo, hi) of the cell and what
- * `<name>` hands on is `value`. That is what makes a row a LINK — a line showing a bare
- * `browser.c` while `<path>` carries the whole of where it lives — and it is the only way to
- * say it in a document with no columns to hide a cell in.
+ * `$o_name` hands on is `value` — a line showing a bare `browser.c` while `$o_path` carries
+ * the whole of where it lives. It is the only way to say it in a document with no columns to
+ * hide a cell in.
  *
  * `value` is BORROWED until the submit, exactly like the names above: the kernel copies it
  * there, so it must outlive the oket_build_submit that carries it. A non-NULL empty `value` is
  * an empty argument; NULL is the span's own bytes, as oket_build_span. */
-void oket_build_link(oket_build *b, const char *name, size_t lo, size_t hi,
+void oket_build_value(oket_build *b, const char *name, size_t lo, size_t hi,
                      const char *value, size_t value_len);
 
 /* Sets how deep the current row sits. A tree, an outline and folding are this one number: the

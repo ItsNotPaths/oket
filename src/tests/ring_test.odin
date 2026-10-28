@@ -173,12 +173,12 @@ a_kind_section_narrows_over_its_context :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    app.binds_parse(&a, "[surface]\n@AC03 = exec :ls\n[home]\n@AC03 = exec :open <path>\n",
+    app.binds_parse(&a, "[surface]\n@AC03 = exec :ls\n[home]\n@AC03 = exec :open $o_path\n",
                     "binds.conf")
     answer := input.describe_chord(a.binds[:], chord("AC03"), .Surface, nil, app.names(&a),
                                    app.KIND_HOME)
     defer delete(answer)
-    testing.expect(t, strings.contains(answer, ":open <path>"), answer)
+    testing.expect(t, strings.contains(answer, ":open $o_path"), answer)
     testing.expect(t, strings.contains(answer, "[home,"), answer)
 
     // The wider row still answers for a surface that is not this kind.

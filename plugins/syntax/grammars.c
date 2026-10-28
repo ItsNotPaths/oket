@@ -7,20 +7,19 @@
  * WHAT BUILDS A GRAMMAR IS A BIND ROW, and nothing in this file spawns it:
  *
  *     [grammars]
- // (hole plugin-rows-vars :tags vars) lang repo rev sub on one row; publish the build line as `act`
- *     enter = exec :gr.build <lang>
- *          && oket-grammar <lang> <repo> <rev> <sub> || true
- *          && :grammar ready <lang>
+ *     enter = exec :do $o_act
  *
- * The four holes are fields on the row under point, so the registry reaches the shell without
- * this plugin spawning anything, the build is a step you can read in N#, and the grammar is
- * loaded only if one landed. `oket-grammar` ships beside `oket`. A rev or a subpath the
- * registry does not carry is an EMPTY span, which fills its hole with an empty argument rather
- * than with whatever the row's other bytes say.
+ * Each row carries its build line as `act`:
+ *
+ *     :gr.build rust && oket-grammar rust '<repo>' '<rev>' '<sub>' || true && :grammar ready rust
+ *
+ * so the registry reaches the shell without this plugin spawning anything, the build is a step
+ * you can read in N#, and the grammar is loaded only if one landed. `oket-grammar` ships beside
+ * `oket`. A rev or a subpath the registry does not carry is an empty argument.
  *
  * THE TWO BUILTINS EITHER SIDE OF THE SHELL STEP ARE THE FEEDBACK, and they are why the step is
  * `|| true`: a chain that stopped on a failure would leave a bar running with nothing behind
- * it. So the step always exits 0, the last builtin always runs, and it stats `<lang>.so` to
+ * it. So the step always exits 0, the last builtin always runs, and it stats `<name>.so` to
  * find out which of `done` and `failed` the row gets. THE PLATTER IS THE ANSWER, not the exit
  * code and not the tool's own word.
  *
@@ -43,6 +42,7 @@
 
 /* xml's row is 521 bytes today; the clamp below is for growth, not for the shipped registry. */
 #define LINE_CAP 640
+#define ACT_CAP 1024
 #define NAME_W 16
 
 /* The bar, in cells, the lit run that crosses it, and how long one cell of travel takes. The
@@ -204,14 +204,14 @@ typedef struct {
     unsigned drawn;
 } list_ui;
 
-/* One row: what it draws for the eye, and the fields a bind acts through.
- *
- * `lang` is the name's own bytes, so hover underlines exactly what enter would build. The other
- * three carry a VALUE the row never draws — the whole registry entry travels with the row, and
- * the bind line reads like the command a person would type. */
+/* A value is BORROWED until the submit (oket_helpers.h): each row's line lives in its slot. */
+static char ACTS[OKET_GRAMMAR_COUNT][ACT_CAP];
+
+/* One row: the name for the eye, and over it `act`, the build line `enter` runs. The registry
+ * names are identifiers and go bare; repo, rev and subpath are quoted for the shell. */
 static void g_row(void *ctx, oket_build *out, oket_list_row *r, int32_t idx) {
     const oket_grammar *g = &OKET_GRAMMARS[idx];
-    char text[LINE_CAP], tail[LINE_CAP];
+    char text[LINE_CAP], tail[LINE_CAP], *act = ACTS[idx];
     size_t n, name_lo = 2, name_hi;
 
     (void)ctx;
@@ -224,21 +224,13 @@ static void g_row(void *ctx, oket_build *out, oket_list_row *r, int32_t idx) {
     name_hi = name_lo + strlen(g->name);
     r->fixed = 1; /* a row you build, never one you rename */
 
+    /* `|| true` is not a shrug: it is what makes the last step run either way, and the last
+     * step is the one that stats the platter and stops the bar on `done` or on `failed`. */
+    snprintf(act, ACT_CAP,
+             ":gr.build %s && oket-grammar %s '%s' '%s' '%s' || true && :grammar ready %s",
+             g->name, g->name, g->repo, g->rev, g->subpath, g->name);
     oket_build_cell(out, "row", text, n);
-    oket_build_span(out, "lang", name_lo, name_hi);
-    oket_build_link(out, "repo", name_lo, name_hi, g->repo, strlen(g->repo));
-    /* An empty value for what the registry does not carry, which is an empty argument. A NULL
-     * value would fall back to the span's own bytes and hand the shell the grammar's name. */
-    if (g->rev[0]) {
-        oket_build_link(out, "rev", name_lo, name_hi, g->rev, strlen(g->rev));
-    } else {
-        oket_build_link(out, "rev", name_lo, name_hi, "", 0);
-    }
-    if (g->subpath[0]) {
-        oket_build_link(out, "sub", name_lo, name_hi, g->subpath, strlen(g->subpath));
-    } else {
-        oket_build_link(out, "sub", name_lo, name_hi, "", 0);
-    }
+    oket_build_value(out, "act", name_lo, name_hi, act, strlen(act));
 }
 
 static int32_t g_count(void *ctx) {
@@ -414,10 +406,6 @@ lues_kind grammars_register(const lues_api *api, lues_self self) {
     oket_list_register(api, self, &LSPEC, GRAMMARS);
     api->register_command(api, self, LIT("gr.build"), LIT("mark a row as building"), build_cmd);
     api->request_bind(api, self, LIT("global"), LIT("alt+@AC05"), LIT("exec :ring grammars"));
-    /* `|| true` is not a shrug: it is what makes the last step run either way, and the last
-     * step is the one that stats the platter and stops the bar on `done` or on `failed`. */
-    api->request_bind(api, self, LIT("grammars"), LIT("enter"),
-                      LIT("exec :gr.build <lang> && oket-grammar <lang> <repo> <rev> <sub>"
-                          " || true && :grammar ready <lang>"));
+    api->request_bind(api, self, LIT("grammars"), LIT("enter"), LIT("exec :do $o_act"));
     return GRAMMARS;
 }

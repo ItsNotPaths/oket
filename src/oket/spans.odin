@@ -48,7 +48,7 @@ shown_fields :: proc(a: ^App, id: store.Id, t: ^pt.Text, dv: ^view.Derived, top,
 }
 
 // Every run on the lines the viewport is showing, in DRAWN lines and paint order: the store's
-// looks, then its data spans some line acts on (the links), then `live` (the one a click would
+// looks, then its data spans named on the `$o_` list (the links), then `live` (the one a click would
 // take), then what the view stages painted. One read of the store gives both.
 //
 // The store and the links speak the ORIGINAL (§6), so they go through the map; a stage's runs
@@ -56,7 +56,6 @@ shown_fields :: proc(a: ^App, id: store.Id, t: ^pt.Text, dv: ^view.Derived, top,
 doc_styles :: proc(
     a: ^App,
     id: store.Id,
-    d: ^desc.Descriptor,
     t: ^pt.Text,
     dv: ^view.Derived,
     top, rows: int,
@@ -67,14 +66,13 @@ doc_styles :: proc(
         return nil
     }
     orig := view.original(dv, t)
-    names := d != nil ? link_names(a, d) : nil
     link := view.Style{fg = u32(token_intern(a, TOKEN_LINK)), bg = u32(gfx.Token.Bg), attrs = {.Underline}}
     hidden: shape.Attrs = a.config.marks ? {} : {.Rule, .Dot}
     runs := make([dynamic]view.Run, 0, 64, context.temp_allocator)
     links := make([dynamic]view.Run, 0, 16, context.temp_allocator)
     for sp in store.store_spans(a.docs, id, lo, hi, spans_order(a, id)) {
         if sp.key != 0 {
-            if slice.contains(names, lues.token_name(a.kernel, lues.Token(sp.key))) {
+            if is_link(lues.token_name(a.kernel, lues.Token(sp.key))) {
                 append(&links, view.Run{sp.lo, sp.hi, link})
             }
             continue

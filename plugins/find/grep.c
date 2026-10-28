@@ -168,7 +168,7 @@ static void render(const lues_api *api, lues_self self, lues_doc doc, grep_doc *
         head = links[nlinks++] = link_of(g, first);
         len = cell(&b, "%.*s:%zu", (int)first->path_len, first->path, first->line);
         if (head) {
-            oket_build_link(&b, "link", 0, len, head, strlen(head));
+            oket_build_value(&b, "link", 0, len, head, strlen(head));
         }
         oket_build_row(&b);
         for (; i < j; i++) {

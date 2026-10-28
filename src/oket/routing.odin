@@ -5,7 +5,6 @@ import "lues:pt"
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
-import "core:slice"
 import "core:strings"
 import sdl "vendor:sdl3"
 import "../desc"
@@ -651,80 +650,56 @@ mouse_events_target :: proc(a: ^App) -> ^Term {
     return d.mouse == .Events && !s.locked ? term_of(a, s.doc) : nil
 }
 
-// The line arm of a bind (§8): holes filled from point, then run, staged or armed as the file
-// said. `exec` runs it, `stage` puts it in the command line for aiming, `pick` waits for the
-// chord's held key to come up (PANELS.md §6) — those three words are the whole grammar, and
-// they are what makes Enter and Shift+Enter two rows over one value rather than two code paths
-// in a plugin.
+// The line arm of a bind (§8): run, staged or armed as the file said. `exec` runs it, `stage`
+// puts it in the command line for aiming, `pick` waits for the chord's held key to come up
+// (PANELS.md §6) — those three words are the whole grammar, and they are what makes Enter and
+// Shift+Enter two rows over one value rather than two code paths in a plugin.
 @(private = "file")
 bind_line_fire :: proc(a: ^App, chord: input.Chord, line: input.Bind_Line) {
-    if line.mode == .Pick {
+    switch line.mode {
+    case .Exec:
+        cl_exec(a, line.text)
+    case .Stage:
+        // A line that is one `$o_` value stages that value AS the line: `stage $o_act`.
+        if text, ok := vars_fill(a, line.text); ok {
+            cl_show(a, cl.arg_whole(text))
+        }
+    case .Pick:
         pick_arm(a, chord, line)
-        return
     }
-    text, ok := bind_expand(a, line.text)
-    if !ok {
-        return
-    }
-    if line.mode == .Stage {
-        cl_show(a, text)
-        return
-    }
-    cl_exec(a, text)
 }
 
-// The next `<name>` in a bind line: what comes before it, the name, and what is left. Shared by
-// the hole filling and by hover, so the two cannot disagree about what a line asks for.
-hole_next :: proc(s: string) -> (before, name, rest: string, ok: bool) {
-    lo := strings.index_byte(s, '<')
-    if lo < 0 {
-        return s, "", "", false
-    }
-    hi := strings.index_byte(s[lo:], '>')
-    if hi < 0 {
-        return s, "", "", false
-    }
-    return s[:lo], s[lo + 1:lo + hi], s[lo + hi + 1:], true
-}
-
-// Fills every `<name>` from the fields of the line point is on (§5). A name the document does
-// not carry stops the line and REPORTS rather than running one with a hole still in it (§14).
-bind_expand :: proc(a: ^App, template: string) -> (string, bool) {
-    // A line with no hole needs no point. `:width 100 50` is the whole line already, and a
-    // panel standing on nothing must not swallow the chord (§8).
-    if !strings.contains(template, "<") {
-        return strings.clone(template, context.temp_allocator), true
-    }
+// The `$o_` fields on the line point is on (§5), by the rule field_under reads them by.
+vars_under_point :: proc(a: ^App) -> (vars: cl.Vars) {
     s := active(a)
-    if s == nil {
-        return "", false
-    }
     snap, d, ok := reading(a, s)
     if !ok {
-        return "", false
+        return
     }
     defer pt.snapshot_release(snap)
     defer desc.release(d)
-
     at := s.view.point.head
     fields := doc_fields(a, s.doc, &snap.text, at.line, at.line + 1)
-    b := strings.builder_make(context.temp_allocator)
-    rest := template
-    for {
-        before, name, tail, found := hole_next(rest)
-        strings.write_string(&b, before)
-        if !found {
-            break
+    for name, i in cl.VARS {
+        if f, got := desc.field_under(fields, at.line, at.col, name); got {
+            vars[i] = strings.clone(f.value, context.temp_allocator) // outlives the snapshot
         }
-        f, got := desc.field_under(fields, at.line, at.col, name)
-        if !got {
-            message_set(a, fmt.tprintf("nothing here has a %s", name))
-            return "", false
-        }
-        strings.write_string(&b, cl.sh_arg(f.value))
-        rest = tail
     }
-    return strings.to_string(b), true
+    return
+}
+
+// A line with its `$o_` names written in, for one that is shown or held before it runs. A name
+// nothing here carries REPORTS rather than staying in the line unfilled (§14).
+vars_fill :: proc(a: ^App, line: string) -> (string, bool) {
+    text, missing, ok := cl.fill(vars_under_point(a), line)
+    if !ok {
+        vars_say_missing(a, missing)
+    }
+    return text, ok
+}
+
+vars_say_missing :: proc(a: ^App, name: string) {
+    message_set(a, fmt.tprintf("nothing here has $o_%s", name))
 }
 
 // `file.dump` (§8): the focused document's bytes, into the state directory, under a name derived from
@@ -1120,99 +1095,35 @@ scroll_by :: proc(a: ^App, lines: int) {
     view.scroll(&s.view, t, lines)
 }
 
-// Does this line act on the span the pointer is over — the field itself, or a wider one it
-// sits inside. Containment is what lets hover offer the NAME for a line that acts on the PATH.
+// --- hover (§8) ---
+
+// Would a click here run a command line. Either button chord, because a document whose single
+// click only moves point may still answer the second one — which is what a listing you can also
+// type into wants (the row navigates, the click lands a caret).
 @(private = "file")
-line_covers :: proc(fields: []desc.Field, template: string, line, lo, hi: int) -> bool {
-    for name in acts_on(template) {
-        if a, b, named := desc.field_span(fields, line, name); named && a <= lo && b >= hi {
-            return true
+clickable :: proc(a: ^App, d: ^desc.Descriptor) -> bool {
+    for button in ([?]input.Mouse{.Click, .Double_Click}) {
+        chord := input.Chord{input.mouse_code(button), {}, 0}
+        if bind, _, bound := input.bind_lookup(a.binds[:], chord, d.ctx, d.kind); bound {
+            if _, is_line := bind.target.(input.Bind_Line); is_line {
+                return true
+            }
         }
     }
     return false
 }
 
-// --- hover (§8) ---
-
-// The command line a mouse chord would run here, if it runs one. A verb acts on point and needs
-// no field, so only a line has a hole for hover to underline.
-@(private = "file")
-click_line :: proc(a: ^App, d: ^desc.Descriptor, button: input.Mouse) -> (input.Bind_Line, bool) {
-    chord := input.Chord{input.mouse_code(button), {}, 0}
-    bind, _, bound := input.bind_lookup(a.binds[:], chord, d.ctx, d.kind)
-    if !bound {
-        return {}, false
-    }
-    line, is_line := bind.target.(input.Bind_Line)
-    return line, is_line
-}
-
-// Either button chord, because the question is "would clicking here do something" and a
-// document whose single click only moves point may still answer the second one — which is
-// what a listing you can also type into wants (the row navigates, the click lands a caret).
-@(private = "file")
-hover_line :: proc(a: ^App, d: ^desc.Descriptor) -> (input.Bind_Line, bool) {
-    if line, is_line := click_line(a, d, .Click); is_line {
-        return line, true
-    }
-    return click_line(a, d, .Double_Click)
-}
-
-// The names a LINE would act on (§8), which is what makes a data span a link: the rows reachable
-// in this document's own context, and the table `:home enter` runs behind one row (home.odin).
-// So a link is drawn exactly where a key or a click would do something. Per frame, because the
-// lines move under it with every binds.conf re-read.
-// (hole links-owner-published :tags vars :needs (link-marker) :sev refactor) links are derived from bind holes; files, home, themer, grammars lose underline without it
-link_names :: proc(a: ^App, d: ^desc.Descriptor,
-                   allocator := context.temp_allocator) -> []string {
-    out := make([dynamic]string, allocator)
-    for b in a.binds {
-        if !input.bind_reachable(b, d.ctx, d.kind) {
-            continue
-        }
-        if line, is_line := b.target.(input.Bind_Line); is_line {
-            link_holes(&out, line.text)
-        }
-    }
-    for v in HOME_VERBS {
-        link_holes(&out, v.line) // a name no document carries costs a lookup that misses
-    }
-    return out[:]
-}
-
-@(private = "file")
-link_holes :: proc(out: ^[dynamic]string, template: string) {
-    for name in acts_on(template) {
-        if !slice.contains(out[:], name) {
-            append(out, name)
-        }
-    }
-}
-
-// The names a line acts on: its holes, and `link` when it runs :openlink, which reads that
-// span itself.
-@(private = "file")
-acts_on :: proc(template: string) -> []string {
-    out := make([dynamic]string, context.temp_allocator)
-    rest := template
-    for {
-        _, name, tail, found := hole_next(rest)
-        if !found {
-            break
-        }
-        append(&out, name)
-        rest = tail
-    }
-    if strings.contains(template, ":openlink") {
-        append(&out, LINK_KEY)
-    }
-    return out[:]
+// A field is a link when its name is one a line can read as `$o_name`: what an owner publishes
+// under one of those is something a key or a click can act on.
+is_link :: proc(name: string) -> bool {
+    _, ok := cl.var_index(name)
+    return ok
 }
 
 // The one link that is LIVE: the field under the pointer, or the row the caret is on, which is
 // what `enter` acts on. Its own token, so a page of offers says which one the next keystroke
 // takes. Only where the caret is drawn — an unfocused panel has no next keystroke.
-doc_link_over :: proc(a: ^App, p: ^Panel, d: ^desc.Descriptor, fields: []desc.Field,
+doc_link_over :: proc(a: ^App, p: ^Panel, fields: []desc.Field,
                       v: view.View, marked: bool,
                       allocator := context.temp_allocator) -> []view.Style {
     line, lo, hi := p.hover.line, p.hover.lo, p.hover.hi
@@ -1221,7 +1132,7 @@ doc_link_over :: proc(a: ^App, p: ^Panel, d: ^desc.Descriptor, fields: []desc.Fi
             return nil
         }
         at := v.point.head
-        under, ok := link_at(a, d, fields, at)
+        under, ok := link_at(fields, at)
         if !ok {
             return nil
         }
@@ -1233,13 +1144,10 @@ doc_link_over :: proc(a: ^App, p: ^Panel, d: ^desc.Descriptor, fields: []desc.Fi
     return out[:]
 }
 
-// The link a caret acts on, by the rule `<name>` fills by (desc.field_under).
+// The link a caret acts on, by the rule `$o_` names fill by (desc.field_under).
 @(private = "file")
-link_at :: proc(a: ^App, d: ^desc.Descriptor, fields: []desc.Field, at: txt.Pos) -> (desc.Field, bool) {
-    if d == nil {
-        return {}, false
-    }
-    for name in link_names(a, d) {
+link_at :: proc(fields: []desc.Field, at: txt.Pos) -> (desc.Field, bool) {
+    for name in cl.VARS {
         if f, named := desc.field_under(fields, at.line, at.col, name); named && f.lo < f.hi {
             return f, true
         }
@@ -1276,12 +1184,10 @@ hover_update :: proc(a: ^App, panel, cx, cy: int) {
     if !hit || field == "" {
         return
     }
-    line, is_line := hover_line(a, d)
-    if !is_line {
+    if !clickable(a, d) {
         return
     }
-    lo, hi, named := desc.field_span(fields, p.line, field)
-    if named && line_covers(fields, line.text, p.line, lo, hi) {
-        pn.hover = {p.line, lo, hi, true}
+    if f, linked := link_at(fields, p); linked && f.lo <= p.col && p.col < f.hi {
+        pn.hover = {p.line, f.lo, f.hi, true}
     }
 }

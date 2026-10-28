@@ -76,8 +76,8 @@ Job :: struct {
 // rather than a pipe: nothing reads a stdin pipe until the child runs, so a feed larger than
 // one pipe buffer would block us before the child that drains it even exists. Its stdout is
 // staged the same way when the chain has a `:put` waiting for it, and left alone otherwise, so
-// an ordinary step is live output and not a buffer that appears when it ends.
-// (hole vars-shell-prefix :tags vars :needs (vars-per-step) :sev refactor) N0 is one long-lived shell; set every $o_ var as `o_x=...;` before the step, every one each time
+// an ordinary step is live output and not a buffer that appears when it ends. A step naming an
+// `$o_` var opens with all of them set or unset (cl.sh_vars).
 sh_run :: proc(a: ^App, cmd, feed: string, fed: bool) -> bool {
     if a.job.live {
         message_set(a, "a shell step is still running")
@@ -106,6 +106,9 @@ sh_run :: proc(a: ^App, cmd, feed: string, fed: bool) -> bool {
             a.job.feed != "" ? fmt.tprintf(" < %s", cl.sh_quote(a.job.feed, context.temp_allocator)) : "",
             a.job.out != "" ? fmt.tprintf(" > %s 2>&1", cl.sh_quote(a.job.out, context.temp_allocator)) : "",
         )
+    }
+    if _, _, _, named := cl.var_next(cmd); named {
+        body = fmt.tprintf("%s%s", cl.sh_vars(a.chain.vars), body)
     }
     line := fmt.tprintf(
         STEP,

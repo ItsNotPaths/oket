@@ -152,12 +152,12 @@ Kind :: distinct u32
 // A bind names a kernel verb, a registered one, or a command LINE (§6).
 //
 // The line arm is what keeps a plugin a value provider rather than a verb factory: the text is
-// what you would otherwise have typed, with `<name>` holes the focused surface fills in, and
+// what you would otherwise have typed, with `$o_` names the focused surface fills in, and
 // the mode decides whether it runs, lands in the command line for aiming (§5), or waits (§6).
-// One config line is then the whole policy, so `exec rm <path>` needs nothing at all from the
+// One config line is then the whole policy, so `exec rm $o_path` needs nothing at all from the
 // plugin that drew the row it acts on.
 //
-// `pick` is the third of them (PANELS.md §6): the line expands at the PRESS, so its holes fill
+// `pick` is the third of them (PANELS.md §6): the line fills at the PRESS, so its names read
 // from where point was, and it runs at the RELEASE of the chord's held key with `@` aimed at
 // the panel that was steered to.
 Bind_Mode :: enum u8 {
@@ -167,7 +167,7 @@ Bind_Mode :: enum u8 {
 }
 
 Bind_Line :: struct {
-    text: string, // owned; `<name>` marks a hole
+    text: string, // owned
     mode: Bind_Mode,
 }
 
@@ -448,15 +448,15 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     bind_line(&b, "AB09", {.Alt}, ":ring ", .Stage)
     // A listing's rows are paths, and `enter` is what opens one. Written at the SURFACE tier
     // rather than for one kind: a surface whose lines carry no `path` reports that it cannot
-    // fill the hole, which is data rather than a refusal decided per call (§8).
-    bind_line(&b, "RTRN", {}, ":open <path>", ctx = {.Surface})
+    // fill `$o_path`, which is data rather than a refusal decided per call (§8).
+    bind_line(&b, "RTRN", {}, ":open $o_path", ctx = {.Surface})
     // The picker (PANELS.md §6): hold tab, press enter on a link, steer, let tab go. `tab` and
     // `tab+enter` are DIFFERENT chords, so this shadows nothing — an editor keeps its indent.
     // `@` on its own is the panel steered to, which is the one address only a gesture can name.
-    bind_line(&b, "RTRN", {}, ":open <path> @", .Pick, {.Surface}, held = "TAB")
+    bind_line(&b, "RTRN", {}, ":open $o_path @", .Pick, {.Surface}, held = "TAB")
     // The same open, one panel over, with no gesture at all. §6: the direction preference is a
     // ROW and not a config key, because a row is greppable, rebindable and describable.
-    bind_line(&b, "RTRN", {.Ctrl}, ":open <path> @-1", ctx = {.Surface})
+    bind_line(&b, "RTRN", {.Ctrl}, ":open $o_path @-1", ctx = {.Surface})
     // The same chord again, while armed: there is nowhere to throw this yet, so make somewhere.
     // A row, not a second meaning grown inside the picker — `[surface] tab+enter` is out of
     // reach while the `[pick]` context is on, so the two cannot be the same row by accident.

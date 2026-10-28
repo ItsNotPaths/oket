@@ -2,11 +2,27 @@ package cl
 
 import "core:strings"
 
-// A hole's value, quoted only when it would RE-PARSE (§8): the line is read again by the chain
-// split and then by the shell, so a name holding a space or an `&&` has to survive both, and an
-// ordinary path carries no quotes and stages readable.
+// A value, quoted only when it would RE-PARSE (§8): it is read again by the chain split and then
+// by the shell or first_arg, so a name holding a space or an `&&` has to survive all three, and
+// an ordinary path carries no quotes and stages readable. A value holding a `'` is double-quoted,
+// because first_arg reads one quoted span and `'\''` is three.
 sh_arg :: proc(s: string, alloc := context.temp_allocator) -> string {
-    return sh_bare(s) ? s : sh_quote(s, alloc)
+    switch {
+    case sh_bare(s):
+        return s
+    case !strings.contains_rune(s, '\''):
+        return sh_quote(s, alloc)
+    }
+    b := strings.builder_make(alloc)
+    strings.write_byte(&b, '"')
+    for i in 0 ..< len(s) {
+        if strings.index_byte(`"\$` + "`", s[i]) >= 0 {
+            strings.write_byte(&b, '\\')
+        }
+        strings.write_byte(&b, s[i])
+    }
+    strings.write_byte(&b, '"')
+    return strings.to_string(b)
 }
 
 // An allowlist, not an escape list: anything unlisted goes through sh_quote rather than being

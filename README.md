@@ -91,18 +91,19 @@ make && :ls
 ```conf
 # binds.conf, beside config.conf
 [files]
-enter       = exec :open <path>
-right-click = stage :open <path>
+enter       = exec :open $o_path
+right-click = stage :open $o_path
 
 [global]
-alt+g         = exec git diff -- <path> | :put
+alt+g         = exec git diff -- "$o_path" | :put
 ctrl+b ctrl+f = exec :ring files
 ```
 
 A section is a context, a kind, or a builtin: `[:find]` is the command line while its last
 builtin step is a `:find`, then `[cmdline]`, then `[text]` under it. A value is a verb's name,
-or `exec`/`stage`/`pick` and a command line. `<name>` holes fill from the fields of the line
-under point, so a bind acts on document data with no callback. A click is a chord like any other.
+or `exec`/`stage`/`pick` and a command line. `$o_path`, `$o_name`, `$o_link` and `$o_act` are
+the fields of the line under point: a builtin takes each as one argument and a shell step reads
+it as a shell variable, so a bind acts on document data with no callback. A click is a chord like any other.
 
 Two-chord binds work, and both chords carry a modifier. That is what keeps a primer
 transparent: an unmodified key after one clears it and does what it always did.

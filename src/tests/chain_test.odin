@@ -5,6 +5,7 @@ import "core:fmt"
 import "core:strings"
 import "core:testing"
 import "core:time"
+import "../desc"
 import "../store"
 import "../txt"
 import app "../oket"
@@ -400,6 +401,58 @@ do_runs_the_piped_lines_after_the_chain :: proc(t: ^testing.T) {
     run_line(&a, fmt.tprintf("seq %d | sed 's/.*/:width 100/' | :do", cl.QUEUE_MAX + 1))
     testing.expect(t, strings.contains(a.message, "cap"), a.message)
     testing.expect_value(t, a.panels[0].size, app.WIDTH_FULL / 2)
+}
+
+// A note whose lines carry a `path` each, the way a listing's rows do. The first value would
+// re-parse in a shell and in the chain split both.
+@(private = "file")
+paths_doc :: proc(a: ^app.App) -> store.Id {
+    id := scratch_doc(a, "note", "alpha x\nbeta x")
+    gen, _ := store.store_gen(a.docs, id)
+    fields := [?]desc.Field{{0, "path", 0, 5, "/tmp/it's && here"}, {1, "path", 0, 4, "/tmp/beta"}}
+    store.store_submit(a.docs, id, gen, nil, nil, fields_spans(a, id, fields[:]))
+    store.store_drain(a.docs)
+    return id
+}
+
+// A shell step reads a field as a shell variable, whatever bytes it holds. N0 is one shell that
+// outlives every step, so a name the line under point does not carry is UNSET, never the last
+// step's value.
+@(test)
+a_shell_step_reads_a_field_as_a_variable :: proc(t: ^testing.T) {
+    a, ok := bare_app(120, 6)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+
+    run_line(&a, "o_link=stale") // as if a step before had left one behind
+    app.ring_add(&a, paths_doc(&a)) // a last step surfaces N0, so the row comes back in front
+    run_line(&a, `printf '<%s>\n' "${o_link-gone}$o_path"`)
+    n0 := doc_text(&a, app.sys_slot(&a).doc)
+    testing.expect(t, strings.contains(n0, "\n<gone/tmp/it's && here>"), n0)
+
+    app.ring_add(&a, paths_doc(&a))
+    run_line(&a, `printf '<%s>\n' "$o_name"`) // a name this row does not carry
+    testing.expect_value(t, a.message, "nothing here has $o_name")
+}
+
+// The fields are read ONCE, where the line starts: a step that moves point does not change what
+// the next step is handed.
+@(test)
+a_line_reads_its_fields_where_it_started :: proc(t: ^testing.T) {
+    a, ok := bare_app(60, 6)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+    id := paths_doc(&a)
+    app.ring_add(&a, id)
+    txt.doc_set_head(store.store_doc(a.docs, id), {1, 0}, false) // beta's row
+    app.point_sync(&a)
+
+    run_line(&a, `:find alpha && printf '[%s]' "$o_path" | :put`)
+    testing.expect_value(t, doc_text(&a, id), "[/tmp/beta] x\nbeta x")
 }
 
 // `@*` acts on every panel; `#*` empties the lane; and an OPEN refuses both, because an open

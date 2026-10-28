@@ -4,8 +4,8 @@ package input
 // both and the bind table, chord_parse and describe grow no mouse arm at all.
 //
 // The other half of the rule is what the kernel does before dispatching one: a button chord
-// moves point to the cell under the pointer, so `<name>` holes fill from point exactly as they
-// do for a key. There is one hole-filling path and the mouse is not in it.
+// moves point to the cell under the pointer, so `$o_` names fill from point exactly as they do
+// for a key. There is one filling path and the mouse is not in it.
 
 Mouse :: enum u16 {
     Click,

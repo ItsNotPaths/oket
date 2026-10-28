@@ -65,8 +65,8 @@ BUILTINS := [?]Builtin {
     {"set", "", "file", USAGE_SET,
      "change one config.conf setting for this session; the file is not written",
      builtin_set},
-    {"do", "", "edit", ":do",
-     "run what was piped into it, one command line per line, after this chain ends",
+    {"do", "", "edit", ":do [<line>]",
+     "run its argument, or what was piped into it one line per line, after this chain ends",
      builtin_do},
     {"find", "", "edit", USAGE_FIND,
      "select every match at once, so typing replaces them all; f3 steps through them one at a time",
@@ -89,8 +89,8 @@ BUILTINS := [?]Builtin {
     {"config", "", "file", ":config",
      "open config.conf; a save is read at once",
      builtin_config},
-    {"home", "", "file", ":home [enter]",
-     "open the home page; `enter` takes the offer the row point is on",
+    {"home", "", "file", ":home",
+     "open the home page",
      builtin_home},
     {"plug", "", "plug", USAGE_PLUG,
      "load, unload or reload a plugin; with no verb, list what is in",
@@ -218,13 +218,8 @@ close_lane :: proc(a: ^App) -> bool {
 
 USAGE_CLOSE :: ":close [#slot|#*]"
 
-// `:home enter` is the page's own row acting on itself; a bare `:home` asks for the page. Both
-// are lines you could type, which is what keeps the page a document.
 @(private = "file")
-builtin_home :: proc(a: ^App, args: string, _: cl.Step) -> bool {
-    if _, verb := cl.first_arg(args); verb == "enter" {
-        return home_enter(a)
-    }
+builtin_home :: proc(a: ^App, _: string, _: cl.Step) -> bool {
     ring_add(a, home_open(a))
     return true
 }
@@ -273,7 +268,7 @@ builtin_lock :: proc(a: ^App, _: string, _: cl.Step) -> bool {
 }
 
 // `:open <path> [#slot] [@panel]`. The target is an ARGUMENT, which is what makes the routing
-// typed, visible and editable before it commits (§5): `stage :open <path>` puts the line in the
+// typed, visible and editable before it commits (§5): `stage :open $o_path` puts the line in the
 // command line and you aim it there. No routing hook, no display-buffer-alist.
 //
 // The panel is reached BEFORE the document is placed, so the open is an ordinary one from
@@ -715,11 +710,14 @@ USAGE_SET :: ":set <section>.<key> <value>"
 // `:do` reads the feed as COMMAND LINES and queues them to run after this chain ends — xargs
 // for builtins, and the loop the chain itself refuses to grow syntax for: the shell generates
 // text, text is commands, and `:get panels | awk ... | :do` walks the strip. Queued rather
-// than run here, because a line's parse clears the chain it would be standing in. Lines are
-// literal — no holes — since the generator had the values and focus moves as lines run.
+// than run here, because a line's parse clears the chain it would be standing in. An argument
+// is ONE line, which is how a field holding a whole line runs: `:do $o_act`.
 @(private = "file")
-builtin_do :: proc(a: ^App, _: string, step: cl.Step) -> bool {
+builtin_do :: proc(a: ^App, args: string, step: cl.Step) -> bool {
     feed, fed := cl.piped(&a.chain, step)
+    if args != "" {
+        feed, fed = cl.arg_whole(args), true
+    }
     if !fed {
         message_set(a, ":do: nothing was piped into it")
         return false

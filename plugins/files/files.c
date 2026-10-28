@@ -24,8 +24,7 @@
  * is a row in binds.conf:
  *
  *     [files]
- // (hole plugin-rows-vars :tags vars :needs (vars-per-step) :sev refactor) uses path; `file` has no reader, `mode`/`size` no shipped one
- *     enter          = exec :fs.enter <path> && :open <path>
+ *     enter          = exec :fs.enter $o_path && :open $o_path
  *     ctrl+backspace = fs.up
  *
  * `fs.enter` VISITS a directory — the buffer becomes that directory, the way dired's RET does —
@@ -455,8 +454,7 @@ static int b_match(void *ctx, int32_t i, const char *filter, size_t n) {
  *
  * `path` spans the NAME and carries the whole path as its value — what §14 asked for and could
  * not have. What a row SHOWS and what it ACTS ON are two questions, and a value is the answer
- * to the second. `file` is absent on a directory, so a row that cannot fill `<file>` says so
- * with data rather than with a refusal (§8). */
+ * to the second. */
 static void b_row(void *ctx, oket_build *out, oket_list_row *lr, int32_t idx) {
     browser *b = ctx;
     row *r = &b->rows[idx];
@@ -491,15 +489,8 @@ static void b_row(void *ctx, oket_build *out, oket_list_row *lr, int32_t idx) {
     lr->tail = r->dir ? 1 : 0;
 
     oket_build_cell(out, "row", text, n);
-    oket_build_span(out, "mode", 0, 10);
-    /* Right-aligned in its column, so the digits are its TAIL and the padding is not part of
-     * what `<size>` answers. */
-    oket_build_span(out, "size", 11 + SIZE_W - strlen(r->size), 11 + SIZE_W);
-    oket_build_link(out, "path", name_lo, name_hi, r->path, strlen(r->path));
+    oket_build_value(out, "path", name_lo, name_hi, r->path, strlen(r->path));
     oket_build_span(out, "name", name_lo, name_hi);
-    if (!r->dir) {
-        oket_build_link(out, "file", name_lo, name_hi, r->path, strlen(r->path));
-    }
 }
 
 /* No head row: the listing IS the document, and the panel diffs on its own (PANELS.md §7).
@@ -749,8 +740,7 @@ static row *row_at_point(oket_list *l, const lues_at *at, size_t *line) {
     return lr == NULL ? NULL : &b->rows[lr->idx];
 }
 
-/* The argument of a `<path>` hole, NUL-terminated into `out`. False for a line whose hole could
- * not be filled, which the kernel already reported. */
+/* The `$o_path` argument, NUL-terminated into `out`. False for an empty or oversized one. */
 static int arg_path(const char *args, size_t args_len, char *out, size_t cap) {
     if (args_len == 0 || args_len >= cap) {
         return 0;
@@ -767,7 +757,7 @@ static int arg_path(const char *args, size_t args_len, char *out, size_t cap) {
  * on is where `left` brings you back to.
  *
  * The exit code is the whole interface: non-zero over a directory STOPS the `&&` chain, having
- * moved; zero over anything else lets the chain reach `:open <path>`. A plugin cannot open a
+ * moved; zero over anything else lets the chain reach `:open $o_path`. A plugin cannot open a
  * document of somebody else's kind and does not need to — the command line it was bound in can. */
 static int32_t enter_cmd(const lues_api *api, lues_self self, const lues_at *at,
                          const char *args, size_t args_len) {
@@ -1069,7 +1059,7 @@ LUES_MAIN {
     api->register_command(api, self, LIT("fs.root"), LIT("move the listing to another directory"),
                           root_cmd);
     /* ASKED FOR, never claimed (§8). Every one shadows something wider — `enter` the
-     * surface-tier `:open <path>`, the vertical arrows the kernel's own motion — and the
+     * surface-tier `:open $o_path`, the vertical arrows the kernel's own motion — and the
      * writeback says so above each row, so what the browser took is readable in the file rather
      * than known.
      *
@@ -1078,7 +1068,7 @@ LUES_MAIN {
      * renamed. The hierarchy is on `enter` (a directory is visited) and on `ctrl+backspace` (out
      * of one), with the `..` row as the way up that needs no chord at all. */
     api->request_bind(api, self, LIT("files"), LIT("enter"),
-                      LIT("exec :fs.enter <path> && :open <path>"));
+                      LIT("exec :fs.enter $o_path && :open $o_path"));
     /* Out, and it shadows nothing: `edit.delete_word_back` is written for the `text` context and
      * a listing is a surface. Backspace erases inside a name, so the modified one leaving the
      * directory reads the same way round. */
@@ -1086,7 +1076,7 @@ LUES_MAIN {
     /* DOUBLE click, not single: a single one moves point and `fs.snap` lands it on the name, so
      * clicking into a row to rename it does not also take you somewhere. */
     api->request_bind(api, self, LIT("files"), LIT("double-click"),
-                      LIT("exec :fs.enter <path> && :open <path>"));
+                      LIT("exec :fs.enter $o_path && :open $o_path"));
     api->request_bind(api, self, LIT("files"), LIT("click"), LIT("fs.snap"));
     api->request_bind(api, self, LIT("files"), LIT("up"), LIT("fs.up.row"));
     api->request_bind(api, self, LIT("files"), LIT("down"), LIT("fs.down.row"));

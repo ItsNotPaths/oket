@@ -140,7 +140,7 @@ button_event :: proc(a: ^App, ev: ^sdl.MouseButtonEvent) {
         // the screen, and placing those numbers against a panel's body would move its caret for
         // a click beside it.
         if pn == active_panel(a) {
-            // Point first, then the chord (§8): holes fill from point exactly as they do for a
+            // Point first, then the chord (§8): `$o_` names fill from point exactly as they do for a
             // key. Unless the row names a verb that places its own — see point_press.
             point_press(a, input.MOUSE_BUTTONS[b], mods_now(), cx, cy)
             input.mouse_press(&a.mouse, input.MOUSE_BUTTONS[b], cx, cy)

@@ -33,7 +33,7 @@ Pending_Pick :: struct {
     // The whole chord, not just its held key: its release commits the gesture and a REPEAT of
     // it is the key never having come up, which is not a second press of a row.
     chord:  Chord,
-    // Owned, and expanded at the PRESS, so its holes read the point the chord fired on.
+    // Owned, and filled at the PRESS, so its `$o_` names read the point the chord fired on.
     line:   string,
     target: int,
 }

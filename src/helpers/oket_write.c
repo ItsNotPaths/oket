@@ -71,8 +71,7 @@ void oket_build_span(oket_build *b, const char *name, size_t lo, size_t hi) {
     sp->open = 1; /* text typed at either end of a name is part of it */
 }
 
-// (hole link-marker :tags vars :sev refactor) only edit, grep, term publish links; owners need a way to mark a field as a link
-void oket_build_link(oket_build *b, const char *name, size_t lo, size_t hi,
+void oket_build_value(oket_build *b, const char *name, size_t lo, size_t hi,
                      const char *value, size_t value_len) {
     oket_build_span(b, name, lo, hi);
     if (b->nspans > 0 && value != NULL) {

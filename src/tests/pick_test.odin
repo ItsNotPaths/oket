@@ -84,7 +84,7 @@ describe_answers_for_a_held_chord :: proc(t: ^testing.T) {
                                  allocator = context.temp_allocator)
     testing.expect(t, strings.has_prefix(said, "tab+enter"), said)
     testing.expect(t, strings.contains(said, "arms"), said)
-    testing.expect(t, strings.contains(said, ":open <path> @"), said)
+    testing.expect(t, strings.contains(said, ":open $o_path @"), said)
 }
 
 // Claim 3, and the step before it: holding the key does NOTHING, because a tab-down is not a
@@ -107,9 +107,9 @@ holding_the_key_arms_nothing_and_the_chord_arms :: proc(t: ^testing.T) {
     testing.expect(t, is_armed)
     testing.expect_value(t, armed.chord.held, code_of(TAB))
     testing.expect_value(t, armed.target, a.focus)
-    // Expanded at the PRESS: the hole is already a path, not a `<path>` waiting for one.
+    // Filled at the PRESS: already a path, not a `$o_path` waiting for one.
     testing.expect(t, strings.has_prefix(armed.line, ":open "), armed.line)
-    testing.expect(t, !strings.contains(armed.line, "<path>"), armed.line)
+    testing.expect(t, !strings.contains(armed.line, "$o_path"), armed.line)
     testing.expect(t, strings.has_suffix(armed.line, " @"), armed.line)
 }
 
@@ -207,7 +207,7 @@ escape_drops_the_armed_pick :: proc(t: ^testing.T) {
     testing.expect_value(t, len(a.ring.lanes[0].slots), 1) // nothing was opened
 }
 
-// Off a link there is nothing to fill the hole with, so the row reports what it cannot do and
+// Off a link there is nothing to fill `$o_` with, so the row reports what it cannot do and
 // nothing arms — the same answer `exec` gives, at the same moment.
 @(test)
 a_pick_with_no_field_under_point_arms_nothing :: proc(t: ^testing.T) {
@@ -217,12 +217,12 @@ a_pick_with_no_field_under_point_arms_nothing :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    app.pick_arm(&a, chord("RTRN", {}, TAB), {":open <nowhere> @", .Pick})
+    app.pick_arm(&a, chord("RTRN", {}, TAB), {":open $o_nowhere @", .Pick})
     testing.expect(t, a.pending == nil)
     testing.expect(t, strings.contains(a.message, "nowhere"), a.message)
 
     // And a row bound with no held key cannot arm a gesture nothing would ever finish.
-    app.pick_arm(&a, chord("RTRN"), {":open <path> @", .Pick})
+    app.pick_arm(&a, chord("RTRN"), {":open $o_path @", .Pick})
     testing.expect(t, a.pending == nil)
     testing.expect(t, strings.contains(a.message, "held key"), a.message)
 }

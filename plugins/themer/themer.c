@@ -4,15 +4,13 @@
  * manifest, and the chains. Selecting STAGES a chain in the command line rather than acting:
  *
  *     [themer]
- // (hole plugin-rows-vars :tags vars) `act` fits; `rm` is a second action on the row, the one misfit
- *     enter = stage <act>      the switch, pulling the file first when it is not here
- *     del   = stage <rm>       back to the default and the file removed — pulled rows only
+ *     enter = stage $o_act                                    the switch, pulling the file first
+ *     del   = stage :th.rm $o_name && :set theme.name gruvbox  a pulled one removed
  *
- * `act` and `rm` are VALUES the row never draws, built here where the state is known, so the
- * bind table stays two rows and the staged line is the whole policy: you read it, edit it, or
- * hit enter. Provenance is the manifest (`.themer` — names the staged chains themselves
- * append), never a name-match against the repo, so a hand-made file that shares a repo name
- * carries no `rm` at all.
+ * `act` is a VALUE the row never draws, built here where the state is known, so the staged line
+ * is the whole policy: you read it, edit it, or hit enter. Provenance is the manifest
+ * (`.themer` — names the staged pulls append), never a name-match against the repo, so
+ * `th.rm` refuses a hand-made file that shares a repo name.
  *
  * THE REPO LIST IS FETCHED, NOT VENDORED: the grammar registry earns its header by carrying
  * repo, rev and subpath per language; this list is a directory listing, one curl away. It lands
@@ -214,26 +212,16 @@ static void fetch(const lues_api *api, lues_self self, lues_doc doc) {
 
 /* --- the rows, through the list core --- */
 
-/* A link's value is BORROWED until the submit (oket_helpers.h), so a chain cannot live on
- * put_row's stack: these slots do, one publish at a time. Untouched pages of a bss array cost
- * nothing, and a publish that somehow outran them would reuse the last slot rather than walk
- * off the end. */
-static char CHAINS[2 * MAX_THEMES][ACT_CAP];
-static int NCHAINS;
+/* A value is BORROWED until the submit (oket_helpers.h), so a chain cannot live on t_row's
+ * stack: it lives in its row's slot. */
+static char ACTS[MAX_THEMES][ACT_CAP];
 
-static char *chain_slot(void) {
-    return CHAINS[NCHAINS < 2 * MAX_THEMES ? NCHAINS++ : 2 * MAX_THEMES - 1];
-}
-
-/* One row: the name for the eye, and the two chains a bind stages.
- *
- * `act` switches — a row that is not here pulls its file, writes the manifest and switches, all
- * in the one line the user is shown. `rm` reverts to the default and takes the file and its
- * manifest line back out, and only a pulled row carries one: an empty span fills its hole with
- * nothing, so `del` elsewhere stages an empty line rather than somebody's hand-made file. */
+/* One row: `name` for the eye and for `th.rm`, and `act`, the chain `enter` stages: a row that
+ * is not here pulls its file, writes the manifest and switches, all in the one line the user is
+ * shown. */
 static void t_row(void *ctx, oket_build *out, oket_list_row *lr, int32_t idx) {
     const theme_row *r = &THEMES[idx];
-    char text[LINE_CAP], *act = chain_slot();
+    char text[LINE_CAP], *act = ACTS[idx];
     size_t n, name_lo = 2, name_hi = name_lo + strlen(r->name);
 
     (void)ctx;
@@ -253,20 +241,8 @@ static void t_row(void *ctx, oket_build *out, oket_list_row *lr, int32_t idx) {
     }
     lr->fixed = 1; /* a row you stage, never one you rename */
     oket_build_cell(out, "row", text, n);
-    oket_build_span(out, "theme", name_lo, name_hi);
-    oket_build_link(out, "act", name_lo, name_hi, act, strlen(act));
-    if (r->state == PULLED) {
-        char *rm = chain_slot();
-
-        snprintf(rm, ACT_CAP,
-                 ":set theme.name " THEME_DEFAULT
-                 " && rm '%s/%s.toml'"
-                 " && sed -i '/^%s$/d' '%s/.themer' && :th.done",
-                 ROOT, r->name, r->name, ROOT);
-        oket_build_link(out, "rm", name_lo, name_hi, rm, strlen(rm));
-    } else {
-        oket_build_link(out, "rm", name_lo, name_hi, "", 0); /* an empty argument */
-    }
+    oket_build_span(out, "name", name_lo, name_hi);
+    oket_build_value(out, "act", name_lo, name_hi, act, strlen(act));
 }
 
 static int32_t t_count(void *ctx) {
@@ -283,7 +259,6 @@ static size_t t_head(void *ctx, char *out, size_t cap, const oket_list *l, int32
     int n;
 
     (void)ctx;
-    NCHAINS = 0; /* the publish begins here; the last one's chains were copied at its submit */
     if (l->filtering || l->nfilter > 0) {
         n = snprintf(out, cap, "themes   %d here of %d   /%.*s   %d shown; esc clears",
                      NHERE, NTHEMES, (int)l->nfilter, l->filter, shown);
@@ -356,6 +331,58 @@ static int32_t done_cmd(const lues_api *api, lues_self self, const lues_at *at,
     return 0;
 }
 
+/* The manifest is the PULLED rows, so it is written from them rather than edited. */
+static void manifest_write(void) {
+    char path[PATH_CAP + 16];
+    FILE *f;
+    int i;
+
+    snprintf(path, sizeof path, "%s/.themer", ROOT);
+    f = fopen(path, "w");
+    if (f == NULL) {
+        return;
+    }
+    for (i = 0; i < NTHEMES; i++) {
+        if (THEMES[i].state == PULLED) {
+            fprintf(f, "%s\n", THEMES[i].name);
+        }
+    }
+    fclose(f);
+}
+
+/* `th.rm <name>`: a pulled theme's file and its manifest line. A hand-made file is not this
+ * list's to remove. */
+static int32_t rm_cmd(const lues_api *api, lues_self self, const lues_at *at,
+                      const char *args, size_t args_len) {
+    char name[NAME_CAP], path[PATH_CAP + NAME_CAP + 8], msg[NAME_CAP + 48];
+    theme_row *r;
+
+    (void)at;
+    if (args_len == 0 || args_len >= sizeof name) {
+        oket_say(api, self, "usage: :th.rm <name>");
+        return 1;
+    }
+    memcpy(name, args, args_len);
+    name[args_len] = 0;
+    scan();
+    r = row_named(name);
+    if (r == NULL || r->state != PULLED) {
+        snprintf(msg, sizeof msg, "th.rm: %s was not pulled here", name);
+        oket_say(api, self, msg);
+        return 1;
+    }
+    snprintf(path, sizeof path, "%s/%s.toml", ROOT, name);
+    if (remove(path) != 0) {
+        snprintf(msg, sizeof msg, "th.rm: cannot remove %s.toml", name);
+        oket_say(api, self, msg);
+        return 1;
+    }
+    r->state = AWAY;
+    manifest_write();
+    rescan(api, self);
+    return 0;
+}
+
 static int32_t pull_cmd(const lues_api *api, lues_self self, const lues_at *at,
                         const char *args, size_t args_len) {
     (void)args;
@@ -413,10 +440,12 @@ LUES_MAIN {
     api->register_command(api, self, LIT("th.done"), LIT("re-read the themes directory"),
                           done_cmd);
     api->register_command(api, self, LIT("th.pull"), LIT("refresh the repo list"), pull_cmd);
+    api->register_command(api, self, LIT("th.rm"), LIT("remove a pulled theme"), rm_cmd);
     api->register_command(api, self, LIT("th.dir"), LIT("where the themes live; no argument asks"),
                           dir_cmd);
     api->request_bind(api, self, LIT("global"), LIT("alt+@AD05"), LIT("exec :ring themer"));
-    api->request_bind(api, self, LIT("themer"), LIT("enter"), LIT("stage <act>"));
-    api->request_bind(api, self, LIT("themer"), LIT("del"), LIT("stage <rm>"));
+    api->request_bind(api, self, LIT("themer"), LIT("enter"), LIT("stage $o_act"));
+    api->request_bind(api, self, LIT("themer"), LIT("del"),
+                      LIT("stage :th.rm $o_name && :set theme.name " THEME_DEFAULT));
     return 0;
 }

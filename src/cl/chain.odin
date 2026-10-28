@@ -39,6 +39,9 @@ Chain :: struct {
     // `:do`'s pending lines, each run as its own chain once this one ends. A reset keeps them:
     // a queued line's parse resets the chain and must not eat the lines behind it.
     queue:   [dynamic]string,
+    // The fields under point when the line started, owned. Steps fill from these and not from
+    // point, which a step before may have moved.
+    vars:    Vars,
 }
 
 // `:do`'s cap. A queued line may queue lines of its own, and this is the one guard against a
@@ -191,6 +194,7 @@ reset :: proc(ch: ^Chain) {
     }
     delete(ch.steps)
     delete(ch.feed.? or_else "")
+    vars_free(ch)
     ch^ = {era = ch.era + 1, queue = ch.queue}
 }
 

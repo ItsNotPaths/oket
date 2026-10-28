@@ -13,9 +13,9 @@ conf_reads_sections_and_values :: proc(t: ^testing.T) {
         loose = before any header
 
         [browser]
-        enter = stage :open <path>
+        enter = stage :open $o_path
         # another
-        d     = exec rm <path>
+        d     = exec rm $o_path
 
         [ text ]
         ctrl+s = edit.save`,
@@ -24,8 +24,8 @@ conf_reads_sections_and_values :: proc(t: ^testing.T) {
     testing.expect_value(t, len(rows), 4)
 
     testing.expect_value(t, rows[0], conf.Row{"", "loose", "before any header", 2})
-    testing.expect_value(t, rows[1], conf.Row{"browser", "enter", "stage :open <path>", 5})
-    testing.expect_value(t, rows[2], conf.Row{"browser", "d", "exec rm <path>", 7})
+    testing.expect_value(t, rows[1], conf.Row{"browser", "enter", "stage :open $o_path", 5})
+    testing.expect_value(t, rows[2], conf.Row{"browser", "d", "exec rm $o_path", 7})
     // A header is trimmed, so `[ text ]` and `[text]` are one section.
     testing.expect_value(t, rows[3], conf.Row{"text", "ctrl+s", "edit.save", 10})
 }
@@ -34,10 +34,10 @@ conf_reads_sections_and_values :: proc(t: ^testing.T) {
 // none of them are syntax.
 @(test)
 conf_takes_the_value_whole :: proc(t: ^testing.T) {
-    rows, errs := conf.parse("[global]\nctrl+f = exec sed -i 's/a=b/c#d/' <path>")
+    rows, errs := conf.parse("[global]\nctrl+f = exec sed -i 's/a=b/c#d/' $o_path")
     testing.expect_value(t, len(errs), 0)
     testing.expect_value(t, len(rows), 1)
-    testing.expect_value(t, rows[0].value, "exec sed -i 's/a=b/c#d/' <path>")
+    testing.expect_value(t, rows[0].value, "exec sed -i 's/a=b/c#d/' $o_path")
 }
 
 // A bad row is reported and skipped: one typo does not cost the file.

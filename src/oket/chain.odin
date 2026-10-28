@@ -14,8 +14,23 @@ Chain :: cl.Chain
 // A new line abandons any half-finished chain; a job already running finishes on its own.
 // (hole direct-step :tags (binds live) :sev refactor) no single rule for "one : step, no operators: call the builtin directly"; key presses and the live re-run must share one proc, or one starts resetting the chain
 cl_exec :: proc(a: ^App, line: string) {
+    if cl_start(a, line) {
+        chain_pump(a)
+    }
+}
+
+// The parse, and the fields under point taken once for every step. A `$o_` name nothing here
+// carries stops the line before any of it runs.
+@(private = "file")
+cl_start :: proc(a: ^App, line: string) -> bool {
     cl_parse(a, line)
-    chain_pump(a)
+    cl.vars_set(&a.chain, vars_under_point(a))
+    if name, gap := cl.vars_missing(&a.chain); gap {
+        vars_say_missing(a, name)
+        cl.reset(&a.chain)
+        return false
+    }
+    return true
 }
 
 // Chain-building without execution, split out so the parse is testable on its own.
@@ -39,7 +54,6 @@ alias_expansion :: proc(a: ^App, name: string) -> string {
 // Advance as far as this frame allows: builtins run inline, a shell step goes out and the chain
 // waits on its exit code (sh_pump). A chain that ends takes the next `:do` line, so the queue
 // drains here and nowhere else.
-// (hole vars-per-step :tags vars :sev refactor) fields fill once for the whole line before the chain exists; fill per step, a var fills a builtin step as one argument
 chain_pump :: proc(a: ^App) {
     ch := &a.chain
     for !ch.waiting {
@@ -48,7 +62,7 @@ chain_pump :: proc(a: ^App) {
             line := cl.dequeue(ch) or_break
             // Echoed into N0 first, so a loop leaves a transcript: what ran is scrollback.
             sys_println(a, fmt.tprintf("%s%s", CL_PROMPT, line))
-            cl_parse(a, line)
+            cl_start(a, line)
             delete(line)
             continue
         }
@@ -63,6 +77,7 @@ chain_pump :: proc(a: ^App) {
             return
         }
         era := ch.era
+        step.text, _, _ = cl.fill(ch.vars, step.text) // cl_start checked every name is there
         ok = cl_builtin(a, step)
         if era != ch.era {
             return // the builtin replaced the chain (`:pluginify` does); it is not ours to step

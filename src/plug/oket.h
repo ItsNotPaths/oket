@@ -78,7 +78,9 @@ typedef struct {
 /* --- the descriptor (§5) ---
  *
  * Named spans are not here: they are data spans (a lues_span with a `key`), submitted with the
- * text they cover. oket_build_span and oket_build_link write them.
+ * text they cover. oket_build_span and oket_build_value write them. One named `path`, `name`,
+ * `link` or `act` is a LINK: it is underlined, and a command line reads it as `$o_path` and
+ * so on. Those four are the whole list.
  *
  * No `ctx` field: a kind's bind context is fixed where the kind is registered, so publishing a
  * descriptor cannot move your documents into another context's keys. */

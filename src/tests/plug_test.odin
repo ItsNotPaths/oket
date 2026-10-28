@@ -62,7 +62,7 @@ a_plugin_registers_opens_renders_and_unloads :: proc(t: ^testing.T) {
     testing.expect_value(t, d.kind, kind)
     testing.expect_value(t, d.ctx, input.Bind_Ctx.Surface)
     testing.expect_value(t, len(d.columns), 2)
-    // The fields the helper library's builder recorded, which is what `<name>` resolves off.
+    // The fields the helper library's builder recorded, which is what `$o_name` resolves off.
     name, name_ok := field_at(&a, id, 0, "name")
     testing.expect(t, name_ok)
     testing.expect_value(t, name.value, "kind")
@@ -487,7 +487,7 @@ a_plugins_attribute_bits_are_the_renderers :: proc(t: ^testing.T) {
 
     snap := store.store_snapshot(a.docs, id)
     defer pt.snapshot_release(snap)
-    drawn := app.doc_styles(&a, id, nil, &snap.text, nil, 0, 1)
+    drawn := app.doc_styles(&a, id, &snap.text, nil, 0, 1)
     if !testing.expect(t, len(drawn) > 0, "the publish reached nothing") {
         return
     }
