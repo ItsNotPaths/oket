@@ -242,15 +242,63 @@ bind_dispatch :: proc(a: ^App, chord: input.Chord, b: input.Bind, extend: bool) 
         return
     }
     cmd, _ := input.bind_command(b) // the line and slot arms returned, so a Command is all that is left
-    // A cycle only means anything straight after a paste, so every other verb puts the mark
-    // down. That is what keeps ctrl+shift+v config rather than a mode.
-    if cmd != .Paste && cmd != .Paste_Cycle {
-        a.paste.live = false
-    }
     // The line answers four chords for itself; everything else acts on it because `active`
     // says it is the document now.
     if cl_active(a) && cl_take(a, cmd) {
         return
+    }
+    #partial switch cmd {
+    case .Surface_Send:
+        // A ROW named this, so a document with no job of its own has to say so: a bound chord
+        // that quietly does nothing is the one thing §8 exists to prevent. The miss path above
+        // stays silent, because an unbound chord was never a promise.
+        if !surface_send(a, chord) {
+            message_set(a, "this document has no job of its own")
+        }
+    case .Ring_Goto:
+        // One bind covers alt+1..9: the offset past the row's own code is the slot (§8).
+        command_run(a, cmd, int(chord.code - b.chord.code) + 1, extend)
+    case:
+        command_run(a, cmd, 0, extend)
+    }
+}
+
+Command_Arg :: enum {
+    None,
+    Slot,
+    Extend,
+}
+
+// What a verb takes when it is typed: the slot alt+N carries, or the shift a motion carries.
+command_arg :: proc(cmd: input.Command) -> Command_Arg {
+    if cmd == .Ring_Goto {
+        return .Slot
+    }
+    if _, moves := motion_of(cmd); moves {
+        return .Extend
+    }
+    return .None
+}
+
+command_usage :: proc(cmd: input.Command) -> string {
+    name := input.COMMANDS[cmd].name
+    switch command_arg(cmd) {
+    case .Slot:
+        return fmt.tprintf(":%s <N>", name)
+    case .Extend:
+        return fmt.tprintf(":%s [extend]", name)
+    case .None:
+    }
+    return fmt.tprintf(":%s", name)
+}
+
+// A verb, run. Keyed on the enum, so a keystroke never goes through cl.parse and never resets
+// a chain. `n` is the slot for ring.goto; `extend` is for motions.
+command_run :: proc(a: ^App, cmd: input.Command, n: int, extend: bool) {
+    // A cycle only means anything straight after a paste, so every other verb puts the mark
+    // down. That is what keeps ctrl+shift+v config rather than a mode.
+    if cmd != .Paste && cmd != .Paste_Cycle {
+        a.paste.live = false
     }
     if motion, moves := motion_of(cmd); moves {
         point_move(a, motion, extend)
@@ -275,13 +323,6 @@ bind_dispatch :: proc(a: ^App, chord: input.Chord, b: input.Bind, extend: bool) 
         scroll_by(a, -max(active_rect(a).h - 1, 1))
     case .View_Page_Down:
         scroll_by(a, +max(active_rect(a).h - 1, 1))
-    case .Surface_Send:
-        // A ROW named this, so a document with no job of its own has to say so: a bound chord
-        // that quietly does nothing is the one thing §8 exists to prevent. The miss path above
-        // stays silent, because an unbound chord was never a promise.
-        if !surface_send(a, chord) {
-            message_set(a, "this document has no job of its own")
-        }
     case .Save:
         dump_doc(a)
     case .Term_Copy:
@@ -295,8 +336,7 @@ bind_dispatch :: proc(a: ^App, chord: input.Chord, b: input.Bind, extend: bool) 
     case .Copy:
         copy_doc(a)
     case .Ring_Goto:
-        // One bind covers alt+1..9: the offset past the row's own code is the slot (§8).
-        ring_open(a, int(chord.code - b.chord.code) + 1)
+        ring_open(a, n)
     case .Ring_Alt:
         ring_alt(a)
     case .Ring_Alt_Lane:

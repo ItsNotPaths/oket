@@ -186,7 +186,7 @@ np_is_the_panel_open_verb :: proc(t: ^testing.T) {
     app.cl_exec(&a, ":np")
     testing.expect_value(t, len(a.panels), 2)
     testing.expect_value(t, a.focus, 1) // unarmed, the aim IS the focus
-    app.cl_exec(&a, ":new-panel")
+    app.cl_exec(&a, ":panel.open")
     testing.expect_value(t, len(a.panels), 3)
     testing.expect_value(t, a.focus, 2)
 }

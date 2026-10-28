@@ -273,18 +273,20 @@ COMMANDS := [Command]Command_Info {
     .Font_Reset          = {"font.reset", "back to the size the system asked for", {.Global}},
 }
 
+// A second spelling, for the few verbs that have one.
+@(rodata)
+COMMAND_ALSO := #partial [Command]string {
+    .Quit       = "q",
+    .Panel_Open = "np",
+}
+
 // A verb by its registry name, which is the name the config, `:` and describe all use, so the
 // three can never disagree about what a verb is called (§6).
 command_named :: proc(name: string) -> (Command, bool) {
     for info, cmd in COMMANDS {
-        if info.name == name && cmd != .None {
+        if cmd != .None && (info.name == name || name != "" && COMMAND_ALSO[cmd] == name) {
             return cmd, true
         }
-    }
-    // `quit` is an accepted spelling of `file.quit` (MENU.md §3): every name is `group.verb`,
-    // which is what a menu groups by, and a binds.conf that says `quit` still works.
-    if name == "quit" {
-        return .Quit, true
     }
     return .None, false
 }

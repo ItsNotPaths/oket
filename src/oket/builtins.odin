@@ -12,6 +12,7 @@ import "../shape"
 import "../store"
 import "../txt"
 import "../cl"
+import "../input"
 
 // The kernel's curated core set (§12). Everything past it arrives with plugins, and the sigil
 // promised a builtin, so an unknown name stops the chain and says so rather than falling
@@ -82,9 +83,6 @@ BUILTINS := [?]Builtin {
     {"width", "", "panel", USAGE_WIDTH,
      "size the panel; a list of percents is a cycle, and one is a set",
      builtin_width},
-    {"np", "new-panel", "panel", ":np",
-     "a panel to the right of this one, standing on nothing",
-     builtin_np},
     {"binds", "", "file", ":binds",
      "open binds.conf; a save is read at once",
      builtin_binds},
@@ -106,20 +104,45 @@ BUILTINS := [?]Builtin {
     {"oket", "", "file", USAGE_OKET,
      "where oket keeps its files, and putting them there or taking them away",
      builtin_oket},
-    {"q", "", "file", ":q",
-     "close the window",
-     builtin_quit},
 }
 
 // The row a name reaches, either spelling. Walked and not hashed: the set is small and this
-// runs once per typed line, never once per keystroke.
+// runs once per typed line, never once per keystroke. A kernel verb is a row too, built here
+// rather than copied into BUILTINS.
 builtin_named :: proc(name: string) -> (Builtin, bool) {
     for b in BUILTINS {
         if b.name == name || b.also != "" && b.also == name {
             return b, true
         }
     }
-    return {}, false
+    cmd, is_verb := input.command_named(name)
+    if !is_verb || cmd == .Surface_Send {
+        return {}, false
+    }
+    info := input.COMMANDS[cmd]
+    group, _, _ := strings.partition(info.name, ".")
+    return {info.name, input.COMMAND_ALSO[cmd], group, command_usage(cmd), info.doc, builtin_verb}, true
+}
+
+@(private = "file")
+builtin_verb :: proc(a: ^App, args: string, step: cl.Step) -> bool {
+    cmd, _ := input.command_named(cl.first_field(step.text))
+    n, extend, ok := 0, false, args == ""
+    switch command_arg(cmd) {
+    case .None:
+    case .Slot:
+        n, ok = strconv.parse_int(args)
+        ok &&= n >= 1
+    case .Extend:
+        extend = args == "extend"
+        ok ||= extend
+    }
+    if !ok {
+        message_set(a, command_usage(cmd))
+        return false
+    }
+    command_run(a, cmd, n, extend)
+    return true
 }
 
 cl_builtin :: proc(a: ^App, step: cl.Step) -> bool {
@@ -195,14 +218,6 @@ close_lane :: proc(a: ^App) -> bool {
 
 USAGE_CLOSE :: ":close [#slot|#*]"
 
-// `panel.open` as a command line, which is what the picker's second `tab+enter` runs: a panel
-// to the right of the one the keys are aimed at, and the aim goes with it.
-@(private = "file")
-builtin_np :: proc(a: ^App, _: string, _: cl.Step) -> bool {
-    panel_open(a)
-    return true
-}
-
 // `:home enter` is the page's own row acting on itself; a bare `:home` asks for the page. Both
 // are lines you could type, which is what keeps the page a document.
 @(private = "file")
@@ -254,12 +269,6 @@ builtin_lock :: proc(a: ^App, _: string, _: cl.Step) -> bool {
     }
     s.locked = !s.locked
     message_set(a, s.locked ? "locked" : "unlocked")
-    return true
-}
-
-@(private = "file")
-builtin_quit :: proc(a: ^App, _: string, _: cl.Step) -> bool {
-    a.quit = true
     return true
 }
 

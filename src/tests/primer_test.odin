@@ -30,7 +30,7 @@ a_primer_qualifies_exactly_one_chord :: proc(t: ^testing.T) {
         return
     }
     defer close_app(&a)
-    app.binds_parse(&a, "[global]\nctrl+@AB05 ctrl+@AC04 = quit\n", "binds.conf")
+    app.binds_parse(&a, "[global]\nctrl+@AB05 ctrl+@AC04 = file.quit\n", "binds.conf")
 
     // The primer is nobody's row, so pressing it arms rather than running.
     app.handle_chord(&a, chord("ctrl+@AB05"))
@@ -62,7 +62,7 @@ an_unmodified_key_after_a_primer_falls_through :: proc(t: ^testing.T) {
         return
     }
     defer close_app(&a)
-    app.binds_parse(&a, "[global]\nctrl+@AB05 ctrl+@AC04 = quit\n", "binds.conf")
+    app.binds_parse(&a, "[global]\nctrl+@AB05 ctrl+@AC04 = file.quit\n", "binds.conf")
 
     app.handle_chord(&a, chord("ctrl+@AB05"))
     app.handle_chord(&a, chord("f1"))
@@ -80,7 +80,7 @@ escape_cancels_a_primer_rather_than_quitting :: proc(t: ^testing.T) {
         return
     }
     defer close_app(&a)
-    app.binds_parse(&a, "[global]\nctrl+@AB05 ctrl+@AC04 = quit\n", "binds.conf")
+    app.binds_parse(&a, "[global]\nctrl+@AB05 ctrl+@AC04 = file.quit\n", "binds.conf")
 
     app.handle_chord(&a, chord("ctrl+@AB05"))
     app.handle_chord(&a, chord("esc"))
@@ -98,7 +98,7 @@ the_help_chord_lists_the_children_in_the_menu :: proc(t: ^testing.T) {
         return
     }
     defer close_app(&a)
-    app.binds_parse(&a, "[global]\nctrl+@AB05 ctrl+@AC04 = quit\n", "binds.conf")
+    app.binds_parse(&a, "[global]\nctrl+@AB05 ctrl+@AC04 = file.quit\n", "binds.conf")
 
     app.handle_chord(&a, chord("ctrl+@AB05"))
     testing.expect(t, !strings.contains(app.bar_text(&a), "quit"), app.bar_text(&a))
@@ -125,7 +125,7 @@ a_child_is_invisible_without_its_primer :: proc(t: ^testing.T) {
         return
     }
     defer close_app(&a)
-    app.binds_parse(&a, "[global]\nctrl+@AB05 ctrl+@AC04 = quit\n", "binds.conf")
+    app.binds_parse(&a, "[global]\nctrl+@AB05 ctrl+@AC04 = file.quit\n", "binds.conf")
 
     app.handle_chord(&a, chord("ctrl+@AC04"))
     testing.expect(t, !a.quit, "the child ran with no primer up")
@@ -142,15 +142,15 @@ a_sequence_is_two_modified_chords :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    app.binds_parse(&a, "[global]\nctrl+@AB05 @AC04 = quit\n", "binds.conf")
+    app.binds_parse(&a, "[global]\nctrl+@AB05 @AC04 = file.quit\n", "binds.conf")
     testing.expect(t, strings.contains(a.message, "modifier"), a.message)
 
     // A button already moves point before dispatch, so it can never qualify what follows.
-    app.binds_parse(&a, "[global]\nclick ctrl+@AC04 = quit\n", "binds.conf")
+    app.binds_parse(&a, "[global]\nclick ctrl+@AC04 = file.quit\n", "binds.conf")
     testing.expect(t, strings.contains(a.message, "modifier"), a.message)
 
     // And three is a mode with extra steps.
-    app.binds_parse(&a, "[global]\nctrl+@AB05 ctrl+@AC04 ctrl+@AC08 = quit\n", "binds.conf")
+    app.binds_parse(&a, "[global]\nctrl+@AB05 ctrl+@AC04 ctrl+@AC08 = file.quit\n", "binds.conf")
     testing.expect(t, strings.contains(a.message, "two chords"), a.message)
 }
 
@@ -163,7 +163,7 @@ a_chord_that_is_both_is_reported :: proc(t: ^testing.T) {
         return
     }
     defer close_app(&a)
-    app.binds_parse(&a, "[global]\nctrl+@AB05 = quit\nctrl+@AB05 ctrl+@AC04 = file.dump\n", "binds.conf")
+    app.binds_parse(&a, "[global]\nctrl+@AB05 = file.quit\nctrl+@AB05 ctrl+@AC04 = file.dump\n", "binds.conf")
 
     hits := input.bind_collisions(a.binds[:], nil, {}, context.temp_allocator)
     testing.expect_value(t, len(hits), 1)
@@ -184,7 +184,7 @@ describe_reads_a_primer_out :: proc(t: ^testing.T) {
         return
     }
     defer close_app(&a)
-    app.binds_parse(&a, "[global]\nctrl+@AB05 ctrl+@AC04 = quit\n", "binds.conf")
+    app.binds_parse(&a, "[global]\nctrl+@AB05 ctrl+@AC04 = file.quit\n", "binds.conf")
 
     f1, _ := input.key_code("FK01")
     app.handle_chord(&a, {f1, {}, 0})
@@ -202,7 +202,7 @@ a_primer_does_not_arm_over_the_command_line :: proc(t: ^testing.T) {
         return
     }
     defer close_app(&a)
-    app.binds_parse(&a, "[global]\nctrl+@AB05 ctrl+@AC04 = quit\n", "binds.conf")
+    app.binds_parse(&a, "[global]\nctrl+@AB05 ctrl+@AC04 = file.quit\n", "binds.conf")
 
     app.cl_show(&a)
     app.handle_chord(&a, chord("ctrl+@AB05"))

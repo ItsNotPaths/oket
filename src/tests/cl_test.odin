@@ -8,6 +8,7 @@ import "core:testing"
 import "../store"
 import "../txt"
 import app "../oket"
+import "../input"
 
 // The rest of the gate for build order stage 5: the command line, and `exec` / `stage` reaching
 // it from a bind row. The line is a document like any other, so what is tested here is mostly
@@ -272,6 +273,47 @@ no_two_builtins_share_a_spelling :: proc(t: ^testing.T) {
                             b.name, b.also)
         }
     }
+}
+
+// Every kernel verb is typeable under its own name, and no BUILTINS row hides one: the walk
+// checks BUILTINS first, so a clash would make the verb unreachable from the line.
+@(test)
+every_verb_is_a_builtin :: proc(t: ^testing.T) {
+    for info, cmd in input.COMMANDS {
+        if cmd == .None || cmd == .Surface_Send {
+            continue
+        }
+        b, found := app.builtin_named(info.name)
+        testing.expectf(t, found && b.name == info.name, "%s is not typeable", info.name)
+        testing.expectf(t, strings.has_prefix(b.usage, fmt.tprintf(":%s", info.name)),
+                        "%s: the usage does not start with the name (%s)", info.name, b.usage)
+    }
+    for b in app.BUILTINS {
+        _, clash := input.command_named(b.name)
+        testing.expectf(t, !clash, "builtin %s hides a verb", b.name)
+        if b.also != "" {
+            _, clash = input.command_named(b.also)
+            testing.expectf(t, !clash, "builtin %s hides a verb", b.also)
+        }
+    }
+    _, sends := app.builtin_named("surface.send")
+    testing.expect(t, !sends, "surface.send has no typed form")
+}
+
+// A typed verb does what its chord does, and an argument it cannot take refuses the line.
+@(test)
+a_typed_verb_runs :: proc(t: ^testing.T) {
+    a, ok := bare_app()
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+    app.cl_exec(&a, ":file.quit now")
+    testing.expect(t, !a.quit, "a verb that takes nothing ran with an argument")
+    app.cl_exec(&a, ":ring.goto")
+    testing.expect_value(t, a.message, ":ring.goto <N>")
+    app.cl_exec(&a, ":q")
+    testing.expect(t, a.quit, ":q did not quit")
 }
 
 // The one name the table must NOT answer to. `:` promised a builtin, so an unknown one stops

@@ -19,7 +19,7 @@ import "../menubar"
 @(private = "file")
 primer_app :: proc() -> (a: app.App, ok: bool) {
     a = bare_app(50, 20) or_return
-    app.binds_parse(&a, "[global]\nalt+@AB05 alt+@AC04 = quit\n", "binds.conf")
+    app.binds_parse(&a, "[global]\nalt+@AB05 alt+@AC04 = file.quit\n", "binds.conf")
     return a, true
 }
 

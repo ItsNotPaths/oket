@@ -102,17 +102,13 @@ every_command_has_a_doc :: proc(t: ^testing.T) {
     }
 }
 
-// `quit` is an accepted spelling of `file.quit` (MENU.md §3), so no binds.conf breaks on the
-// rename. Both reach the same verb.
+// A second spelling reaches the same verb as its name, in binds.conf and on the line alike.
 @(test)
-the_old_quit_spelling_still_resolves :: proc(t: ^testing.T) {
-    cmd, found := input.command_named("quit")
-    testing.expect(t, found)
-    testing.expect_value(t, cmd, input.Command.Quit)
-
-    cmd, found = input.command_named("file.quit")
-    testing.expect(t, found)
-    testing.expect_value(t, cmd, input.Command.Quit)
+a_verb_answers_to_its_second_spelling :: proc(t: ^testing.T) {
+    cmd, found := input.command_named("q")
+    testing.expect(t, found && cmd == .Quit)
+    cmd, found = input.command_named("np")
+    testing.expect(t, found && cmd == .Panel_Open)
 }
 
 @(test)
