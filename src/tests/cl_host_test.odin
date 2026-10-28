@@ -57,6 +57,26 @@ a_host_with_no_app_runs_a_chain :: proc(t: ^testing.T) {
     testing.expect(t, !cl.busy(&ch))
 }
 
+@(private = "file")
+host_takes_line :: proc(_: ^Host, name: string) -> bool {
+    return name == "line"
+}
+
+// A builtin that takes a line gets the raw rest, operators and all; the steps before it split.
+@(test)
+a_line_builtin_takes_the_raw_rest :: proc(t: ^testing.T) {
+    h: Host
+    ch: cl.Chain
+    defer host_destroy(&h, &ch)
+
+    cl.parse(&ch, ":first && :line :a $o_x && b | :c # 2", &h, host_alias, host_takes_line)
+    testing.expect_value(t, len(ch.steps), 2)
+    if len(ch.steps) == 2 {
+        testing.expect_value(t, ch.steps[0].text, "first")
+        testing.expect_value(t, ch.steps[1].text, "line :a $o_x && b | :c # 2")
+    }
+}
+
 @(test)
 a_shell_step_holds_the_chain_until_its_exit :: proc(t: ^testing.T) {
     h: Host

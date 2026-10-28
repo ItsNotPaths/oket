@@ -218,7 +218,7 @@ handle_chord :: proc(a: ^App, chord: input.Chord) {
 // is the whole of "the menu does what typing it does" (MENU.md §1).
 bind_dispatch :: proc(a: ^App, chord: input.Chord, b: input.Bind, extend: bool) {
     if line, is_line := b.target.(input.Bind_Line); is_line {
-        bind_line_fire(a, line)
+        cl_exec(a, string(line))
         return
     }
     if slot, registered := b.target.(input.Slot); registered {
@@ -624,23 +624,6 @@ mouse_events_target :: proc(a: ^App) -> ^Term {
     }
     defer desc.release(d)
     return d.mouse == .Events && !s.locked ? term_of(a, s.doc) : nil
-}
-
-// The line arm of a bind (§8): run or staged as the file said. `exec` runs it, `stage` puts it
-// in the command line for aiming — those two words are the whole grammar, and they are what
-// makes Enter and Shift+Enter two rows over one value rather than two code paths in a plugin.
-@(private = "file")
-bind_line_fire :: proc(a: ^App, line: input.Bind_Line) {
-    switch line.mode {
-    case .Exec:
-        cl_exec(a, line.text)
-    case .Stage:
-        // A line that is one `$o_` value stages that value AS the line: `stage $o_act`. The
-        // trailing space makes what you type next a new word.
-        if text, ok := vars_fill(a, line.text); ok {
-            cl_show(a, strings.concatenate({cl.arg_whole(text), " "}, context.temp_allocator))
-        }
-    }
 }
 
 // The `$o_` fields on the line point is on (§5), by the rule field_under reads them by.

@@ -55,8 +55,7 @@ binds_file_lays_over_the_defaults :: proc(t: ^testing.T) {
     testing.expect(t, clicked)
     line, is_line := click.target.(input.Bind_Line)
     testing.expect(t, is_line)
-    testing.expect_value(t, line.text, ":open $o_path")
-    testing.expect_value(t, line.mode, input.Bind_Mode.Exec)
+    testing.expect_value(t, string(line), ":open $o_path")
 }
 
 // A row naming nothing is reported and skipped. One typo does not cost the rest of the file.
@@ -80,8 +79,7 @@ binds_file_skips_what_it_cannot_read :: proc(t: ^testing.T) {
 }
 
 // A value is a command line. A lone `:verb` is the verb itself; anything else runs as typed, so
-// a bare name is a shell command and `stage` is a word, never a prefix. `stage` aims the line in
-// the command line rather than running it (§5).
+// a bare name is a shell command.
 @(test)
 a_value_is_a_command_line :: proc(t: ^testing.T) {
     a := fixture()
@@ -92,15 +90,13 @@ a_value_is_a_command_line :: proc(t: ^testing.T) {
         }{
             {":file.dump", input.Command.Save},
             {"none", input.Command.None},
-            {":file.dump now", input.Bind_Line{":file.dump now", .Exec}},
-            {":not.a.verb", input.Bind_Line{":not.a.verb", .Exec}},
-            {"file.dump", input.Bind_Line{"file.dump", .Exec}},
-            {"stagehand x", input.Bind_Line{"stagehand x", .Exec}},
-            {"stage :open", input.Bind_Line{":open", .Stage}},
+            {":file.dump now", input.Bind_Line(":file.dump now")},
+            {":not.a.verb", input.Bind_Line(":not.a.verb")},
+            {"file.dump", input.Bind_Line("file.dump")},
         }) {
         got := app.binds_target(&a, row.value)
         defer if l, is_line := got.(input.Bind_Line); is_line {
-            delete(l.text)
+            delete(string(l))
         }
         testing.expectf(t, got == row.want, "%q parsed as %v", row.value, got)
     }

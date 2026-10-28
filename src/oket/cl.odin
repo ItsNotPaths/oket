@@ -61,8 +61,7 @@ cl_active :: proc(a: ^App) -> bool {
 }
 
 // Open the line, optionally with text already typed — alt+; passes the `:` sigil, and a bind
-// line's `stage` passes the whole expanded line.
-// (hole stage-builtin :tags binds :sev refactor) stage is a bind mode; as `:stage <line>` it must take the raw rest, not the split chain
+// line's `:stage` passes the whole expanded line.
 cl_show :: proc(a: ^App, prefix := "") {
     cl_init(a) // a zero Id resolves to whatever took slot 0, so the line owns its document first
     input.pending_set(&a.pending, input.Pending_Cmdline{})

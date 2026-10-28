@@ -215,7 +215,7 @@ runs :: proc(t: input.Bind_Target, names: input.Names) -> string {
         name, _ := input.target_info(v, names)
         return name
     case input.Bind_Line:
-        head, _, _ := strings.partition(v.text, " ")
+        head, _, _ := strings.partition(string(v), " ")
         return strings.trim_prefix(head, ":")
     }
     return ""

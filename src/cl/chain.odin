@@ -53,10 +53,12 @@ QUEUE_MAX :: 512
 ALIAS_DEPTH :: 8
 
 // A new chain from `line`. `alias` answers the line `:name` stands for, "" when it must not
-// expand; `host` is handed back to it.
-parse :: proc(ch: ^Chain, line: string, host: $H, alias: proc(host: H, name: string) -> string) {
+// expand; `takes_line` says a builtin's argument is the raw rest of the line, operators and all.
+// `host` is handed back to both.
+parse :: proc(ch: ^Chain, line: string, host: $H, alias: proc(host: H, name: string) -> string,
+              takes_line: proc(host: H, name: string) -> bool = nil) {
     reset(ch)
-    parse_into(ch, line, .And, 0, host, alias)
+    parse_into(ch, line, .And, 0, host, alias, takes_line)
 }
 
 // One line's segments, appended. `op0` replaces the first segment's opener — an alias body
@@ -64,8 +66,10 @@ parse :: proc(ch: ^Chain, line: string, host: $H, alias: proc(host: H, name: str
 // step — and `depth` is where alias-in-alias stops.
 @(private = "file")
 parse_into :: proc(ch: ^Chain, line: string, op0: Op, depth: int, host: $H,
-                   alias: proc(host: H, name: string) -> string) {
-    for seg, i in split(strings.trim_space(line)) {
+                   alias: proc(host: H, name: string) -> string,
+                   takes_line: proc(host: H, name: string) -> bool) {
+    src := strings.trim_space(line)
+    for seg, i in split(src) {
         // Segment ZERO only: an empty first segment (`|| x` opens the line) consumes the
         // override, so the `||` keeps its own operator and stays a skipped step.
         op := i == 0 ? op0 : seg.op
@@ -83,9 +87,16 @@ parse_into :: proc(ch: ^Chain, line: string, op0: Op, depth: int, host: $H,
             // step, and the host says which refusal it was.
             if depth < ALIAS_DEPTH && name == first_field(name) {
                 if sub := alias(host, name); sub != "" {
-                    parse_into(ch, sub, op, depth + 1, host, alias)
+                    parse_into(ch, sub, op, depth + 1, host, alias, takes_line)
                     continue
                 }
+            }
+            // The segment is a slice of `src`, so the rest of the line starts where it does.
+            if takes_line != nil && takes_line(host, first_field(name)) {
+                at := int(uintptr(raw_data(seg.text)) - uintptr(raw_data(src)))
+                rest := strings.trim_space(src[at:])
+                append(&ch.steps, Step{false, op, strings.clone(strings.trim_space(rest[1:]))})
+                return
             }
             append(&ch.steps, Step{false, op, strings.clone(name)})
             continue

@@ -14,14 +14,14 @@ import "../input"
 //
 //     # --- files ---
 //     [files]
-//     enter       = stage :open $o_path
+//     enter       = :stage :open $o_path
 //     click       = :open $o_path
 //     up          = :fs.up.row
 //
 // A section is a bind context: `global`, `text`, `surface`, `terminal`, or a KIND's name —
 // `[files]` is narrower than `[surface]` and wins where it applies, which is how `enter` means
 // one thing in a listing and another in the editor while both are surfaces. A value is a command
-// line whose `$o_` names fill from point, `stage` and a line to aim it first, or `none` to unbind.
+// line whose `$o_` names fill from point, or `none` to unbind.
 //
 // A start never rewrites it, only appends what a plugin asked for. In the config directory, next
 // to config.conf (path.odin).
@@ -118,16 +118,11 @@ binds_ctx :: proc(a: ^App, name: string) -> (ctx: input.Bind_Ctx, kind: input.Ki
     return .Global, 0, false
 }
 
-STAGE_WORD :: "stage"
-
-// `none`, `stage <line>`, or a command line. A lone `:verb` resolves to the verb now, so a press
-// skips the parse; one nothing has registered yet stays a line and resolves when it runs.
+// `none` or a command line. A lone `:verb` resolves to the verb now, so a press skips the parse;
+// one nothing has registered yet stays a line and resolves when it runs.
 binds_target :: proc(a: ^App, value: string) -> input.Bind_Target {
     if value == input.COMMANDS[.None].name {
         return input.Command.None
-    }
-    if rest, staged := cut_word(value, STAGE_WORD); staged {
-        return input.Bind_Line{strings.clone(rest), .Stage}
     }
     if strings.has_prefix(value, ":") && !strings.contains_any(value, " \t") {
         name := value[1:]
@@ -138,7 +133,7 @@ binds_target :: proc(a: ^App, value: string) -> input.Bind_Target {
             return slot
         }
     }
-    return input.Bind_Line{strings.clone(value), .Exec}
+    return input.Bind_Line(strings.clone(value))
 }
 
 // The file's spelling of a target, so a written row reads back as the same bind.
@@ -153,7 +148,7 @@ binds_value :: proc(a: ^App, t: input.Bind_Target) -> string {
         name, _ := input.target_info(v, names(a))
         return fmt.tprintf(":%s", name)
     case input.Bind_Line:
-        return v.mode == .Stage ? fmt.tprintf("%s %s", STAGE_WORD, v.text) : v.text
+        return string(v)
     }
     return ""
 }
@@ -193,15 +188,6 @@ binds_unmet :: proc(a: ^App, allocator := context.temp_allocator) -> []Bind_Unme
         }
     }
     return out[:]
-}
-
-// A word, never a prefix: `stagehand` is a shell command, not a staged one.
-@(private = "file")
-cut_word :: proc(s, word: string) -> (rest: string, ok: bool) {
-    if !strings.has_prefix(s, word) || len(s) <= len(word) || s[len(word)] != ' ' {
-        return "", false
-    }
-    return strings.trim_space(s[len(word):]), true
 }
 
 // --- writing it back: lues.bind_writeback asks binds_held and binds_shadowed (hooks.bind_held) ---

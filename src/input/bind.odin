@@ -144,19 +144,10 @@ Kind :: distinct u32
 // A bind names a kernel verb, a registered one, or a command LINE (§6).
 //
 // The line arm is what keeps a plugin a value provider rather than a verb factory: the text is
-// what you would otherwise have typed, with `$o_` names the focused surface fills in, and
-// the mode decides whether it runs, lands in the command line for aiming (§5), or waits (§6).
-// One config line is then the whole policy, so `exec rm $o_path` needs nothing at all from the
-// plugin that drew the row it acts on.
-Bind_Mode :: enum u8 {
-    Exec,
-    Stage,
-}
-
-Bind_Line :: struct {
-    text: string, // owned
-    mode: Bind_Mode,
-}
+// what you would otherwise have typed, with `$o_` names the focused surface fills in. One config
+// line is then the whole policy, so `rm $o_path` needs nothing at all from the plugin that drew
+// the row it acts on.
+Bind_Line :: distinct string // owned
 
 Bind_Target :: union #no_nil {
     Command,
@@ -301,7 +292,7 @@ binds_destroy :: proc(b: ^[dynamic]Bind) {
 
 bind_free :: proc(b: Bind) {
     if line, is_line := b.target.(Bind_Line); is_line {
-        delete(line.text)
+        delete(string(line))
     }
     delete(b.origin.name)
 }
@@ -427,9 +418,9 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     bind_line(&b, "AC04", {.Alt}, ":ring files") // alt+f
     bind_line(&b, "AD05", {.Alt}, ":ring term") // alt+t
     // alt+. — the lane switch for every OTHER kind, which is a plugin's and so has no letter of
-    // its own here. Staged rather than run: the line is `:ring` with the name left to type (no
-    // trailing space, which a file row cannot hold), and a bare `:ring` lists the lanes.
-    bind_line(&b, "AB09", {.Alt}, ":ring", .Stage)
+    // its own here. Staged rather than run: the line is `:ring` with the name left to type, and a
+    // bare `:ring` lists the lanes.
+    bind_line(&b, "AB09", {.Alt}, ":stage :ring")
     // A listing's rows are paths, and `enter` is what opens one. Written at the SURFACE tier
     // rather than for one kind: a surface whose lines carry no `path` reports that it cannot
     // fill `$o_path`, which is data rather than a refusal decided per call (§8).
@@ -463,14 +454,13 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     return b
 }
 
-// `text` is the line WITHOUT its `exec` or `stage` word: those spell the choice in a config row,
-// and here it is the `mode` argument. Not file-private: the kernel writes the rows that name a KIND, because a
-// kind id is its own (kinds.odin) and this package holds one as identity it never reads.
+// Not file-private: the kernel writes the rows that name a KIND, because a kind id is its own
+// (kinds.odin) and this package holds one as identity it never reads.
 bind_line :: proc(b: ^[dynamic]Bind, key: string, mods: Mods, text: string,
-                  mode := Bind_Mode.Exec, ctx := Bind_Ctxs{.Global}, kind := Kind(0)) {
+                  ctx := Bind_Ctxs{.Global}, kind := Kind(0)) {
     code, ok := key_code(key)
     assert(ok, "a kernel default names a key that is not in the table")
-    bind_add(b, {code, mods}, Bind_Line{strings.clone(text), mode}, ctx, kind = kind)
+    bind_add(b, {code, mods}, Bind_Line(strings.clone(text)), ctx, kind = kind)
 }
 
 // `ctx` narrows a row below the verb's own contexts, for a default that wants one of them and
@@ -694,12 +684,7 @@ target_info :: proc(t: Bind_Target, names: Names) -> (name, doc: string) {
         }
         return "?", "a registered command this caller cannot name"
     case Bind_Line:
-        switch v.mode {
-        case .Exec:
-            return v.text, "run as typed"
-        case .Stage:
-            return v.text, "staged in the command line for aiming"
-        }
+        return string(v), "run as typed"
     }
     return "", ""
 }
@@ -780,9 +765,6 @@ describe_chord :: proc(
         }
     }
     verb := "runs"
-    if line, is_line := b.target.(Bind_Line); is_line && line.mode == .Stage {
-        verb = "stages"
-    }
     if moves_point {
         verb = fmt.tprintf("moves point, then %s", verb)
     }

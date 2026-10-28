@@ -141,7 +141,7 @@ exec_runs_a_bind_line_and_stage_aims_it :: proc(t: ^testing.T) {
 
     // The chord is spelled PHYSICALLY: a layout glyph needs the scancode base input_init sets,
     // and a test has no window to set it from.
-    app.binds_parse(&a, "[files]\nenter = stage :open $o_path\n", "binds.conf")
+    app.binds_parse(&a, "[files]\nenter = :stage :open $o_path\n", "binds.conf")
     // Row 3 after filter: 0 filter, 1 .., 2 plugins, 3 sub
     txt.doc_set_head(store.store_doc(a.docs, id), {3, 0}, false)
     app.point_sync(&a)
@@ -350,7 +350,7 @@ cmdline_rows_answer_only_on_the_open_line :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
     app.ring_add(&a, scratch_doc(&a, "note", "x"))
-    app.binds_parse(&a, "[cmdline]\nf5 = stage :hit\n", "binds.conf")
+    app.binds_parse(&a, "[cmdline]\nf5 = :stage :hit\n", "binds.conf")
 
     app.handle_chord(&a, chord("FK05"))
     testing.expect(t, !app.cl_active(&a), "a cmdline row fired in a text document")
@@ -375,7 +375,7 @@ verb_rows_answer_only_on_their_own_line :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
     app.ring_add(&a, scratch_doc(&a, "note", "x"))
-    app.binds_parse(&a, "[:find]\nup = stage :hit\n", "binds.conf")
+    app.binds_parse(&a, "[:find]\nup = :stage :hit\n", "binds.conf")
 
     app.cl_show(&a, ":findx y")
     app.handle_chord(&a, chord("UP"))
@@ -388,4 +388,19 @@ verb_rows_answer_only_on_their_own_line :: proc(t: ^testing.T) {
     app.cl_show(&a, ":sel | :find y && echo z")
     app.handle_chord(&a, chord("UP"))
     testing.expect_value(t, app.cl_line(&a), ":hit")
+}
+
+// `:stage` takes the rest of the line whole, so a staged chain keeps its operators.
+@(test)
+stage_takes_the_rest_of_the_line :: proc(t: ^testing.T) {
+    a, ok := bare_app()
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+    app.ring_add(&a, scratch_doc(&a, "note", "x"))
+
+    app.cl_exec(&a, ":stage :hit && :put | sort")
+    testing.expect(t, app.cl_active(&a))
+    testing.expect_value(t, app.cl_line(&a), ":hit && :put | sort")
 }

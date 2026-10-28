@@ -68,6 +68,9 @@ BUILTINS := [?]Builtin {
     {"do", "", "edit", ":do [<line>]",
      "run its argument, or what was piped into it one line per line, after this chain ends",
      builtin_do},
+    {"stage", "", "edit", ":stage <line>",
+     "put the line in the command line to edit before it runs; the rest of the line is its argument",
+     builtin_stage},
     {"find", "", "edit", USAGE_FIND,
      "select every match at once, so typing replaces them all; f3 steps through them one at a time",
      builtin_find},
@@ -739,6 +742,14 @@ builtin_do :: proc(a: ^App, args: string, step: cl.Step) -> bool {
             append(&a.chain.queue, strings.clone(l))
         }
     }
+    return true
+}
+
+// A line that is one `$o_` value stages that value AS the line: `:stage $o_act`. The trailing
+// space makes what you type next a new word.
+@(private = "file")
+builtin_stage :: proc(a: ^App, args: string, _: cl.Step) -> bool {
+    cl_show(a, strings.concatenate({cl.arg_whole(args), " "}, context.temp_allocator))
     return true
 }
 

@@ -35,7 +35,12 @@ cl_start :: proc(a: ^App, line: string) -> bool {
 
 // Chain-building without execution, split out so the parse is testable on its own.
 cl_parse :: proc(a: ^App, line: string) {
-    cl.parse(&a.chain, line, a, alias_expansion)
+    cl.parse(&a.chain, line, a, alias_expansion, takes_line)
+}
+
+@(private = "file")
+takes_line :: proc(_: ^App, name: string) -> bool {
+    return name == "stage"
 }
 
 // The line `:name` stands for, "" when it must not expand: builtins and plugin commands keep

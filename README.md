@@ -92,7 +92,7 @@ make && :ls
 # binds.conf, beside config.conf
 [files]
 enter       = :open $o_path
-right-click = stage :open $o_path
+right-click = :stage :open $o_path
 
 [global]
 alt+g         = git diff -- "$o_path" | :put
@@ -101,7 +101,7 @@ ctrl+b ctrl+f = :ring files
 
 A section is a context, a kind, or a builtin: `[:find]` is the command line while its last
 builtin step is a `:find`, then `[cmdline]`, then `[text]` under it. A value is a command line
-(`:verb` for a verb), `stage` and a line to aim it first, or `none` to unbind. Both files are written complete;
+(`:verb` for a verb; `:stage <line>` to aim it first), or `none` to unbind. Both files are written complete;
 a row missing from one is reported on the home page and its built-in default runs. `$o_path`, `$o_name`, `$o_link` and `$o_act` are
 the fields of the line under point: a builtin takes each as one argument and a shell step reads
 it as a shell variable, so a bind acts on document data with no callback. A click is a chord like any other.
