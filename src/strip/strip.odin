@@ -10,10 +10,6 @@ import "core:math"
 // niri's rules, our arithmetic: a horizontal row you scroll, one thing on screen by default,
 // and a camera that follows focus by the least it can.
 //
-// WHERE A PANEL RESTS IS THE LAYOUTER'S (src/lay, CHROME.md §2.1) — including the gap, which is
-// what a gap means for any row and not something panels are special about. What is left here is
-// the two things RCSS cannot answer: the camera, and the decay that walks between two resting
-// layouts on the clock (§7).
 
 // Where a panel sits on the one axis it moves along, in pixels. The other axis is the strip's:
 // the strip is one row and does not nest.
@@ -46,8 +42,15 @@ approach :: proc(x, dest, dt, tau: f32) -> f32 {
     return abs(dest - at) < SNAP ? dest : at
 }
 
-// The whole strip, for the camera's far end. The last slot's right edge is flush, because the
-// gap came out of the two panels that met at it and never off an end (src/lay).
+// Where panel `i` of `n` rests: `run` pixels from `along`, less half the gap on each side it
+// shares with a neighbour, so the strip's two ends stay flush (PANELS.md §5).
+slot :: proc(along, run, gap: f32, i, n: int) -> Span {
+    lo := i > 0 ? gap / 2 : 0
+    hi := i < n - 1 ? gap / 2 : 0
+    return {along + lo, max(run - lo - hi, 0)}
+}
+
+// The whole strip, for the camera's far end. The last slot's right edge is flush (`slot`).
 total :: proc(slots: []Span) -> f32 {
     if len(slots) == 0 {
         return 0

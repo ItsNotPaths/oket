@@ -387,9 +387,8 @@ box_hit :: proc(b: Bar, box: Box, top, count: int, px, py: f32, part: Part) -> (
 
 // The bar's own grid, one row. `n` is nil while no menu is up, the same as it is for `hit`.
 //
-// AN UNLIT CELL PAINTS NOTHING. Every grid this package fills has a frame box drawn under it
-// (CHROME.md §15 stage 6), so what a menubar puts down is ink and a lit row, never a ground —
-// and `src/menu` still never learns where its grids are.
+// AN UNLIT CELL PAINTS NOTHING: the frame fills under every grid here, so a menubar puts down
+// ink and a lit row, never a ground.
 draw_bar :: proc(b: Bar, g: ^gfx.Grid, th: gfx.Theme, n: ^Nav = nil) {
     gfx.grid_clear(g, th[.Fg], gfx.NOTHING)
     for m, i in b.menus {
@@ -405,51 +404,43 @@ draw_bar :: proc(b: Bar, g: ^gfx.Grid, th: gfx.Theme, n: ^Nav = nil) {
     }
 }
 
-// The dropdown's grid, and WHICH OF ITS ROWS IS LIT — the caller draws that row's ground as a
-// box, so the one row with a colour behind it is the one shape here that is not a glyph
-// (CHROME.md §6.1). -1 when the selection is scrolled out of the box or there is none. The row
-// a popout hangs off stays lit while it is out, so the popout says which row it belongs to.
-draw_drop :: proc(b: Bar, n: Nav, g: ^gfx.Grid, th: gfx.Theme) -> int {
-    return draw_list(g, th, drop_box(b, n), rows_of(b, n), n.top, n.row)
+// The dropdown's grid. The row a popout hangs off stays lit while it is out, so the popout says
+// which row it belongs to.
+draw_drop :: proc(b: Bar, n: Nav, g: ^gfx.Grid, th: gfx.Theme) {
+    draw_list(g, th, drop_box(b, n), rows_of(b, n), n.top, n.row)
 }
 
-draw_kids :: proc(b: Bar, n: Nav, g: ^gfx.Grid, th: gfx.Theme) -> int {
-    return draw_list(g, th, kid_box(b, n), kids_of(b, n), n.ktop, n.kid)
+draw_kids :: proc(b: Bar, n: Nav, g: ^gfx.Grid, th: gfx.Theme) {
+    draw_list(g, th, kid_box(b, n), kids_of(b, n), n.ktop, n.kid)
 }
 
 @(private)
-draw_list :: proc(g: ^gfx.Grid, th: gfx.Theme, box: Box, rows: []Row, top, sel: int) -> int {
+draw_list :: proc(g: ^gfx.Grid, th: gfx.Theme, box: Box, rows: []Row, top, sel: int) {
     if !has_room(box) {
-        return -1
+        return
     }
     gfx.grid_clear(g, th[.Fg], gfx.NOTHING)
     cols := widths(rows)
-    lit := -1
     for i in 0 ..< box.h {
         at := top + i
         if at >= len(rows) {
             break
         }
-        on := at == sel
-        if on {
-            lit = i
-        }
-        draw_row(g, i, box.w, rows[at], cols, th, on)
+        draw_row(g, i, box.w, rows[at], cols, th, at == sel)
     }
-    return lit
 }
 
-// (hole drop-one-layer :tags frame :sev refactor) paint the lit row's accent as the cell bg here, not as a frame box
+// The lit row is the one row with a cell bg: accent, with its ink flipped to the ground.
 @(private)
 draw_row :: proc(g: ^gfx.Grid, y, w: int, it: Row, cols: [4]int, th: gfx.Theme, on: bool) {
-    fg := th[.Fg]
+    bg := on ? gfx.opaque(th[.Accent]) : gfx.NOTHING
     if on {
-        // The row the keys are on, and the row a popout hangs off. Its ink flips because the
-        // caller draws its ground as an ACCENT BOX; no row of a list paints a ground of its own.
-        fg = th[.Bg]
+        for x in 0 ..< w {
+            gfx.grid_write(g, x, y, " ", th[.Bg], bg)
+        }
     }
-    gfx.grid_write(g, col_x(cols, 0), y, it.chord, on ? fg : th[.Accent], gfx.NOTHING)
-    gfx.grid_write(g, col_x(cols, 1), y, it.name, fg, gfx.NOTHING)
-    gfx.grid_write(g, col_x(cols, 2), y, it.doc, on ? fg : th[.Dim], gfx.NOTHING)
-    gfx.grid_write(g, w - 2 - cells(it.tag), y, it.tag, on ? fg : th[.Dim], gfx.NOTHING)
+    gfx.grid_write(g, col_x(cols, 0), y, it.chord, on ? th[.Bg] : th[.Accent], bg)
+    gfx.grid_write(g, col_x(cols, 1), y, it.name, on ? th[.Bg] : th[.Fg], bg)
+    gfx.grid_write(g, col_x(cols, 2), y, it.doc, on ? th[.Bg] : th[.Dim], bg)
+    gfx.grid_write(g, w - 2 - cells(it.tag), y, it.tag, on ? th[.Bg] : th[.Dim], bg)
 }

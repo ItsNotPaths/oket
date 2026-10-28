@@ -8,9 +8,7 @@ Token :: shape.Style
 
 Theme :: [Token][3]f32
 
-// A colour with an alpha, which is what both a chrome box and a cell background are drawn from.
-// Straight alpha, never premultiplied: the multiply happens where the pass is, because that is
-// the only place that knows what blend it set (CHROME.md §6.1).
+// A colour with an alpha, for a cell background. Straight alpha; the painter premultiplies.
 Rgba :: [4]f32
 
 // What a cell background says when it does not have one: the quad contributes nothing and what
@@ -37,20 +35,9 @@ color_unpack :: proc(v: u32) -> [3]f32 {
     return {f32(v >> 16 & 255) / 255, f32(v >> 8 & 255) / 255, f32(v & 255) / 255}
 }
 
-// The derived-colour ladder, and the pair is what keeps the token set at five: neither step
-// asks a theme author to define a colour.
-//
-// `shade` is a percent toward black; 0 is the colour itself.
+// A percent toward black; 0 is the colour itself. Derived, so no theme author defines it.
 shade :: proc(c: [3]f32, percent: int) -> [3]f32 {
     return c * (1 - clamp(f32(percent), 0, 100) / 100)
-}
-
-// And the other way: a percent toward the theme's INK, never toward white. That keeps the step
-// in the theme's own hue instead of washing it out, and it reads the same way round on a cream
-// theme as on a dark one.
-// (hole frame-flat :tags frame :sev cleanup) goes once no look lifts
-lift :: proc(th: Theme, c: [3]f32, percent: int) -> [3]f32 {
-    return c + (th[.Fg] - c) * (clamp(f32(percent), 0, 100) / 100)
 }
 
 // A shade of `Bg`, for the surface the panels sit ON. Derived rather than a sixth token: a

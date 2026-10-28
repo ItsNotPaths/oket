@@ -154,9 +154,7 @@ doc_caret_cell :: proc(a: ^App, id: store.Id, v: view.View,
 // what the strip says, in the window's own pixels — that is the whole of what a gap, a half
 // width and a camera cost here (§7).
 //
-// §6's order, and the DOCUMENTS GO FIRST (§15 stage 6): `gl_clear` has already laid the flat
-// ground under the window, so a box is a gradient over the pixels nothing claimed — the gaps,
-// the bar's row, a ring around each panel and a dropdown across the lot.
+// The documents go first (§15 stage 6); the frame fills what they left on the flat ground.
 surface_paint :: proc(a: ^App, win_w, win_h: i32) {
     p := &a.painter
     ss := panel_spans(a)
@@ -173,10 +171,7 @@ surface_paint :: proc(a: ^App, win_w, win_h: i32) {
         // cells cannot split.
         gfx.painter_draw(p, &pn.grid, win_w, win_h, {it.x, st.y}, {lo, st.y, hi - lo, st.h})
     }
-    // The pass brackets its own blend, because a box's colour is premultiplied.
-    gfx.mesher_begin(&a.mesher, win_w, win_h)
-    frame_paint(a, ss)
-    gfx.mesher_end(&a.mesher)
+    frame_paint(a, ss, win_h)
     // The bar's row, over the box the frame drew for it: every cell of it says NOTHING at rest.
     gfx.painter_draw(p, &a.bar_grid, win_w, win_h, {a.frame.bar.x, a.frame.bar.y}, a.frame.bar)
     menubar_paint(a, win_w, win_h) // last, over the boxes the frame drew for its grids

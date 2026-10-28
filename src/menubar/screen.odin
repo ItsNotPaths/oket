@@ -37,7 +37,6 @@ Part :: enum u8 {
 Layer :: struct {
     grid: gfx.Grid,
     at:   [2]f32, // the ground's PIXELS: a popup hangs where it likes, and only its size is cells
-    lit:  int, // the row of this layer with a ground behind it, -1 for none: a box, not cells
     on:   bool,
 }
 
@@ -116,11 +115,11 @@ draw :: proc(s: ^Screen, b: menu.Bar, th: gfx.Theme, up: bool) {
     }
     if box := menu.drop_box(b, s.nav); menu.has_room(box) {
         layer(s, .Drop, box)
-        s.layers[.Drop].lit = menu.draw_drop(b, s.nav, &s.layers[.Drop].grid, th)
+        menu.draw_drop(b, s.nav, &s.layers[.Drop].grid, th)
     }
     if box := menu.kid_box(b, s.nav); menu.has_room(box) {
         layer(s, .Kid, box)
-        s.layers[.Kid].lit = menu.draw_kids(b, s.nav, &s.layers[.Kid].grid, th)
+        menu.draw_kids(b, s.nav, &s.layers[.Kid].grid, th)
     }
 }
 
@@ -134,7 +133,7 @@ hide :: proc(s: ^Screen) {
 layer :: proc(s: ^Screen, part: Part, box: menu.Box) {
     l := &s.layers[part]
     gfx.grid_resize(&l.grid, box.w, box.h)
-    l.at, l.lit, l.on = box.at, -1, true
+    l.at, l.on = box.at, true
 }
 
 // The layers sit at the window's own pixels; nothing here slides, so there is no camera in it.

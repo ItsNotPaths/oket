@@ -8,15 +8,10 @@ import "../strip"
 // literal and never reaches for an App. If it ever needs the fixture, the layout has grown a
 // dependency on documents and it is not a piece any more.
 
-// SLOTS, and never widths: where a panel rests is the frame's solve now (src/lay), with the gap
-// already taken out of it. What that leaves here is the camera over them, so a slot goes in the
-// unit and the shape the strip answers in.
 @(private = "file")
 FULL :: [?]strip.Span{{0, 100}, {100, 100}, {200, 100}}
 
-// Two halves of a hundred with a gap of ten between them, as `lay.solve` answers it: the ends
-// stay flush and the gap came half out of each (lay_test.odin holds that claim; this file only
-// scrolls what it produced).
+// Two halves of a hundred with a gap of ten between them.
 @(private = "file")
 HALF :: [?]strip.Span{{0, 45}, {55, 45}}
 
@@ -153,4 +148,13 @@ the_camera_decays_toward_what_look_at_answered :: proc(t: ^testing.T) {
         testing.expect_value(t, strip.look_at(s, slots[:], 2), f32(200))
     }
     testing.expect_value(t, strip.span(s, slots[:], 2), strip.Span{0, 100})
+}
+
+// PANELS.md §5: a gap comes half out of each panel that meets at it, and neither end is inset.
+@(test)
+a_gap_comes_out_of_the_two_panels_that_meet_at_it :: proc(t: ^testing.T) {
+    half := HALF
+    testing.expect_value(t, strip.slot(0, 50, 10, 0, 2), half[0])
+    testing.expect_value(t, strip.slot(50, 50, 10, 1, 2), half[1])
+    testing.expect_value(t, strip.slot(0, 100, 10, 0, 1), strip.Span{0, 100}) // one panel, no gap
 }

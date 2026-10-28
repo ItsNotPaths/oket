@@ -274,15 +274,16 @@ a_menubar_grid_never_paints_a_ground :: proc(t: ^testing.T) {
     app.surface_draw(&h)
     testing.expect(t, h.menu.layers[.Bar].on, "a hidden bar with a menu up")
     testing.expect_value(t, gfx.grid_at(&h.menu.layers[.Bar].grid, 0, 0).bg, gfx.NOTHING)
-    // And the dropdown hanging off it. The LIT row is a box too: the layer says which row the
-    // frame draws a ground under, and the cells of that row carry ink and nothing else.
+    // And the dropdown hanging off it: the lit row is the one row with a ground.
     testing.expect(t, h.menu.layers[.Drop].on, "no dropdown with a menu up")
-    testing.expect_value(t, gfx.grid_at(&h.menu.layers[.Drop].grid, 0, 0).bg, gfx.NOTHING)
-    lit := h.menu.layers[.Drop].lit
-    testing.expect(t, lit >= 0, "no row of an open dropdown is lit")
-    for x in 0 ..< h.menu.layers[.Drop].grid.cols {
-        testing.expect_value(t, gfx.grid_at(&h.menu.layers[.Drop].grid, x, lit).bg, gfx.NOTHING)
+    g := &h.menu.layers[.Drop].grid
+    lit := 0
+    for y in 0 ..< g.rows {
+        if gfx.grid_at(g, 0, y).bg != gfx.NOTHING {
+            lit += 1
+        }
     }
+    testing.expect_value(t, lit, 1)
 }
 
 // --- the mouse (§6) ---

@@ -2,7 +2,6 @@ package tests
 
 import "core:testing"
 import "../gfx"
-import "../strip"
 import app "../oket"
 
 // CHROME.md §11. The frame solves in PIXELS against the WINDOW, so its edges are not cell
@@ -70,37 +69,27 @@ a_pane_smaller_than_a_cell_holds_no_text :: proc(t: ^testing.T) {
     testing.expect_value(t, p.grid.rows, 1)
 }
 
-// CHROME.md §15 stage 6. The frame's pass runs AFTER the panels, so the strip's ground is the
-// GAPS: one rect before the first panel, one between each pair, and one past the last. A rect
-// spanning the strip would cover the documents.
+// The menubar's rows sit on the top edge, the bar's row on the bottom one, and the strip takes
+// what is between. Widths are shares of the strip, so three halves overflow and scroll.
 @(test)
-the_strips_ground_is_the_gaps :: proc(t: ^testing.T) {
-    a, ok := bare_app(40, 10)
+the_strip_is_between_the_menubar_and_the_bar :: proc(t: ^testing.T) {
+    a, ok := bare_app()
     if !ok {
         return
     }
     defer close_app(&a)
     app.panel_make(&a, 1)
+    app.panel_make(&a, 2)
     for &p in a.panels {
         p.size = app.WIDTH_FULL / 2
     }
-    a.config.gap = 4
-    app.surface_fit(&a, 320, 120, CELL)
+    app.surface_fit(&a, 320, 115, CELL)
 
-    ss := app.panel_spans(&a)
-    gaps := app.ground_gaps(&a, ss)
-    testing.expect_value(t, len(gaps), 3) // two ends and the one gap between them
-
-    left, right := strip.span(a.strip, ss, 0), strip.span(a.strip, ss, 1)
-    testing.expect_value(t, gaps[0].w, left.x - a.frame.strip.x) // flush against the strip's end
-    testing.expect_value(t, gaps[1].x, left.x + left.w)
-    testing.expect_value(t, gaps[1].w, right.x - (left.x + left.w))
-    testing.expect_value(t, gaps[2].x, right.x + right.w)
-    // One gradient down all of them: each keeps the strip's own y and h, so no seam shows.
-    for g in gaps {
-        testing.expect_value(t, g.y, a.frame.strip.y)
-        testing.expect_value(t, g.h, a.frame.strip.h)
-    }
+    f := a.frame
+    testing.expect_value(t, f.strip.y, f32(f.menu * CELL.y))
+    testing.expect_value(t, f.bar.y, f.strip.y + f.strip.h)
+    testing.expect_value(t, f.bar.y + f.bar.h, f32(115))
+    testing.expect_value(t, a.panels[2].dest.x + a.panels[2].dest.w, f32(480))
 }
 
 // CHROME.md §13.3 and §15 stage 5. The bar's grid is drawn OVER the frame's pass, so a cell

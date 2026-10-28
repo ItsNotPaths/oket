@@ -31,9 +31,6 @@ State :: struct {
     // Where the frame's last solve put every piece of it (frame.odin, CHROME.md §2.1). Read by
     // the draw, the paint and the hit test; computed by none of them.
     frame:        Frame,
-    // The frame's pass (CHROME.md §6): the boxes AROUND a document, as pixels. The grids are
-    // cells and these are pixels, two lattices on purpose (PANELS.md §7).
-    mesher:       gfx.Mesher,
     // The strip (PANELS.md §2, §5). A default start is one panel at full width, which is a
     // strip of length one and not a special case; `focus` says which one the ring and the keys
     // act on. The layout itself is src/strip's: this is the camera and the two measurements it
@@ -209,7 +206,6 @@ app_destroy :: proc(a: ^App) {
     // neither, and freeing a texture into a context that is not there is a crash on the way out.
     if a.window != nil {
         sdl.DestroyCursor(a.hand)
-        gfx.mesher_destroy(&a.mesher)
         gfx.painter_destroy(&a.painter) // the atlas and its faces go with it
     }
     free(a.state)
