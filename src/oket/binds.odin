@@ -3,13 +3,14 @@ package main
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 import "lues:conf"
 import "lues:lues"
 import "../input"
 
-// binds.conf (§8). The kernel's defaults live in code and this file lays over them, so a release
-// that adds a verb needs no migration of anybody's file.
+// binds.conf (§8). Written complete from the kernel's defaults on a first start and by every
+// install; the defaults stay in code as the fallback, and a row the file lacks is reported.
 //
 //     # --- files ---
 //     [files]
@@ -20,11 +21,11 @@ import "../input"
 // A section is a bind context: `global`, `text`, `surface`, `terminal`, or a KIND's name —
 // `[files]` is narrower than `[surface]` and wins where it applies, which is how `enter` means
 // one thing in a listing and another in the editor while both are surfaces. A value is a verb's
-// registry name, or `exec`/`stage`/`pick` and a command line whose `$o_` names fill from
-// point.
+// registry name, `none` to unbind, or `exec`/`stage`/`pick` and a command line whose `$o_`
+// names fill from point.
 //
-// Appended, never rewritten: a rewrite would have to re-emit what it read, and that eats
-// comments and ordering. In the config directory, next to config.conf (path.odin).
+// A start never rewrites it, only appends what a plugin asked for. In the config directory, next
+// to config.conf (path.odin).
 
 BINDS_NAME :: "binds.conf"
 
@@ -38,7 +39,6 @@ binds_path :: proc(a: ^App) -> string {
 // input's defaults, plus the kernel's own kind-narrowed rows. They are here and not in
 // `input.binds_default` because a KIND is the kernel's (kinds.odin) and `input` holds one as
 // identity it never reads.
-// (hole binds-shipped :tags defaults :needs (missing-row-report unbind-value) :sev refactor) defaults live in code and binds.conf is never created; install writes a complete file, a release overwrites it
 binds_base :: proc() -> [dynamic]input.Bind {
     b := input.binds_default()
     // A home-page row is an offer, and `enter` is what takes it: the work a crash left, the
@@ -123,18 +123,23 @@ binds_ctx :: proc(a: ^App, name: string) -> (ctx: input.Bind_Ctx, kind: input.Ki
     return .Global, 0, false
 }
 
-// `exec <line>`, `stage <line>` and `pick <line>` are command lines; anything else names a verb
-// — a kernel one, or one a plugin registered. Those three words are the whole grammar.
+@(rodata)
+MODE_WORDS := [input.Bind_Mode]string {
+    .Exec  = "exec",
+    .Stage = "stage",
+    .Pick  = "pick",
+}
+
+// A mode word and a command line, `none`, or a verb — a kernel one, or one a plugin registered.
 // (hole value-is-line :tags binds :needs (pick-cut) :sev refactor) a value is a verb name or exec/stage/pick + line; make it a command line, a lone `:verb` still resolves to the enum at parse
 binds_target :: proc(a: ^App, value: string) -> (input.Bind_Target, bool) {
-    if rest, cut := cut_word(value, "exec"); cut {
-        return input.Bind_Line{strings.clone(rest), .Exec}, true
+    for word, mode in MODE_WORDS {
+        if rest, cut := cut_word(value, word); cut {
+            return input.Bind_Line{strings.clone(rest), mode}, true
+        }
     }
-    if rest, cut := cut_word(value, "stage"); cut {
-        return input.Bind_Line{strings.clone(rest), .Stage}, true
-    }
-    if rest, cut := cut_word(value, "pick"); cut {
-        return input.Bind_Line{strings.clone(rest), .Pick}, true
+    if value == input.COMMANDS[.None].name {
+        return input.Command.None, true
     }
     if cmd, found := input.command_named(value); found {
         return cmd, true
@@ -150,7 +155,7 @@ binds_target :: proc(a: ^App, value: string) -> (input.Bind_Target, bool) {
 // a section and never reads it again — so a row it commented out on an earlier start is silent
 // on every start after it, which is the one a user is looking at.
 //
-// A chord bound to NOTHING is not here. That is the user deleting a row, which is the file
+// A chord bound to `none` is not here. That is the user unbinding it, which is the file
 // deciding, and the whole reason a plugin asks rather than claims.
 Bind_Unmet :: struct {
     owner: string, // borrowed from the request
@@ -158,7 +163,6 @@ Bind_Unmet :: struct {
     held:  string, // what the chord runs instead; borrowed from the name tables
 }
 
-// (hole missing-row-report :tags defaults :sev refactor) nothing reports a default row the file lacks; run ranges (alt+1..9) and multi-ctx defaults need a file form
 binds_unmet :: proc(a: ^App, allocator := context.temp_allocator) -> []Bind_Unmet {
     out := make([dynamic]Bind_Unmet, allocator)
     for r in a.kernel.reqs {
@@ -173,7 +177,7 @@ binds_unmet :: proc(a: ^App, allocator := context.temp_allocator) -> []Bind_Unme
         // bind_at, not bind_lookup: a wider row still leaves this tier free, and the writeback
         // writes the narrow row live.
         b, found := input.bind_at(a.binds[:], chord, ctx, kind, prefix)
-        if !found {
+        if !found || b.target == input.Bind_Target(input.Command.None) {
             continue
         }
         if held, _ := input.target_info(b.target, names(a)); held != req_line(r.line) {
@@ -187,7 +191,7 @@ binds_unmet :: proc(a: ^App, allocator := context.temp_allocator) -> []Bind_Unme
 // for, `:note` is bound, and the two are the same row.
 @(private = "file")
 req_line :: proc(line: string) -> string {
-    for word in ([?]string{"exec", "stage", "pick"}) {
+    for word in MODE_WORDS {
         if rest, cut := cut_word(line, word); cut {
             return rest
         }
@@ -250,14 +254,108 @@ binds_sync :: proc(a: ^App) {
         return
     }
     path := binds_path(a)
-    binds_load(a, path)
     // A directory that cannot be written still HOLDS a binds.conf, and every row in it is live.
     // What a requested row loses is the file to be written down in, and a plugin whose chord is
     // never recorded would ask again at every start.
-    if !home_writable(a.home.config) {
+    writable := home_writable(a.home.config)
+    if writable && !os.exists(path) {
+        _ = os.write_entire_file(path, transmute([]u8)binds_text(a))
+    }
+    binds_load(a, path)
+    if !writable {
         return
     }
     if lues.bind_writeback(a.kernel, path) {
         binds_load(a, path)
     }
+}
+
+// --- the shipped file ---
+
+// Every default as a file row, under its section. What a first start and an install write.
+binds_text :: proc(a: ^App) -> string {
+    base := binds_base()
+    defer input.binds_destroy(&base)
+    sections := make([dynamic]string, context.temp_allocator)
+    rows := make([dynamic][2]string, context.temp_allocator) // section, row
+    for d in base {
+        for ctx in d.ctx {
+            section, row := binds_row(a, d, ctx)
+            if !slice.contains(sections[:], section) {
+                append(&sections, section)
+            }
+            append(&rows, [2]string{section, row})
+        }
+    }
+    b := strings.builder_make(context.temp_allocator)
+    for section, i in sections {
+        fmt.sbprintf(&b, "%s[%s]\n", i > 0 ? "\n" : "", section)
+        for r in rows {
+            if r[0] == section {
+                fmt.sbprintf(&b, "%s\n", r[1])
+            }
+        }
+    }
+    return strings.to_string(b)
+}
+
+// The defaults the file has no row for, spelled as the row that would restore each. A `none` row
+// counts as there: that chord was unbound on purpose.
+binds_missing :: proc(a: ^App, allocator := context.temp_allocator) -> []string {
+    out := make([dynamic]string, allocator)
+    if a.home.config == "" || !os.exists(binds_path(a)) {
+        return out[:]
+    }
+    base := binds_base()
+    defer input.binds_destroy(&base)
+    for d in base {
+        for ctx in d.ctx {
+            if !binds_filed(a.binds[:], d, ctx) {
+                section, row := binds_row(a, d, ctx)
+                append(&out, fmt.aprintf("[%s] %s", section, row, allocator = allocator))
+            }
+        }
+    }
+    return out[:]
+}
+
+@(private = "file")
+binds_filed :: proc(binds: []input.Bind, d: input.Bind, ctx: input.Bind_Ctx) -> bool {
+    for b in binds {
+        if b.origin.src == .Config && ctx in b.ctx && b.chord == d.chord && b.prefix == d.prefix &&
+           b.kind == d.kind {
+            return true
+        }
+    }
+    return false
+}
+
+@(private = "file")
+binds_row :: proc(a: ^App, b: input.Bind, ctx: input.Bind_Ctx) -> (section, row: string) {
+    section = b.kind != 0 ? kind_name(a, b.kind) : input.CTX_NAMES[ctx]
+    key := chord_spelled(b.chord)
+    if b.prefix != {} {
+        key = fmt.tprintf("%s %s", chord_spelled(b.prefix), key)
+    }
+    value: string
+    switch t in b.target {
+    case input.Command:
+        value = input.COMMANDS[t].name
+    case input.Slot:
+        value, _ = input.target_info(t, names(a))
+    case input.Bind_Line:
+        value = fmt.tprintf("%s %s", MODE_WORDS[t.mode], t.text)
+    }
+    return section, fmt.tprintf("%s = %s", key, value)
+}
+
+// The layout's spelling when it reads back as the same chord and holds nothing the file reads
+// as syntax (`ctrl+=`); the physical one otherwise.
+@(private = "file")
+chord_spelled :: proc(c: input.Chord) -> string {
+    s := input.chord_format(c, key_layout_name, context.temp_allocator)
+    if back, ok := input.chord_parse(s, key_layout_code); !ok || back != c || strings.contains_any(s, "=#[") {
+        return input.chord_physical(c, context.temp_allocator)
+    }
+    return s
 }

@@ -3,14 +3,15 @@ package tests
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strconv"
 import "core:strings"
 import "core:testing"
 import app "../oket"
 import "../menubar"
 
-// `config.conf` is WRITTEN from the settings table, so the file is how a user learns what there
-// is to set (§4). These gate the two things that makes true.
+// `config.conf` is WRITTEN complete from the settings table, so the file is how a user learns
+// what there is to set (§4).
 
 @(private = "file")
 config_at :: proc(t: ^testing.T, name: string) -> (a: app.App, dir: string, ok: bool) {
@@ -28,27 +29,22 @@ config_text :: proc(a: ^app.App) -> string {
     return err == nil ? string(raw) : ""
 }
 
-// The block's rows uncommented, with `bump` added to every whole-number value; the prose lines
-// stay comments. A row is a commented line with a ` = ` in it.
+// The file with `bump` added to every whole-number value.
 @(private = "file")
-uncommented :: proc(text: string, bump: int) -> (body: string, rows: int) {
+bumped :: proc(text: string, bump: int) -> (body: string, rows: int) {
     b := strings.builder_make(context.temp_allocator)
     rest := text
     for line in strings.split_lines_iterator(&rest) {
-        bare := strings.trim_prefix(line, "# ")
-        // A ROW is `# key = value` with nothing between the marker and the key. The block also
-        // carries prose that contains a `=` — the indented shapes for the forms whose name the
-        // user picks — and uncommenting one of those writes a broken section header.
-        if bare == line || strings.has_prefix(bare, " ") || !strings.contains(bare, " = ") {
+        key, sep, value := strings.partition(line, " = ")
+        if sep == "" || strings.has_prefix(line, "#") {
             fmt.sbprintf(&b, "%s\n", line)
             continue
         }
         rows += 1
-        key, _, value := strings.partition(bare, " = ")
         if n, is_int := strconv.parse_int(strings.trim_space(value), 10); is_int {
             fmt.sbprintf(&b, "%s = %d\n", key, n + bump)
         } else {
-            fmt.sbprintf(&b, "%s\n", bare)
+            fmt.sbprintf(&b, "%s\n", line)
         }
     }
     return strings.to_string(b), rows
@@ -67,17 +63,13 @@ every_printed_default_is_the_real_one :: proc(t: ^testing.T) {
     defer close_app(&a)
 
     text := config_text(&a)
-    if !testing.expect(t, strings.contains(text, "# --- oket ---"), "no defaults block written") {
-        return
-    }
     path, _ := filepath.join({dir, "config.conf"}, context.temp_allocator)
     want := app.config_default()
 
-    // A file of nothing but the printed defaults has to read back as the defaults themselves.
-    body, rows := uncommented(text, 0)
+    // The written file has to read back as the defaults themselves.
+    _, rows := bumped(text, 0)
     testing.expect_value(t, rows, 18) // a new setting extends BOTH passes below, and this count
-    _ = os.write_entire_file(path, transmute([]u8)body)
-    app.config_load(&a)
+    testing.expect_value(t, len(app.config_missing(&a)), 0)
     testing.expect_value(t, a.config.restore, want.restore)
     testing.expect_value(t, a.config.gap, want.gap)
     testing.expect_value(t, a.config.tau, want.tau)
@@ -110,7 +102,7 @@ every_printed_default_is_the_real_one :: proc(t: ^testing.T) {
     // Off by one, ON PURPOSE. Every reader's fallback is the default, so a printed number the
     // reader cannot parse would fall back to the right answer above; bumped, it has to ARRIVE
     // bumped, which only a value that parsed and reached its field can do.
-    body, _ = uncommented(text, 1)
+    body, _ := bumped(text, 1)
     _ = os.write_entire_file(path, transmute([]u8)body)
     app.config_load(&a)
     testing.expect_value(t, a.config.gap, want.gap + 1)
@@ -122,10 +114,10 @@ every_printed_default_is_the_real_one :: proc(t: ^testing.T) {
     testing.expect_value(t, a.config.double_ms, want.double_ms + 1)
 }
 
-// Written once. A user who deletes a row meant to delete it, and a start that put it back would
-// be arguing with them — the same rule the plugin blocks follow.
+// A start writes the file only when there is none. A row the user deleted stays deleted and is
+// reported, with the default still running.
 @(test)
-the_defaults_block_is_asked_once :: proc(t: ^testing.T) {
+a_start_never_rewrites_config_conf :: proc(t: ^testing.T) {
     a, dir, ok := config_at(t, "oket-conf-once")
     if !ok {
         return
@@ -134,9 +126,13 @@ the_defaults_block_is_asked_once :: proc(t: ^testing.T) {
     defer close_app(&a)
 
     path, _ := filepath.join({dir, "config.conf"}, context.temp_allocator)
-    _ = os.write_entire_file(path, transmute([]u8)string("# --- oket ---\n[strip]\ngap = 7\n"))
+    _ = os.write_entire_file(path, transmute([]u8)string("[strip]\ngap = 7\n"))
     app.config_sync(&a)
 
-    testing.expect_value(t, config_text(&a), "# --- oket ---\n[strip]\ngap = 7\n")
+    testing.expect_value(t, config_text(&a), "[strip]\ngap = 7\n")
     testing.expect_value(t, a.config.gap, 7)
+    testing.expect_value(t, a.config.tau, app.config_default().tau)
+    missing := app.config_missing(&a)
+    testing.expect(t, slice.contains(missing, "[strip] tau = 90"), "a deleted row was not reported")
+    testing.expect(t, !slice.contains(missing, "[strip] gap = 4"), "a present row was reported")
 }

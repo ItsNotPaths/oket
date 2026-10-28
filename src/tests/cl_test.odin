@@ -46,8 +46,8 @@ two_chords_open_the_line_and_one_of_them_types_the_sigil :: proc(t: ^testing.T) 
 }
 
 // alt+. is the lane switch for the kinds that have no letter: a `stage` row, so the line opens
-// with the builtin typed and the NAME left to you. Nothing about it is special-cased — it is a
-// default bind whose text happens to end in a space, and the caret lands past it.
+// with the builtin typed and the NAME left to you. Nothing about it is special-cased — a staged
+// line ends in a space, and the caret lands past it.
 @(test)
 one_chord_stages_the_ring_for_a_lane_with_no_letter :: proc(t: ^testing.T) {
     a, ok := bare_app()

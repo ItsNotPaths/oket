@@ -101,7 +101,8 @@ ctrl+b ctrl+f = exec :ring files
 
 A section is a context, a kind, or a builtin: `[:find]` is the command line while its last
 builtin step is a `:find`, then `[cmdline]`, then `[text]` under it. A value is a verb's name,
-or `exec`/`stage`/`pick` and a command line. `$o_path`, `$o_name`, `$o_link` and `$o_act` are
+`none` to unbind, or `exec`/`stage`/`pick` and a command line. Both files are written complete;
+a row missing from one is reported on the home page and its built-in default runs. `$o_path`, `$o_name`, `$o_link` and `$o_act` are
 the fields of the line under point: a builtin takes each as one argument and a shell step reads
 it as a shell variable, so a bind acts on document data with no callback. A click is a chord like any other.
 
@@ -111,7 +112,7 @@ transparent: an unmodified key after one clears it and does what it always did.
 ## Config
 
 ```conf
-# config.conf, generated with every setting commented out
+# config.conf, written whole on a first start and by every install
 [strip]   gap = 4        # pixels between panels
 [cursor]  select = 90    # percent of the swap a selection carries
 [session] restore = on   # the ring, across restarts

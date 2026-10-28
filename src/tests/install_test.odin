@@ -58,14 +58,12 @@ an_install_lays_down_every_directory :: proc(t: ^testing.T) {
     testing.expect(t, os.exists(tgt.bin), "the binary was not installed")
     testing.expect(t, os.exists(tgt.desktop), "no launcher entry")
     testing.expect(t, os.exists(tgt.icon), "no icon")
-    // binds.conf is not written: its defaults live in the code, and the file holds what a plugin
-    // asked for and what you typed.
-    testing.expect(t, !there(root, "config", "binds.conf"), "an install wrote binds.conf")
+    testing.expect(t, there(root, "config", app.BINDS_NAME), "no binds.conf")
 }
 
-// A rerun replaces the binary and the payload; config.conf is the user's, and survives.
+// No update story: a rerun writes config.conf whole again, over whatever the user changed.
 @(test)
-a_second_install_keeps_the_settings :: proc(t: ^testing.T) {
+a_second_install_rewrites_the_settings :: proc(t: ^testing.T) {
     root, ok := scratch(t, "oket-install-twice")
     if !ok {
         return
@@ -92,7 +90,7 @@ a_second_install_keeps_the_settings :: proc(t: ^testing.T) {
     }
     after, err := os.read_entire_file(cfg, context.temp_allocator)
     testing.expect_value(t, err, nil)
-    testing.expect(t, strings.contains(string(after), mine), "a rerun rolled the settings back")
+    testing.expect_value(t, string(after), app.config_text())
 }
 
 // The payload is release-owned: a file already there is replaced, not skipped, or release N's

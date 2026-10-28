@@ -60,6 +60,8 @@ home_news :: proc(a: ^App) -> bool {
     return len(recover_scan(a)) > 0 ||
            len(a.kernel.quarantined) > 0 ||
            len(binds_unmet(a, context.temp_allocator)) > 0 ||
+           len(binds_missing(a)) > 0 ||
+           len(config_missing(a)) > 0 ||
            len(a.gripes) > 0 ||
            len(plugins_held(a.home.data)) > 0
 }
@@ -188,7 +190,7 @@ home_fill :: proc(a: ^App, id: store.Id) {
     lues.kernel_settle(a.kernel)
 }
 
-// The three ways a chord goes wrong, and each is a different fix, so each is its own list.
+// The ways a chord or a row goes wrong, and each is a different fix, so each is its own list.
 @(private = "file")
 home_binds :: proc(a: ^App, p: ^Page) {
     path := binds_path(a)
@@ -214,6 +216,9 @@ home_binds :: proc(a: ^App, p: ^Page) {
         say(p, "  (the plugin's own row is in the file, commented out, under its name)")
     }
 
+    home_missing(p, BINDS_NAME, path, binds_missing(a))
+    home_missing(p, CONFIG_NAME, config_path(a), config_missing(a))
+
     if len(a.gripes) > 0 {
         head(p, "lines the config could not be read as anything:")
         for g in a.gripes {
@@ -222,6 +227,18 @@ home_binds :: proc(a: ^App, p: ^Page) {
             offer(p, fmt.tprintf("%s:%d", g.file, g.line), fmt.tprintf("   %s", g.why), open_line(at))
         }
     }
+}
+
+@(private = "file")
+home_missing :: proc(p: ^Page, name, path: string, rows: []string) {
+    if len(rows) == 0 {
+        return
+    }
+    head(p, fmt.tprintf("rows %s lacks; the built-in default runs:", name))
+    for r in rows {
+        offer(p, r, "", open_line(path))
+    }
+    say(p, fmt.tprintf("  (write the row back; in %s, `= none` unbinds a chord)", BINDS_NAME))
 }
 
 // What changed in the build you are running, off notes.md in the data directory. The newest section

@@ -47,7 +47,6 @@ ctx_named :: proc(name: string) -> (Bind_Ctx, bool) {
     return .Global, false
 }
 
-// (hole unbind-value :tags defaults :sev refactor) no way to unbind a chord on purpose, so deleted and missing look the same
 // (hole bind-generic :tags binds :needs (direct-step shift-fallback) :sev refactor) oter needs binds without this enum: a bind holds a command line, the enum moves to oket
 Command :: enum u8 {
     None,
@@ -303,7 +302,6 @@ Bind :: struct {
     // browser and another in the editor while both are Surface. 0 claims every kind.
     kind:   Kind,
     origin: Origin,
-    run:    Code, // extra codes past the first; alt+1..9 is one bind with run 8
 }
 
 // Binds own their line text and their origin's name, so the table is freed by proc and not by
@@ -331,9 +329,8 @@ bind_command :: proc(b: Bind) -> (Command, bool) {
 
 // How a plugin bind gets in: the caller resolved the name to a slot first (§6).
 bind_add :: proc(b: ^[dynamic]Bind, chord: Chord, target: Bind_Target, ctx: Bind_Ctxs,
-                 run: Code = 0, kind := Kind(0), prefix := Chord{}) {
-    append(b, Bind{chord = chord, prefix = prefix, target = target, ctx = ctx, run = run,
-                   kind = kind})
+                 kind := Kind(0), prefix := Chord{}) {
+    append(b, Bind{chord = chord, prefix = prefix, target = target, ctx = ctx, kind = kind})
 }
 
 // The kernel defaults, resolved through the name table so a typo dies at startup, not in a
@@ -403,7 +400,9 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     bind_put(&b, "AC08", {.Ctrl, .Shift}, .Kill_Whole_Line)
     bind_put(&b, "AD07", {.Ctrl}, .Kill_To_Line_Start) // ctrl+u, readline's unix-line-discard
 
-    bind_put(&b, "AE01", {.Alt}, .Ring_Goto) // alt+1..9, one bind with run 8
+    for n in 1 ..= 9 {
+        bind_line(&b, fmt.tprintf("AE%02d", n), {.Alt}, fmt.tprintf(":ring.goto %d", n))
+    }
     bind_put(&b, "TLDE", {.Alt}, .Ring_Alt) // alt+` sits at the number row's door
     bind_put(&b, "TLDE", {.Alt, .Shift}, .Ring_Alt_Lane) // and Shift keeps it in one ring
     bind_put(&b, "AD01", {.Alt}, .Ring_Close) // alt+q
@@ -443,9 +442,9 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     bind_line(&b, "AC04", {.Alt}, ":ring files") // alt+f
     bind_line(&b, "AD05", {.Alt}, ":ring term") // alt+t
     // alt+. — the lane switch for every OTHER kind, which is a plugin's and so has no letter of
-    // its own here. Staged rather than run: the line is `:ring ` with the name left to type, and
-    // a bare `:ring` lists the lanes for the times you have forgotten what one is called.
-    bind_line(&b, "AB09", {.Alt}, ":ring ", .Stage)
+    // its own here. Staged rather than run: the line is `:ring` with the name left to type (no
+    // trailing space, which a file row cannot hold), and a bare `:ring` lists the lanes.
+    bind_line(&b, "AB09", {.Alt}, ":ring", .Stage)
     // A listing's rows are paths, and `enter` is what opens one. Written at the SURFACE tier
     // rather than for one kind: a surface whose lines carry no `path` reports that it cannot
     // fill `$o_path`, which is data rather than a refusal decided per call (§8).
@@ -514,7 +513,7 @@ bind_put :: proc(b: ^[dynamic]Bind, key: string, mods: Mods, cmd: Command, ctx: 
     assert(ok, "a kernel default names a key that is not in the table")
     assert(ctx <= COMMANDS[cmd].ctx, "a kernel default names a context its verb does not answer in")
     at := ctx == {} ? COMMANDS[cmd].ctx : ctx
-    bind_add(b, {code, mods, 0}, cmd, at, cmd == .Ring_Goto ? 8 : 0)
+    bind_add(b, {code, mods, 0}, cmd, at)
 }
 
 // A chord that is BOTH a primer and a row of its own. There is no priority between them: the
@@ -636,8 +635,6 @@ bind_children :: proc(binds: []Bind, prefix: Chord, ctx: Bind_Ctx, layout: Layou
 
 // Narrowest row wins: one written for this surface kind, then one for the context, then a
 // Global one (`esc = surface.send` shadows the global quit). First exact match inside a tier.
-// A bind with a run answers for its whole key range; the caller reads the offset off
-// b.chord.code.
 bind_find :: proc(binds: []Bind, chord: Chord, ctx: Bind_Ctx, kind: Kind = 0,
                   prefix := Chord{}) -> (Bind, bool) {
     if kind != 0 {
@@ -663,8 +660,7 @@ bind_scan :: proc(binds: []Bind, chord: Chord, want: Bind_Ctxs, kind: Kind,
         if b.prefix == prefix &&
            b.chord.mods == chord.mods &&
            b.chord.held == chord.held &&
-           chord.code >= b.chord.code &&
-           chord.code <= b.chord.code + b.run &&
+           chord.code == b.chord.code &&
            b.kind == kind &&
            b.ctx & want != {} {
             return b, true
@@ -709,6 +705,10 @@ bind_lookup :: proc(
     extend, ok: bool,
 ) {
     if b, ok = bind_find(binds, chord, ctx, kind, prefix); ok {
+        // `none` unbinds on purpose: the tier answers, and what it answers is a miss.
+        if b.target == Bind_Target(Command.None) {
+            return {}, false, false
+        }
         return b, false, true
     }
     // The Shift retry stays UNDER the same primer: a child is reached by its own chord or not

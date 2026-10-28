@@ -127,13 +127,13 @@ install_run :: proc(a: ^App, t: Install_Target) -> (ok: bool, msg: string) {
         }
     }
 
-    // The one place config.conf is ever created. Written from the settings table, so what an
-    // install lays down and what the kernel reads cannot drift (config.odin). binds.conf is NOT
-    // written: its defaults live in the code, and the file holds what a plugin asked for and
-    // what you typed (binds.odin).
-    cfg, _ := filepath.join({t.dirs.config, CONFIG_NAME}, context.temp_allocator)
-    if config_defaults_write(a, cfg) {
-        fmt.sbprintfln(&b, "  %s (defaults, from the binary)", cfg)
+    // Both config files, whole and overwritten: a release has no merge story. Written from the
+    // code's tables, so what an install lays down and what the kernel reads cannot drift.
+    for f in ([2][2]string{{CONFIG_NAME, config_text()}, {BINDS_NAME, binds_text(a)}}) {
+        dst, _ := filepath.join({t.dirs.config, f[0]}, context.temp_allocator)
+        if os.write_entire_file(dst, transmute([]u8)f[1]) == nil {
+            fmt.sbprintfln(&b, "  %s (defaults, from the binary)", dst)
+        }
     }
 
     if desktop_add(t.desktop, t.bin) {

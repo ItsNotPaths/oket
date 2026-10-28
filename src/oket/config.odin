@@ -91,8 +91,8 @@ Alias :: struct {
     doc:  string, // the generated file's comment; "" on a file-defined row
 }
 
-// The vocabulary oket ships. In code, not in the file, for the reason the settings block is
-// commented: a release changing one must reach people who already have the file.
+// The vocabulary oket ships, written into the file like every other default; the code stays the
+// fallback for a file without the row.
 @(rodata)
 ALIASES_DEFAULT := [?]Alias {
     {"panel.equalize",
@@ -388,8 +388,8 @@ config_order :: proc(c: ^Config, row: conf.Row) {
 // requests and writes each owner's block once (lues.config_writeback), and from then on the file
 // decides — which is what makes installing a view stage `cp` and nothing else.
 
-// The file first, then what was requested, then a re-read only if that changed anything. One
-// path in, so a requested row and a typed row are indistinguishable once they are in.
+// The file first (written whole when there is none), then what was requested, then a re-read
+// only if that changed anything. A start never rewrites an existing file.
 config_sync :: proc(a: ^App) {
     defer theme_sync(a) // any of the reads below may have moved [theme] name
     config_load(a)
@@ -403,71 +403,78 @@ config_sync :: proc(a: ^App) {
         return
     }
     path := config_path(a)
-    // The kernel's own block first, so a start with no plugins at all still leaves a file that
-    // says what there is to set. Both writes are marker-keyed and asked once.
-    wrote := config_defaults_write(a, path)
-    if lues.config_writeback(a.kernel, path, ORDERED[:]) || wrote {
+    if !os.exists(path) {
+        _ = os.write_entire_file(path, transmute([]u8)config_text())
+        config_load(a)
+    }
+    if lues.config_writeback(a.kernel, path, ORDERED[:]) {
         config_load(a)
     }
 }
 
-// Every setting, commented out, under its section. COMMENTED because the defaults live in code
-// (§8's rule for binds.conf, and the same reason): a file that DEFINED them would mean a release
-// changing one never reaches anyone who already has the file. This block is documentation the
-// user can uncomment, and it is generated from SETTINGS so it cannot drift from what is read.
-// Not file-private: `:oket install` lays the file down in the one place it is ever created, and
-// it has to be the same block the kernel would have written (install.odin).
-// (hole config-shipped :tags defaults :sev refactor) config.conf is generated commented out behind a once-only marker; install writes it complete, a release overwrites it
-config_defaults_write :: proc(a: ^App, path: string) -> bool {
-    text := ""
-    if raw, err := os.read_entire_file(path, context.temp_allocator); err == nil {
-        text = string(raw)
-    }
-    if strings.contains(text, config_marker(DEFAULTS_OWNER)) {
-        return false // asked once; a user who deleted a line meant to delete it
-    }
+// Every setting with its default, live, under its section. Generated from SETTINGS so it cannot
+// drift from what is read; what a first start and an install write.
+config_text :: proc() -> string {
     b := strings.builder_make(context.temp_allocator)
-    fmt.sbprintf(&b, "%s\n", config_marker(DEFAULTS_OWNER))
-    strings.write_string(&b, "# Every setting oket has, with its default. Uncomment to change\n")
-    strings.write_string(&b, "# one; a commented row is the default, which lives in the code.\n")
     section := ""
-    for s in SETTINGS {
-        if s.section != section {
-            section = s.section
-            fmt.sbprintf(&b, "\n[%s]\n", section)
+    row :: proc(b: ^strings.Builder, section: ^string, at, doc, key, def: string) {
+        if at != section^ {
+            section^ = at
+            fmt.sbprintf(b, "%s[%s]\n", strings.builder_len(b^) > 0 ? "\n" : "", at)
         }
-        fmt.sbprintf(&b, "# %s\n# %s = %s\n", s.doc, s.key, s.def)
+        fmt.sbprintf(b, "# %s\n%s = %s\n", doc, key, def)
+    }
+    for s in SETTINGS {
+        row(&b, &section, s.section, s.doc, s.key, s.def)
     }
     for l in LISTS {
-        if l.section != section {
-            section = l.section
-            fmt.sbprintf(&b, "\n[%s]\n", section)
-        }
-        fmt.sbprintf(&b, "# %s\n# %s = %s\n", l.doc, l.key, l.def)
+        row(&b, &section, l.section, l.doc, l.key, l.def)
     }
-    strings.write_string(&b, "\n[alias]\n")
     for al in ALIASES_DEFAULT {
-        fmt.sbprintf(&b, "# %s\n# %s = %s\n", al.doc, al.name, al.line)
+        row(&b, &section, ALIAS_SECTION, al.doc, al.name, al.line)
     }
-    strings.write_string(&b, "\n# And four forms whose name is yours to pick, so no row above\n")
-    strings.write_string(&b, "# can stand for them:\n")
+    strings.write_string(&b, "\n# Forms whose name is yours to pick:\n")
     for shape in SHAPES {
         fmt.sbprintf(&b, "#   %s\n", shape)
     }
-    body := strings.to_string(b)
-    if text != "" && !strings.has_suffix(text, "\n") {
-        body = fmt.tprintf("\n%s", body)
-    }
-    return os.write_entire_file(path, transmute([]u8)fmt.tprintf("%s%s", text, body)) == nil
+    return strings.to_string(b)
 }
 
-// Not a plugin name, and it cannot collide with one: a plugin's marker is its own name and no
-// plugin is called this.
-DEFAULTS_OWNER :: "oket"
-
-@(private = "file")
-config_marker :: proc(owner: string) -> string {
-    return lues.owner_marker(owner)
+// The defaults config.conf has no row for, spelled as the row that would restore each.
+config_missing :: proc(a: ^App, allocator := context.temp_allocator) -> []string {
+    out := make([dynamic]string, allocator)
+    if a.home.config == "" {
+        return out[:]
+    }
+    raw, err := os.read_entire_file(config_path(a), context.temp_allocator)
+    if err != nil {
+        return out[:]
+    }
+    rows, _ := conf.parse(string(raw))
+    has :: proc(rows: []conf.Row, section, key: string) -> bool {
+        for r in rows {
+            if r.section == section && r.key == key {
+                return true
+            }
+        }
+        return false
+    }
+    want := make([dynamic][3]string, context.temp_allocator)
+    for s in SETTINGS {
+        append(&want, [3]string{s.section, s.key, s.def})
+    }
+    for l in LISTS {
+        append(&want, [3]string{l.section, l.key, l.def})
+    }
+    for al in ALIASES_DEFAULT {
+        append(&want, [3]string{ALIAS_SECTION, al.name, al.line})
+    }
+    for w in want {
+        if !has(rows, w[0], w[1]) {
+            append(&out, fmt.aprintf("[%s] %s = %s", w[0], w[1], w[2], allocator = allocator))
+        }
+    }
+    return out[:]
 }
 
 // The spellings a flat value file has to take, or a user reads `on` back as false with nothing

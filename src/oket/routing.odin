@@ -254,9 +254,6 @@ bind_dispatch :: proc(a: ^App, chord: input.Chord, b: input.Bind, extend: bool) 
         if !surface_send(a, chord) {
             message_set(a, "this document has no job of its own")
         }
-    case .Ring_Goto:
-        // One bind covers alt+1..9: the offset past the row's own code is the slot (§8).
-        command_run(a, cmd, int(chord.code - b.chord.code) + 1, extend)
     case:
         command_run(a, cmd, 0, extend)
     }
@@ -660,9 +657,10 @@ bind_line_fire :: proc(a: ^App, chord: input.Chord, line: input.Bind_Line) {
     case .Exec:
         cl_exec(a, line.text)
     case .Stage:
-        // A line that is one `$o_` value stages that value AS the line: `stage $o_act`.
+        // A line that is one `$o_` value stages that value AS the line: `stage $o_act`. The
+        // trailing space makes what you type next a new word.
         if text, ok := vars_fill(a, line.text); ok {
-            cl_show(a, cl.arg_whole(text))
+            cl_show(a, strings.concatenate({cl.arg_whole(text), " "}, context.temp_allocator))
         }
     case .Pick:
         pick_arm(a, chord, line)
