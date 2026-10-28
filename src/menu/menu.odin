@@ -439,6 +439,7 @@ draw_list :: proc(g: ^gfx.Grid, th: gfx.Theme, box: Box, rows: []Row, top, sel: 
     return lit
 }
 
+// (hole drop-one-layer :tags frame :sev refactor) paint the lit row's accent as the cell bg here, not as a frame box
 @(private)
 draw_row :: proc(g: ^gfx.Grid, y, w: int, it: Row, cols: [4]int, th: gfx.Theme, on: bool) {
     fg := th[.Fg]

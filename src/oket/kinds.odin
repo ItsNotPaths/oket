@@ -45,6 +45,7 @@ KIND_BROWSE :: "files"
 
 // A `[:find]` section: the command line while it starts with that verb. The id is the verb's
 // token past every real kind, so the kind tier serves it unchanged.
+// (hole verb-tier-delete :tags live :needs (live-whitelist) :sev cleanup) `[:verb]` sections exist only for live find
 KIND_VERB :: input.Kind(1 << 31)
 
 // Looked up, never interned: typing a line must not grow the token table.

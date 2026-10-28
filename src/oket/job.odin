@@ -77,6 +77,7 @@ Job :: struct {
 // one pipe buffer would block us before the child that drains it even exists. Its stdout is
 // staged the same way when the chain has a `:put` waiting for it, and left alone otherwise, so
 // an ordinary step is live output and not a buffer that appears when it ends.
+// (hole vars-shell-prefix :tags vars :needs (vars-per-step) :sev refactor) N0 is one long-lived shell; set every $o_ var as `o_x=...;` before the step, every one each time
 sh_run :: proc(a: ^App, cmd, feed: string, fed: bool) -> bool {
     if a.job.live {
         message_set(a, "a shell step is still running")

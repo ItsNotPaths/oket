@@ -12,6 +12,7 @@ import "../cl"
 Chain :: cl.Chain
 
 // A new line abandons any half-finished chain; a job already running finishes on its own.
+// (hole direct-step :tags (binds live) :sev refactor) no single rule for "one : step, no operators: call the builtin directly"; key presses and the live re-run must share one proc, or one starts resetting the chain
 cl_exec :: proc(a: ^App, line: string) {
     cl_parse(a, line)
     chain_pump(a)
@@ -38,6 +39,7 @@ alias_expansion :: proc(a: ^App, name: string) -> string {
 // Advance as far as this frame allows: builtins run inline, a shell step goes out and the chain
 // waits on its exit code (sh_pump). A chain that ends takes the next `:do` line, so the queue
 // drains here and nowhere else.
+// (hole vars-per-step :tags vars :sev refactor) fields fill once for the whole line before the chain exists; fill per step, a var fills a builtin step as one argument
 chain_pump :: proc(a: ^App) {
     ch := &a.chain
     for !ch.waiting {

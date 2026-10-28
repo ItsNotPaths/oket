@@ -47,6 +47,8 @@ ctx_named :: proc(name: string) -> (Bind_Ctx, bool) {
     return .Global, false
 }
 
+// (hole unbind-value :tags defaults :sev refactor) no way to unbind a chord on purpose, so deleted and missing look the same
+// (hole bind-generic :tags binds :needs (direct-step shift-fallback) :sev refactor) oter needs binds without this enum: a bind holds a command line, the enum moves to oket
 Command :: enum u8 {
     None,
     Quit,
@@ -693,6 +695,7 @@ bind_at :: proc(binds: []Bind, chord: Chord, ctx: Bind_Ctx, kind: Kind = 0,
 // Shift is not written into most binds: a Shift-qualified chord matching nothing exactly
 // retries without it and runs `extend`ing, so Shift+Down sweeps a selection. An exact Shift
 // row (ctrl+shift+z) beats the fallback, which is how Shift names a DIFFERENT verb.
+// (hole shift-fallback :tags binds :sev refactor) shift retries the unshifted row (motions, ctrl+shift+v, more); drop it for explicit rows, pinned by a test that every chord resolves as before
 bind_lookup :: proc(
     binds: []Bind,
     chord: Chord,

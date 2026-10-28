@@ -36,6 +36,7 @@ find_doc :: proc(a: ^App) -> ^txt.Doc {
 // `:find <pattern>` — every match at once, as selections. The primary is the first hit at or
 // after point rather than the first in the file, so the screen goes where you were looking.
 // With no argument, the pattern is what was piped in: `:sel | :find`.
+// (hole find-rerun-safe :tags live :sev refactor) unsafe to re-run: no match cap, jump per run, first match from moving point, esc leaves the carets
 builtin_find :: proc(a: ^App, args: string, step: cl.Step) -> bool {
     pattern := strings.trim_space(args)
     if pattern == "" {

@@ -34,6 +34,7 @@ input_init :: proc(a: ^App) {
 input_pump :: proc(a: ^App, wait: bool) {
     ev: sdl.Event
     if wait {
+        // (hole live-debounce :tags live :sev refactor) the loop blocks in WaitEvent with no timer; needs a deadline for the debounce
         if !sdl.WaitEvent(&ev) {
             return
         }

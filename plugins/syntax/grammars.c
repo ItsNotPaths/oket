@@ -7,6 +7,7 @@
  * WHAT BUILDS A GRAMMAR IS A BIND ROW, and nothing in this file spawns it:
  *
  *     [grammars]
+ // (hole plugin-rows-vars :tags vars) lang repo rev sub on one row; publish the build line as `act`
  *     enter = exec :gr.build <lang>
  *          && oket-grammar <lang> <repo> <rev> <sub> || true
  *          && :grammar ready <lang>

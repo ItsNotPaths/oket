@@ -67,6 +67,7 @@ Mesh :: struct {
     vao, vbo, ibo: u32,
 }
 
+// (hole frame-fill :tags frame :needs (frame-flat drop-one-layer) :sev refactor) flat opaque rects need no program: scissor+clear, and mesher.odin goes
 Mesher :: struct {
     prog:                           u32,
     white:                          u32, // 1x1, what an untextured quad samples

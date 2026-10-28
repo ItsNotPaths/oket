@@ -15,6 +15,7 @@ import "core:math"
 // NOTHING HERE TOUCHES GL. It appends vertices, so a test counts them with no window and no
 // context (§12); `mesher.odin` is what uploads and draws them.
 
+// (hole frame-fill :tags frame :needs (frame-flat drop-one-layer) :sev refactor) Look, arcs, fan and band become gfx.fill(rect, rgb), kept in gfx so oter can use it; box_test goes
 Look :: struct {
     fill:   [2]Rgba, // the fill's vertical gradient: top, then bottom. NOTHING draws no fill
     edge:   [2]Rgba, // the bevel around it, the same way round

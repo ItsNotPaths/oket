@@ -70,6 +70,7 @@ home_news :: proc(a: ^App) -> bool {
 // Not file-private: the link renderer reads the same table (routing.odin), so what is drawn as
 // an offer and what `enter` takes cannot come apart.
 @(rodata)
+// (hole home-row :tags home :needs (vars-per-step) :sev refactor) a hidden dispatch table; each row publishes its line as `act`, one `[home] enter = :do $o_act`
 HOME_VERBS := [?]struct {
     field: string,
     line:  string,

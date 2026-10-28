@@ -4,6 +4,7 @@
  * manifest, and the chains. Selecting STAGES a chain in the command line rather than acting:
  *
  *     [themer]
+ // (hole plugin-rows-vars :tags vars) `act` fits; `rm` is a second action on the row, the one misfit
  *     enter = stage <act>      the switch, pulling the file first when it is not here
  *     del   = stage <rm>       back to the default and the file removed — pulled rows only
  *

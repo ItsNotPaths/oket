@@ -17,6 +17,7 @@ import "../strip"
 // Clearlooks' whole trick: a surface is lighter along its top edge than along its bottom. Steps
 // in percent, and small — the ladder has to read on a cream theme as well as a dark one.
 @(private = "file")
+// (hole frame-flat :tags frame :sev cleanup) every look one flat colour: drop gradient, the *_LIFT ladder, LIGHT_STEP, shadow and radius; the splitter is a flat 1px ring
 GROUND_LIFT :: 6 // the strip's ground, top against bottom
 @(private = "file")
 GROOVE_DARK :: 45 // the dark half of a SUNKEN edge, which is the dark one on top
@@ -98,6 +99,7 @@ frame_paint :: proc(a: ^App, slots: []strip.Span) {
 
 // Inset row backgrounds from the popup bevel.
 @(private = "file")
+// (hole drop-one-layer :tags frame :sev refactor) a popup is ONE text box: raised 1px border, a 1px rule between rows, lit row is a cell bg; no box per row, no inset
 row_px :: proc(box: gfx.Rect, row: int, cell: [2]int) -> gfx.Rect {
     pad := f32(cell.x) / 2
     return {box.x + pad, box.y + f32(row * cell.y), box.w - 2 * pad, f32(cell.y)}

@@ -24,6 +24,7 @@
  * is a row in binds.conf:
  *
  *     [files]
+ // (hole plugin-rows-vars :tags vars :needs (vars-per-step) :sev refactor) uses path; `file` has no reader, `mode`/`size` no shipped one
  *     enter          = exec :fs.enter <path> && :open <path>
  *     ctrl+backspace = fs.up
  *

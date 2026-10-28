@@ -16,6 +16,7 @@ import "../input"
 
 // Step 2. The chord is what says which key commits, so a row bound with no held key cannot arm
 // a gesture nothing would ever finish.
+// (hole pick-cut :tags binds :sev refactor) dropped: this file, Pending_Pick, the .Pick ctx and mode, held chords, bare `@`, the four default rows
 pick_arm :: proc(a: ^App, chord: input.Chord, line: input.Bind_Line) {
     if _, already := a.pending.(input.Pending_Pick); already {
         return // a second gesture over a live one; the first still owns the keys

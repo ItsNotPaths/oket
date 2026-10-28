@@ -1122,6 +1122,7 @@ hover_line :: proc(a: ^App, d: ^desc.Descriptor) -> (input.Bind_Line, bool) {
 // in this document's own context, and the table `:home enter` runs behind one row (home.odin).
 // So a link is drawn exactly where a key or a click would do something. Per frame, because the
 // lines move under it with every binds.conf re-read.
+// (hole links-owner-published :tags vars :needs (link-marker) :sev refactor) links are derived from bind holes; files, home, themer, grammars lose underline without it
 link_names :: proc(a: ^App, d: ^desc.Descriptor,
                    allocator := context.temp_allocator) -> []string {
     out := make([dynamic]string, allocator)

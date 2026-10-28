@@ -11,6 +11,7 @@
 
 #include "grep.h"
 
+// (hole find-preview-delete :tags live :needs (live-whitelist) :sev cleanup) re-parses the CL and copies doc_find_all; all but grep_register goes
 #define PREFIX ":find "
 
 static char      *PAT;

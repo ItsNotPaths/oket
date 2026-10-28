@@ -48,6 +48,7 @@ shade :: proc(c: [3]f32, percent: int) -> [3]f32 {
 // And the other way: a percent toward the theme's INK, never toward white. That keeps the step
 // in the theme's own hue instead of washing it out, and it reads the same way round on a cream
 // theme as on a dark one.
+// (hole frame-flat :tags frame :sev cleanup) goes once no look lifts
 lift :: proc(th: Theme, c: [3]f32, percent: int) -> [3]f32 {
     return c + (th[.Fg] - c) * (clamp(f32(percent), 0, 100) / 100)
 }

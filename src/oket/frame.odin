@@ -41,6 +41,7 @@ Frame :: struct {
 
 // The frame, solved into `a.frame`, and where each panel RESTS onto the panel itself. One call,
 // because the three rects and the slots come out of the same solve.
+// (hole lay-inline :tags frame :sev refactor) four fixed boxes plus one rect per panel is plain math: panel widths go in src/strip so oter can use them, delete src/lay, keep the gap split as a frame_test
 frame_fit :: proc(a: ^App, win_w, win_h: int) {
     panels_ready(a)
     cell := a.cell

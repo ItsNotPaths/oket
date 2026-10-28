@@ -417,6 +417,7 @@ config_sync :: proc(a: ^App) {
 // user can uncomment, and it is generated from SETTINGS so it cannot drift from what is read.
 // Not file-private: `:oket install` lays the file down in the one place it is ever created, and
 // it has to be the same block the kernel would have written (install.odin).
+// (hole config-shipped :tags defaults :sev refactor) config.conf is generated commented out behind a once-only marker; install writes it complete, a release overwrites it
 config_defaults_write :: proc(a: ^App, path: string) -> bool {
     text := ""
     if raw, err := os.read_entire_file(path, context.temp_allocator); err == nil {

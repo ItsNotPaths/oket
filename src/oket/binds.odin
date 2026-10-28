@@ -38,6 +38,7 @@ binds_path :: proc(a: ^App) -> string {
 // input's defaults, plus the kernel's own kind-narrowed rows. They are here and not in
 // `input.binds_default` because a KIND is the kernel's (kinds.odin) and `input` holds one as
 // identity it never reads.
+// (hole binds-shipped :tags defaults :needs (missing-row-report unbind-value) :sev refactor) defaults live in code and binds.conf is never created; install writes a complete file, a release overwrites it
 binds_base :: proc() -> [dynamic]input.Bind {
     b := input.binds_default()
     // A home-page row is an offer, and `enter` is what takes it: the work a crash left, the
@@ -106,6 +107,7 @@ binds_parse :: proc(a: ^App, text, origin_name: string) {
 // The kernel contexts, then `[:verb]`, then the kinds. A kind's section binds in that kind's own
 // context and narrows to it, so the two tiers come out of one lookup; a plugin's kind and a verb
 // answer through the same lookup.
+// (hole kind-chain :tags binds :sev refactor) contexts and kinds are two axes with fixed tiers; one kind chain declared at register, cmdline becomes a pseudo-kind
 binds_ctx :: proc(a: ^App, name: string) -> (ctx: input.Bind_Ctx, kind: input.Kind, ok: bool) {
     if c, found := input.ctx_named(name); found {
         return c, 0, true
@@ -123,6 +125,7 @@ binds_ctx :: proc(a: ^App, name: string) -> (ctx: input.Bind_Ctx, kind: input.Ki
 
 // `exec <line>`, `stage <line>` and `pick <line>` are command lines; anything else names a verb
 // — a kernel one, or one a plugin registered. Those three words are the whole grammar.
+// (hole value-is-line :tags binds :needs (pick-cut) :sev refactor) a value is a verb name or exec/stage/pick + line; make it a command line, a lone `:verb` still resolves to the enum at parse
 binds_target :: proc(a: ^App, value: string) -> (input.Bind_Target, bool) {
     if rest, cut := cut_word(value, "exec"); cut {
         return input.Bind_Line{strings.clone(rest), .Exec}, true
@@ -155,6 +158,7 @@ Bind_Unmet :: struct {
     held:  string, // what the chord runs instead; borrowed from the name tables
 }
 
+// (hole missing-row-report :tags defaults :sev refactor) nothing reports a default row the file lacks; run ranges (alt+1..9) and multi-ctx defaults need a file form
 binds_unmet :: proc(a: ^App, allocator := context.temp_allocator) -> []Bind_Unmet {
     out := make([dynamic]Bind_Unmet, allocator)
     for r in a.kernel.reqs {
