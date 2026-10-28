@@ -98,6 +98,8 @@ State :: struct {
     job:          Job,
     sys_seq:      u64, // the last injection into N0; a report carrying another is stale
     binds:        [dynamic]input.Bind,
+    sections:     [dynamic]string, // owned; section names past the kernel's (sections.odin)
+    groups:       map[Section]Groups, // the file's header lists
     pending:      input.Pending,
     mouse:        input.Mouse_State,
     hand:         ^sdl.Cursor, // the pointer over a field a click would act on
@@ -191,6 +193,7 @@ app_destroy :: proc(a: ^App) {
     config_destroy(&a.config)
     gripes_destroy(a)
     input.binds_destroy(&a.binds)
+    sections_destroy(a)
     input.pending_set(&a.pending) // an armed picker owns the line it captured
     message_set(a, "")
     clips_free(a) // the ring, not the selection: exiting must not empty the user's clipboard

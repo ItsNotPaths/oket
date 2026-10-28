@@ -34,11 +34,9 @@ the_shipped_file_is_the_defaults :: proc(t: ^testing.T) {
     base := app.binds_base()
     defer input.binds_destroy(&base)
     for d in base {
-        for ctx in d.ctx {
-            b, found := input.bind_at(a.binds[:], d.chord, ctx, d.kind, d.prefix)
-            testing.expectf(t, found && b.origin.src == .Config && b.line == d.line,
-                            "%v in %v is not the file's", d.chord, ctx)
-        }
+        b, found := input.bind_at(a.binds[:], d.chord, d.section, d.prefix)
+        testing.expectf(t, found && b.origin.src == .Config && b.line == d.line,
+                        "%v in %v is not the file's", d.chord, d.section)
     }
 }
 
@@ -77,7 +75,7 @@ a_deleted_row_is_reported_and_none_unbinds :: proc(t: ^testing.T) {
         testing.expect(t, strings.has_suffix(missing[0], " = :search.next"))
     }
     f3, _ := input.key_code("FK03")
-    b, found := input.bind_lookup(a.binds[:], {f3, {}}, .Text)
+    b, found := input.bind_lookup(a.binds[:], {f3, {}}, sec_path(app.SEC_TEXT))
     testing.expect(t, found && b.line == ":search.next",
                    "the default stopped running")
 
@@ -87,6 +85,6 @@ a_deleted_row_is_reported_and_none_unbinds :: proc(t: ^testing.T) {
     _ = os.write_entire_file(path, transmute([]u8)unbound)
     app.binds_sync(&a)
     testing.expect_value(t, len(app.binds_missing(&a)), 0)
-    _, found = input.bind_lookup(a.binds[:], {f3, {}}, .Text)
+    _, found = input.bind_lookup(a.binds[:], {f3, {}}, sec_path(app.SEC_TEXT))
     testing.expect(t, !found, "a `none` row still resolves")
 }

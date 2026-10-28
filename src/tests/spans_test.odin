@@ -601,7 +601,7 @@ close_spans_app :: proc(a: ^app.App) {
 kinded_doc :: proc(a: ^app.App, kind: input.Kind) -> store.Id {
     id := store.store_open(a.docs, SOURCE)
     gen, _ := store.store_gen(a.docs, id)
-    d := desc.new_from({kind = kind, ctx = .Text, editable = true, tab_width = 4})
+    d := desc.new_from({kind = kind, editable = true, tab_width = 4})
     store.store_submit(a.docs, id, gen, nil, d)
     desc.release(d)
     store.store_drain(a.docs)

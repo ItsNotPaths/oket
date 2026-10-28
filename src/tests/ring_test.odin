@@ -163,10 +163,10 @@ a_default_row_switches_lanes_by_kind_name :: proc(t: ^testing.T) {
     testing.expect_value(t, app.ring_focused(&a).doc, session)
 }
 
-// A kind is the narrow tier of the bind table: `[home]` beats `[surface]` where it applies,
+// A kind's own section comes before its groups: `[home]` beats `[surface]` where it applies,
 // which is how one chord means one thing on the home page and another in a listing.
 @(test)
-a_kind_section_narrows_over_its_context :: proc(t: ^testing.T) {
+a_kind_section_narrows_over_its_group :: proc(t: ^testing.T) {
     a, ok := bare_app()
     if !ok {
         return
@@ -175,14 +175,15 @@ a_kind_section_narrows_over_its_context :: proc(t: ^testing.T) {
 
     app.binds_parse(&a, "[surface]\n@AC03 = :ls\n[home]\n@AC03 = :open $o_path\n",
                     "binds.conf")
-    answer := input.describe_chord(a.binds[:], chord("AC03"), .Surface, nil, app.names(&a),
-                                   app.KIND_HOME)
+    answer := input.describe_chord(a.binds[:], chord("AC03"), sec_path(app.SEC_HOME), true, nil,
+                                   app.names(&a))
     defer delete(answer)
     testing.expect(t, strings.contains(answer, ":open $o_path"), answer)
     testing.expect(t, strings.contains(answer, "[home,"), answer)
 
     // The wider row still answers for a surface that is not this kind.
-    wide := input.describe_chord(a.binds[:], chord("AC03"), .Surface, nil, app.names(nil))
+    wide := input.describe_chord(a.binds[:], chord("AC03"), sec_path(app.SEC_SURFACE), true, nil,
+                                 app.names(nil))
     defer delete(wide)
     testing.expect(t, strings.contains(wide, ":ls"), wide)
 }

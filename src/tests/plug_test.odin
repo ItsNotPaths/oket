@@ -7,6 +7,7 @@ import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 import "core:reflect"
+import "core:slice"
 import "core:strconv"
 import "core:strings"
 import "core:testing"
@@ -60,7 +61,8 @@ a_plugin_registers_opens_renders_and_unloads :: proc(t: ^testing.T) {
     defer desc.release(d)
     testing.expect_value(t, pt.text_line_count(snap), 4)
     testing.expect_value(t, d.kind, kind)
-    testing.expect_value(t, d.ctx, input.Bind_Ctx.Surface)
+    walk, send := doc_path(&a, d)
+    testing.expect(t, slice.contains(walk, app.SEC_SURFACE) && send, "a surface kind walks no surface rows")
     testing.expect_value(t, len(d.columns), 2)
     // The fields the helper library's builder recorded, which is what `$o_name` resolves off.
     name, name_ok := field_at(&a, id, 0, "name")

@@ -27,7 +27,7 @@ TAU_MS :: 90 // bare_app leaves the config zero, which is motion OFF; these test
 wrap_doc :: proc(a: ^app.App, text: string) -> store.Id {
     id := store.store_open(a.docs, text)
     gen, _ := store.store_gen(a.docs, id)
-    d := desc.new_from({render = .Text, wrap = .Word, ctx = .Text, selection = .Char,
+    d := desc.new_from({render = .Text, wrap = .Word, selection = .Char,
                         tab_width = 4})
     store.store_submit(a.docs, id, gen, nil, d)
     desc.release(d)

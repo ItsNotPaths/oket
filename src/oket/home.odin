@@ -176,7 +176,6 @@ home_fill :: proc(a: ^App, id: store.Id) {
     gen := doc.gen
     d := desc.new_from(
         {
-            ctx = kind_ctx(a, KIND_HOME),
             kind = KIND_HOME,
             selection = .Line,
             tab_width = 4,

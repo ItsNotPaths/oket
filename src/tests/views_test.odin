@@ -363,7 +363,7 @@ sliced_app :: proc(t: ^testing.T, name: string) -> (a: app.App, id: store.Id, ok
     }
     id = store.store_open(a.docs, "alpha\n")
     gen, _ := store.store_gen(a.docs, id)
-    d := desc.new_from({kind = app.KIND_HOME, ctx = .Text, editable = true, tab_width = 4})
+    d := desc.new_from({kind = app.KIND_HOME, editable = true, tab_width = 4})
     store.store_submit(a.docs, id, gen, nil, d)
     desc.release(d)
     store.store_drain(a.docs)

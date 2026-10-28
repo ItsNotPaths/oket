@@ -37,11 +37,9 @@ Descriptor :: struct {
     render:    Render,
     wrap:      Wrap,
     numbers:   Numbers,
-    // The context a chord lands in while this document has the keys. The kernel must know it to
-    // ROUTE, which is the test that puts it here rather than in plugin state (§5, §8).
-    ctx:       input.Bind_Ctx,
-    // The ring lane, and the narrow tier of the bind table (§5). 0 is no kind: a document that
-    // belongs to no lane and whose keys are only its context's.
+    // The ring lane, and the binds.conf section a chord starts at (§5, §8). The kernel must know
+    // it to ROUTE, which puts it here rather than in plugin state. 0 is no kind: a plain text
+    // document in no lane.
     kind:      input.Kind,
     // The file this document is, or "". What makes `:w` mean something, and what the bar and
     // `:ls` name it by.
@@ -64,7 +62,6 @@ DEFAULT :: Descriptor {
     render    = .Text,
     wrap      = .None,
     numbers   = .Off,
-    ctx       = .Text,
     selection = .Char,
     tab_width = 4,
 }
@@ -76,9 +73,6 @@ new_from :: proc(d: Descriptor) -> ^Descriptor {
     out^ = d
     out.rc = 1
     out.tab_width = max(d.tab_width, 1)
-    if out.ctx == .Global { // no document is Global; the zero value means "unset"
-        out.ctx = .Text
-    }
     out.file = strings.clone(d.file)
     out.columns = slice.clone(d.columns)
     for &c in out.columns {

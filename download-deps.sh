@@ -28,7 +28,7 @@ odin_install() {
 
 echo "==> lues (the kernel; Odin source, built with -collection:lues=vendor/lues/src)"
 # Pinned. To revendor, push lues, bump LUES_REV and re-run.
-LUES_REV="368d3aece3a3bb825e45159f9fdaca887bbcfec8"
+LUES_REV="01eea28b43060a62561b90956155ed549e14b440"
 LUES_SRC="$VENDOR/lues"
 if [ ! -d "$LUES_SRC/.git" ]; then
     rm -rf "$LUES_SRC"

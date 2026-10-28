@@ -1,7 +1,6 @@
 package main
 
 import "core:fmt"
-import "core:slice"
 import "core:strings"
 import "lues:lues"
 import "../desc"
@@ -13,22 +12,17 @@ import "../store"
 // cannot drift. No kernel code compares a kind NAME: it compares identity, and the name is a
 // display and config read.
 //
-// input.Kind(0) is no kind — a document in no lane, and the wide tier of the bind table. The
-// kernel's own two are written here in a fixed order so they are constants; a plugin's kind
-// appends past them in lues (kind_base) and nothing about this shape changes.
+// input.Kind(0) is no kind — a document in no lane, whose keys are `[text]`'s. The kernel's own
+// two are written here in a fixed order so they are constants; a plugin's kind appends past them
+// in lues (kind_base) and nothing about this shape changes.
 //
 // THE TWO LEFT HERE ARE THE ONES THE KERNEL IS. A terminal is a PTY the kernel owns and a home
 // page is what a start has to say for itself; both are the kernel's own state, and neither is a
 // path on disk. Everything a PATH becomes is a plugin — `edit` for a file, `files` for a
 // directory — because a kernel that opened one would be the privileged path §7 forbids.
 
-Kind_Info :: struct {
-    name: string,
-    ctx:  input.Bind_Ctx, // the context a chord lands in over this kind's documents
-}
-
 @(rodata)
-KINDS := [?]Kind_Info{{"term", .Terminal}, {"home", .Surface}}
+KINDS := [?]string{"term", "home"}
 
 KIND_TERM :: input.Kind(1)
 KIND_HOME :: input.Kind(2)
@@ -43,20 +37,9 @@ KIND_HOME :: input.Kind(2)
 KIND_EDIT :: "edit"
 KIND_BROWSE :: "files"
 
-// A `[:find]` section: the command line while it starts with that verb. The id is the verb's
-// token past every real kind, so the kind tier serves it unchanged.
-// (hole verb-tier-delete :tags live :needs (live-whitelist) :sev cleanup) `[:verb]` sections exist only for live find
-KIND_VERB :: input.Kind(1 << 31)
-
-// Looked up, never interned: typing a line must not grow the token table.
-verb_kind :: proc(a: ^App, verb: string) -> (input.Kind, bool) {
-    i, found := slice.linear_search(a.kernel.tokens[:], verb)
-    return found ? KIND_VERB | input.Kind(i) : 0, found
-}
-
 kind_named :: proc(a: ^App, name: string) -> (input.Kind, bool) {
     for k, i in KINDS {
-        if k.name == name {
+        if k == name {
             return input.Kind(i + 1), true
         }
     }
@@ -67,27 +50,14 @@ kind_named :: proc(a: ^App, name: string) -> (input.Kind, bool) {
 // "" for no kind and for a kind nobody registered, which is what `:ls` prints for a document
 // that belongs to no lane.
 kind_name :: proc(a: ^App, kind: input.Kind) -> string {
-    return kind_info(a, kind).name
-}
-
-kind_ctx :: proc(a: ^App, kind: input.Kind) -> input.Bind_Ctx {
-    return kind_info(a, kind).ctx
-}
-
-@(private = "file")
-kind_info :: proc(a: ^App, kind: input.Kind) -> Kind_Info {
-    if kind & KIND_VERB != 0 {
-        verb := lues.token_name(a.kernel, lues.Token(kind &~ KIND_VERB))
-        return {strings.concatenate({":", verb}, context.temp_allocator), .Cmdline}
-    }
     i := int(kind) - 1
     if i >= 0 && i < len(KINDS) {
         return KINDS[i]
     }
     if k, ok := plug_kind(a, kind); ok {
-        return {k.name, input.Bind_Ctx(k.ctx)}
+        return k.name
     }
-    return {"", .Global}
+    return ""
 }
 
 // A fresh document of a kind, for `alt+N` on an empty slot: the lane already names the kind, so
@@ -119,7 +89,7 @@ files_open :: proc(a: ^App, dir: string) -> (store.Id, bool) {
     return plug_open(a, kind, dir)
 }
 
-// The App as a name table, lent to `input`, which holds a line as text and a Kind as identity
+// The App as a name table, lent to `input`, which holds a line as text and a section as identity
 // and never the tables that name them. A lone `:verb` line reads as its verb; any other line,
 // or one whose plugin unloaded, reads as itself (§8). A nil App names the kernel's verbs only.
 names :: proc(a: ^App) -> input.Names {
@@ -137,8 +107,12 @@ names :: proc(a: ^App) -> input.Names {
             }
             return line, "run as typed", false
         },
-        kind = proc(user: rawptr, kind: input.Kind) -> string {
-            return user == nil ? "" : kind_name((^App)(user), kind)
+        section = proc(user: rawptr, s: input.Section) -> string {
+            return section_name((^App)(user), s)
+        },
+        path = proc(user: rawptr, s: input.Section) -> []input.Section {
+            path, _ := section_path((^App)(user), s)
+            return path
         },
     }
 }

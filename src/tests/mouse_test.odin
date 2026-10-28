@@ -49,11 +49,11 @@ describe_answers_for_a_click :: proc(t: ^testing.T) {
 
     // Unbound is not the same as inert: a button chord moves point whether or not a row claims
     // it, and describe must say so rather than call it a no-op.
-    click := input.describe_chord(binds[:], {input.mouse_code(.Click), {}}, .Surface, nil, app.names(nil))
+    click := input.describe_chord(binds[:], {input.mouse_code(.Click), {}}, sec_path(app.SEC_SURFACE), false, nil, app.names(nil))
     defer delete(click)
     testing.expect_value(t, click, "click moves point; nothing further is bound")
 
-    double := input.describe_chord(binds[:], {input.mouse_code(.Double_Click), {}}, .Surface, nil, app.names(nil))
+    double := input.describe_chord(binds[:], {input.mouse_code(.Double_Click), {}}, sec_path(app.SEC_SURFACE), false, nil, app.names(nil))
     defer delete(double)
     testing.expect_value(
         t,
@@ -63,7 +63,7 @@ describe_answers_for_a_click :: proc(t: ^testing.T) {
 
     // The wheel scrolls what is under it and leaves the caret alone, so it says nothing about
     // point.
-    wheel := input.describe_chord(binds[:], {input.mouse_code(.Wheel_Up), {}}, .Surface, nil, app.names(nil))
+    wheel := input.describe_chord(binds[:], {input.mouse_code(.Wheel_Up), {}}, sec_path(app.SEC_SURFACE), false, nil, app.names(nil))
     defer delete(wheel)
     testing.expect_value(
         t,
@@ -81,25 +81,14 @@ every_default_chord_is_a_row :: proc(t: ^testing.T) {
 
     mice := 0
     for b in binds {
-        ctx := .Global in b.ctx ? input.Bind_Ctx.Global : ctx_of(b.ctx)
-        found, ok := input.bind_lookup(binds[:], b.chord, ctx, b.kind)
-        testing.expectf(t, ok, "%v resolves to nothing in %v", b.chord, ctx)
+        found, ok := input.bind_lookup(binds[:], b.chord, sec_path(b.section))
+        testing.expectf(t, ok, "%v resolves to nothing in %v", b.chord, b.section)
         testing.expect_value(t, found.line, b.line)
         if input.code_is_mouse(b.chord.code) {
             mice += 1
         }
     }
     testing.expect(t, mice >= 3, "the mouse defaults are missing from the table")
-}
-
-@(private = "file")
-ctx_of :: proc(set: input.Bind_Ctxs) -> input.Bind_Ctx {
-    for c in input.Bind_Ctx {
-        if c in set {
-            return c
-        }
-    }
-    return .Global
 }
 
 // --- press to chord ---

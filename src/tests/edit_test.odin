@@ -3,6 +3,7 @@ package tests
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 import "core:testing"
 import "core:time"
@@ -67,7 +68,8 @@ a_file_opens_into_the_editor_plugin :: proc(t: ^testing.T) {
     kind, _ := app.kind_named(&a, "edit")
     testing.expect_value(t, d.kind, kind)
     testing.expect_value(t, d.file, path)
-    testing.expect_value(t, d.ctx, input.Bind_Ctx.Text)
+    walk, send := doc_path(&a, d)
+    testing.expect(t, slice.contains(walk, app.SEC_TEXT) && !send, "an editor buffer walks no text rows")
     testing.expect(t, d.editable, "an editor buffer that does not take typing")
     // `bound`, not `raw`: an editor's chords go through the bind table like everything else,
     // which is what keeps describe able to answer for them (§8).

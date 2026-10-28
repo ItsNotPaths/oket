@@ -619,8 +619,14 @@ get_desc :: proc(a: ^App, b: ^strings.Builder) {
         return
     }
     defer desc.release(d)
-    fmt.sbprintf(b, "render %v\nwrap %v\nnumbers %v\nctx %v\nkind %s\nfile %s\n", d.render,
-                 d.wrap, d.numbers, d.ctx, kind_name(a, d.kind), d.file)
+    fmt.sbprintf(b, "render %v\nwrap %v\nnumbers %v\nkind %s\nfile %s\n", d.render, d.wrap,
+                 d.numbers, kind_name(a, d.kind), d.file)
+    path, send := section_path(a, kind_section(a, d.kind))
+    strings.write_string(b, "keys")
+    for s in path {
+        fmt.sbprintf(b, " %s", section_name(a, s))
+    }
+    fmt.sbprintf(b, "%s\n", send ? " send" : "")
     fmt.sbprintf(b, "selection %v\nfollow %v\ninput %v\nmouse %v\neditable %v\ntab_width %d\n",
                  d.selection, d.follow, d.input, d.mouse, d.editable, d.tab_width)
     for c in d.columns {

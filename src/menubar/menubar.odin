@@ -52,16 +52,14 @@ Cmd :: struct {
 // A chord a plugin asked for, parsed. The owner goes on the row rather than over it (§1).
 Request :: struct {
     prefix, chord: input.Chord,
-    ctx:           input.Bind_Ctx,
-    kind:          input.Kind,
+    section:       input.Section,
     owner:         string,
 }
 
-// Everything the bar is read off, for the FOCUSED document's context and kind.
+// Everything the bar is read off, for the sections the FOCUSED document walks.
 Source :: struct {
     binds:    []input.Bind,
-    ctx:      input.Bind_Ctx,
-    kind:     input.Kind,
+    path:     []input.Section,
     names:    input.Names,
     layout:   input.Layout_Name,
     menus:    []Def,
@@ -70,7 +68,7 @@ Source :: struct {
     requests: []Request,
 }
 
-// The whole bar, the way `bind_children` is: a row the context hides is not in it, so `enter`
+// The whole bar, the way `bind_children` is: a row the path hides is not in it, so `enter`
 // in a browser is a browser row and the editor's is not beside it. The geometry is the
 // window's and is put on by the host.
 build :: proc(src: Source, allocator := context.temp_allocator) -> menu.Bar {
@@ -135,7 +133,7 @@ chords :: proc(src: Source, allocator := context.temp_allocator) -> []menu.Row {
         if b.prefix == (input.Chord{}) || slice.contains(seen[:], b.prefix) {
             continue
         }
-        if !input.bind_primes(src.binds, b.prefix, src.ctx, src.kind) {
+        if !input.bind_primes(src.binds, b.prefix, src.path) {
             continue
         }
         append(&seen, b.prefix)
@@ -217,7 +215,7 @@ runs :: proc(line: string) -> string {
 // doing what it no longer does. This is the question the key handler asks, asked once per row.
 @(private = "file")
 answers :: proc(src: Source, b: input.Bind) -> bool {
-    got, ok := input.bind_lookup(src.binds, b.chord, src.ctx, src.kind, b.prefix)
+    got, ok := input.bind_lookup(src.binds, b.chord, src.path, b.prefix)
     return ok && got == b
 }
 
@@ -227,7 +225,7 @@ answers :: proc(src: Source, b: input.Bind) -> bool {
 @(private = "file")
 owner :: proc(src: Source, b: input.Bind) -> string {
     for r in src.requests {
-        if r.prefix == b.prefix && r.chord == b.chord && r.kind == b.kind && r.ctx in b.ctx {
+        if r.prefix == b.prefix && r.chord == b.chord && r.section == b.section {
             return r.owner
         }
     }

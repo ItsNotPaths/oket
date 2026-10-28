@@ -234,7 +234,7 @@ HOOKS := lues.Hooks {
     doc_open = proc(k: ^lues.Kernel, kind: lues.Kind) -> (docs.Id, bool) {
         a := app_of(k)
         id := store.store_open(a.docs)
-        d := desc.new_from({ctx = kind_ctx(&a, input.Kind(kind)), kind = input.Kind(kind), selection = .Line})
+        d := desc.new_from({kind = input.Kind(kind), selection = .Line})
         store.store_describe(a.docs, id, d)
         desc.release(d)
         return id, true
@@ -243,9 +243,9 @@ HOOKS := lues.Hooks {
         a := app_of(k)
         doc_close(&a, id)
     },
+    // The registered string picks the kind's default group list (sections.odin).
     kind_ctx = proc(k: ^lues.Kernel, name: string) -> (ctx: u32, ok: bool) {
-        c, known := input.ctx_named(name if name != "" else "surface")
-        return u32(c), known && c != .Global
+        return plug_groups_index(name)
     },
     unregister = proc(k: ^lues.Kernel, r: lues.Record) {
         a := app_of(k)

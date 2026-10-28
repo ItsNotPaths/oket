@@ -172,8 +172,8 @@ world_free :: proc(w: ^Plug_World) {
     free(w)
 }
 
-// The descriptor as the seam spells it. `ctx` is absent on purpose: a kind's context is fixed
-// where the kind is registered, so this direction cannot leak one either.
+// The descriptor as the seam spells it. Its keys follow from the kind, so there is nothing
+// about them to leak in this direction.
 @(private = "file")
 view_desc :: proc(v: ^Side_Box) -> ^plug.Descriptor {
     d := v.d
@@ -209,8 +209,8 @@ view_desc :: proc(v: ^Side_Box) -> ^plug.Descriptor {
     return &v.dv
 }
 
-// A descriptor a plugin published, as the kernel's own. The KIND decides the context, always:
-// a plugin cannot move its documents into another context's keys by publishing one (§5, §7).
+// A descriptor a plugin published, as the kernel's own. The KIND decides the keys, always: a
+// plugin cannot move its documents into another section's keys by publishing one (§5, §7).
 // Everything else is the plugin's to say, this being versioned state and not registration.
 plug_desc_take :: proc(a: ^App, id: store.Id, p: ^plug.Descriptor) -> ^desc.Descriptor {
     render := p.render
@@ -237,7 +237,6 @@ plug_desc_take :: proc(a: ^App, id: store.Id, p: ^plug.Descriptor) -> ^desc.Desc
             render    = render,
             wrap      = p.wrap,
             numbers   = p.numbers,
-            ctx       = kind_ctx(a, kind),
             kind      = kind,
             file      = string(p.file[:p.file_len]),
             selection = p.selection,

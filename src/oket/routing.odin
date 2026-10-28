@@ -56,19 +56,20 @@ active_desc :: proc(a: ^App) -> (^Slot, ^desc.Descriptor) {
     return s, store.store_descriptor(a.docs, s.doc)
 }
 
-// The focused document names its own context, and the descriptor is where it says so (§5). An
-// empty store leaves only Global.
-bind_ctx :: proc(a: ^App) -> (input.Bind_Ctx, input.Kind) {
+// The sections a chord walks over the focused document, from its kind (§5). The open command
+// line is `[cmdline]`, or `[:verb]` while it starts with that verb. An empty store leaves only
+// global.
+bind_path :: proc(a: ^App) -> (path: []Section, send: bool) {
     if cl_active(a) {
-        kind, _ := verb_kind(a, cl_verb(a))
-        return .Cmdline, kind
+        s, verb := section_find(a, fmt.tprintf(":%s", cl_verb(a)))
+        return section_path(a, verb ? s : SEC_CMDLINE)
     }
     _, d := active_desc(a)
     if d == nil {
-        return .Global, 0
+        return section_path(a, SEC_GLOBAL)
     }
     defer desc.release(d)
-    return d.ctx, d.kind
+    return section_path(a, kind_section(a, d.kind))
 }
 
 // A capture owns the keystroke: Escape clears it at any depth, anything else is the input it was
@@ -82,8 +83,8 @@ pending_take :: proc(a: ^App, chord: input.Chord) -> bool {
             input.pending_set(&a.pending)
             return true
         }
-        ctx, kind := bind_ctx(a)
-        answer := input.describe_chord(a.binds[:], chord, ctx, key_layout_name, names(a), kind,
+        path, send := bind_path(a)
+        answer := input.describe_chord(a.binds[:], chord, path, send, key_layout_name, names(a),
                                        context.temp_allocator)
         message_set(a, answer)
         input.pending_set(&a.pending)
@@ -100,8 +101,8 @@ pending_take :: proc(a: ^App, chord: input.Chord) -> bool {
 // while a primer is up, and it is owned the way an armed pick owns its line. It POINTS at the
 // help chord rather than listing the children: the menubar that chord opens is where they are.
 @(private = "file")
-prefix_arm :: proc(a: ^App, chord: input.Chord, ctx: input.Bind_Ctx, kind: input.Kind) -> bool {
-    if !input.bind_primes(a.binds[:], chord, ctx, kind) {
+prefix_arm :: proc(a: ^App, chord: input.Chord, path: []Section) -> bool {
+    if !input.bind_primes(a.binds[:], chord, path) {
         return false
     }
     spelling := input.chord_format(chord, key_layout_name, context.temp_allocator)
@@ -156,8 +157,8 @@ prefix_resolve :: proc(a: ^App, chord, prefix: input.Chord) -> bool {
     if chord.mods == {} || prefix == (input.Chord{}) {
         return false
     }
-    ctx, kind := bind_ctx(a)
-    if b, ok := input.bind_lookup(a.binds[:], chord, ctx, kind, prefix); ok {
+    path, _ := bind_path(a)
+    if b, ok := input.bind_lookup(a.binds[:], chord, path, prefix); ok {
         bind_dispatch(a, chord, b)
         return true
     }
@@ -192,20 +193,20 @@ handle_chord :: proc(a: ^App, chord: input.Chord) {
         cursor_command(a, .Cursor_Collapse)
         return
     }
-    ctx, kind := bind_ctx(a)
-    b, ok := input.bind_lookup(a.binds[:], chord, ctx, kind)
+    path, send := bind_path(a)
+    b, ok := input.bind_lookup(a.binds[:], chord, path)
     if !ok {
         // A chord no row claims may still be a PRIMER, which is a row's prefix and never a row
         // of its own (§4.1). Asked after the lookup, so a chord that already runs something
         // keeps running it and the clash is what the home page reports. Never over a pending:
         // arming would close the command line.
-        if a.pending == nil && prefix_arm(a, chord, ctx, kind) {
+        if a.pending == nil && prefix_arm(a, chord, path) {
             return
         }
-        // The miss rule (§8, §14): a context whose documents have a job of their own forwards,
+        // The miss rule (§8, §14): a section that lists `send` forwards to its document's job,
         // and everything else stays quiet. A chord that IS bound and does nothing is the thing
         // that section exists to prevent; an unbound one is just an unbound one.
-        if input.ctx_forwards(ctx) {
+        if send {
             surface_send(a, chord)
         }
         return
@@ -981,8 +982,8 @@ point_place :: proc(a: ^App, cx, cy: int, extend := false) {
 // the row's to decide: a chord naming a verb that places its own point gets none, so alt+click
 // still has the trail to add to by the time cursor.add runs.
 point_press :: proc(a: ^App, m: input.Mouse, mods: input.Mods, cx, cy: int) {
-    ctx, kind := bind_ctx(a)
-    if b, ok := input.bind_lookup(a.binds[:], {input.mouse_code(m), mods}, ctx, kind); ok {
+    path, _ := bind_path(a)
+    if b, ok := input.bind_lookup(a.binds[:], {input.mouse_code(m), mods}, path); ok {
         if cmd, named := line_command(b.line); named && command_places_point(cmd) {
             return
         }
@@ -1060,9 +1061,10 @@ verb_line :: proc(a: ^App, line: string) -> bool {
 // type into wants (the row navigates, the click lands a caret).
 @(private = "file")
 clickable :: proc(a: ^App, d: ^desc.Descriptor) -> bool {
+    path, _ := section_path(a, kind_section(a, d.kind))
     for button in ([?]input.Mouse{.Click, .Double_Click}) {
         chord := input.Chord{input.mouse_code(button), {}}
-        if bind, bound := input.bind_lookup(a.binds[:], chord, d.ctx, d.kind); bound {
+        if bind, bound := input.bind_lookup(a.binds[:], chord, path); bound {
             if !verb_line(a, bind.line) {
                 return true
             }

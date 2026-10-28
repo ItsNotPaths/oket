@@ -401,7 +401,7 @@ describe_answers_the_cursor_rows :: proc(t: ^testing.T) {
         {{input.mouse_code(.Click), {.Alt}}, .Cursor_Add},
     }
     for row in rows {
-        answer := input.describe_chord(a.binds[:], row.chord, .Surface, nil, app.names(nil))
+        answer := input.describe_chord(a.binds[:], row.chord, sec_path(app.SEC_SURFACE), false, nil, app.names(nil))
         defer delete(answer)
         info := app.COMMANDS[row.cmd]
         testing.expectf(t, strings.contains(answer, info.name), "%s: %s", info.name, answer)

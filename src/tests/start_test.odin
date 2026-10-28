@@ -130,7 +130,7 @@ the_home_page_offers_recovered_work :: proc(t: ^testing.T) {
     // The bind the page rests on: narrower than the surface row it shadows, because `:open`
     // there would open the file and leave the journal beside it. One row for every section,
     // because the ROW carries the line it runs (home.odin).
-    b, bound := input.bind_find(a.binds[:], chord("RTRN"), .Surface, app.KIND_HOME)
+    b, bound := input.bind_find(a.binds[:], chord("RTRN"), sec_path(app.SEC_HOME))
     if !testing.expect(t, bound, "enter is not bound over a home page") {
         return
     }

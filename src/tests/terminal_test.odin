@@ -3,6 +3,7 @@ package tests
 import "lues:pt"
 import "core:fmt"
 import "core:os"
+import "core:slice"
 import "core:strings"
 import "core:sys/posix"
 import "core:testing"
@@ -130,7 +131,8 @@ a_session_is_a_document :: proc(t: ^testing.T) {
     testing.expect_value(t, d.render, desc.Render.Grid)
     testing.expect_value(t, d.follow, desc.Follow.Tail)
     testing.expect_value(t, d.input, desc.Input.Raw)
-    testing.expect_value(t, d.ctx, input.Bind_Ctx.Terminal)
+    walk, send := doc_path(&a, d)
+    testing.expect(t, send && !slice.contains(walk, app.SEC_TEXT), "a session's keys do not reach its job")
     testing.expect(t, !d.editable, "typing reaches the shell, not the piece table")
 
     // The live grid is the document's lines, and the caret is the shell's cursor.

@@ -100,7 +100,7 @@ the_query_language_answers_the_bytes_the_descriptor_and_the_spans :: proc(t: ^te
     testing.expect_value(t, strings.trim_space(text), "alpha")
     d, _ := app.get_value(&a, "desc")
     testing.expect(t, strings.contains(d, "editable true"), d)
-    testing.expect(t, strings.contains(d, "ctx Text"), d)
+    testing.expect(t, strings.contains(d, "keys text global\n"), d)
     // Empty and not a refusal: nobody has published a run over this document, and a name the
     // set does not hold is the only thing that answers false.
     spans, known := app.get_value(&a, "spans")

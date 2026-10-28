@@ -93,7 +93,7 @@ a_field_fills_from_the_span_under_the_caret :: proc(t: ^testing.T) {
         {1, "path", 0, 1, "/x"},
         {1, "path", 1, 2, "/y"},
     }
-    d := desc.new_from({ctx = .Surface, kind = app.KIND_HOME, selection = .Char, tab_width = 4})
+    d := desc.new_from({kind = app.KIND_HOME, selection = .Char, tab_width = 4})
     store.store_submit(a.docs, id, gen, nil, d, fields_spans(&a, id, fields[:]))
     desc.release(d)
     store.store_drain(a.docs)
@@ -124,7 +124,7 @@ rows_doc :: proc(a: ^app.App) -> store.Id {
         {1, "path", 0, 4, "/tmp/beta"},
         {1, "tail", 5, 6, ""},
     }
-    d := desc.new_from({ctx = .Surface, kind = app.KIND_HOME, selection = .Line, tab_width = 4})
+    d := desc.new_from({kind = app.KIND_HOME, selection = .Line, tab_width = 4})
     store.store_submit(a.docs, id, gen, nil, d, fields_spans(a, id, fields[:]))
     desc.release(d)
     store.store_drain(a.docs)
@@ -180,7 +180,7 @@ one_row_gives_a_listing_the_mouse :: proc(t: ^testing.T) {
     testing.expect_value(t, line, fmt.tprintf(":open %s/beta.txt", dir))
 
     // describe answers for the click now, and names the file the row came from.
-    answer := input.describe_chord(a.binds[:], {input.mouse_code(.Click), {}}, .Surface, nil, app.names(nil))
+    answer := input.describe_chord(a.binds[:], {input.mouse_code(.Click), {}}, sec_path(app.SEC_SURFACE), false, nil, app.names(nil))
     defer delete(answer)
     testing.expect_value(
         t,

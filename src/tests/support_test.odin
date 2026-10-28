@@ -101,7 +101,6 @@ scratch_doc :: proc(a: ^app.App, file, text: string) -> store.Id {
     d := desc.new_from(
         {
             numbers = .Absolute,
-            ctx = .Text,
             file = file,
             selection = .Char,
             editable = true,
@@ -281,7 +280,6 @@ listing_doc :: proc(a: ^app.App, dir: string) -> store.Id {
     d := desc.new_from(
         {
             numbers = .Absolute,
-            ctx = .Surface,
             kind = app.KIND_HOME,
             file = dir,
             selection = .Line,
@@ -359,4 +357,15 @@ stacked :: proc(t: ^testing.T, px: int) -> (gfx.Atlas, bool) {
     }
     a, made := gfx.atlas_make(faces[:])
     return a, testing.expect(t, made)
+}
+
+// What a chord walks over this document, and whether a miss goes to its program.
+doc_path :: proc(a: ^app.App, d: ^desc.Descriptor) -> ([]input.Section, bool) {
+    return app.section_path(a, app.kind_section(a, d.kind))
+}
+
+// What a chord walks in a kernel section, by its default list.
+sec_path :: proc(s: app.Section) -> []input.Section {
+    path, _ := app.section_path(nil, s)
+    return path
 }

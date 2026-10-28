@@ -11,11 +11,10 @@ import "../menubar"
 MENU_SECTION :: "menu"
 
 menubar_build :: proc(a: ^App, allocator := context.temp_allocator) -> menu.Bar {
-    ctx, kind := bind_ctx(a)
+    path, _ := bind_path(a)
     return menubar.build({
         binds    = a.binds[:],
-        ctx      = ctx,
-        kind     = kind,
+        path     = path,
         names    = names(a),
         layout   = key_layout_name,
         menus    = menubar_defs(a, allocator),
@@ -78,7 +77,7 @@ menubar_plugins :: proc(a: ^App, allocator := context.temp_allocator) -> []menub
     return out[:]
 }
 
-// The live chord requests, parsed. One that no longer parses or names no context owns nothing.
+// The live chord requests, parsed. One that no longer parses owns nothing.
 @(private = "file")
 menubar_requests :: proc(a: ^App, allocator := context.temp_allocator) -> []menubar.Request {
     out := make([dynamic]menubar.Request, allocator)
@@ -87,9 +86,8 @@ menubar_requests :: proc(a: ^App, allocator := context.temp_allocator) -> []menu
             continue
         }
         prefix, chord, parsed := input.chord_pair_parse(r.chord, key_layout_code)
-        ctx, kind, known := binds_ctx(a, r.ctx)
-        if parsed && known {
-            append(&out, menubar.Request{prefix, chord, ctx, kind, r.owner})
+        if parsed {
+            append(&out, menubar.Request{prefix, chord, section_intern(a, r.ctx), r.owner})
         }
     }
     return out[:]

@@ -25,12 +25,13 @@ close :: proc(a: ^app.App) {
 }
 
 @(private = "file")
-find :: proc(a: ^app.App, spelling: string, ctx: input.Bind_Ctx) -> (input.Bind, bool) {
+find :: proc(a: ^app.App, spelling: string, s: app.Section) -> (input.Bind, bool) {
     chord, ok := input.chord_parse(spelling, nil)
     if !ok {
         return {}, false
     }
-    b, found := input.bind_lookup(a.binds[:], chord, ctx)
+    path, _ := app.section_path(a, s)
+    b, found := input.bind_lookup(a.binds[:], chord, path)
     return b, found
 }
 
@@ -39,19 +40,19 @@ binds_file_lays_over_the_defaults :: proc(t: ^testing.T) {
     a := fixture()
     defer close(&a)
 
-    before, _ := find(&a, "f3", .Text)
+    before, _ := find(&a, "f3", app.SEC_TEXT)
     testing.expect_value(t, before.line, ":search.next")
 
     app.binds_parse(&a, "[text]\nf3 = :file.dump\nclick = :open $o_path\n", "binds.conf")
 
-    after, found := find(&a, "f3", .Text)
+    after, found := find(&a, "f3", app.SEC_TEXT)
     testing.expect(t, found)
     testing.expect_value(t, after.line, ":file.dump")
     testing.expect_value(t, after.origin.src, input.Origin_Src.Config)
     testing.expect_value(t, after.origin.line, 2)
 
     // A mouse row is an ordinary row: same file, same parser, same table.
-    click, clicked := find(&a, "click", .Text)
+    click, clicked := find(&a, "click", app.SEC_TEXT)
     testing.expect(t, clicked)
     testing.expect_value(t, click.line, ":open $o_path")
 }
@@ -67,10 +68,10 @@ binds_file_skips_what_it_cannot_read :: proc(t: ^testing.T) {
         "[nowhere]\nf3 = :file.dump\n[text]\nnotachord = :file.dump\nf7 = :file.dump\n",
         "binds.conf",
     )
-    still, _ := find(&a, "f3", .Text)
+    still, _ := find(&a, "f3", app.SEC_TEXT)
     testing.expect_value(t, still.line, ":search.next")
 
-    b, found := find(&a, "f7", .Text)
+    b, found := find(&a, "f7", app.SEC_TEXT)
     testing.expect(t, found, "a good row after two bad ones was dropped")
     testing.expect_value(t, b.line, ":file.dump")
     testing.expect(t, strings.contains(a.message, "binds.conf:4"))
@@ -120,7 +121,7 @@ a_requested_row_becomes_a_file_row :: proc(t: ^testing.T) {
     testing.expect(t, strings.contains(text, "[surface]"))
     testing.expect(t, strings.contains(text, "click = :open $o_path"))
 
-    b, found := find(&a, "click", .Surface)
+    b, found := find(&a, "click", app.SEC_SURFACE)
     testing.expect(t, found)
     testing.expect_value(t, b.origin.src, input.Origin_Src.Config)
 
@@ -155,7 +156,7 @@ a_taken_chord_is_written_commented_and_reported :: proc(t: ^testing.T) {
     testing.expect(t, strings.contains(a.message, "wheel-down is taken by :view.scroll_down"), a.message)
 
     // The default still answers, so the refusal cost nothing.
-    b, _ := find(&a, "wheel-down", .Global)
+    b, _ := find(&a, "wheel-down", app.SEC_GLOBAL)
     testing.expect_value(t, b.line, ":view.scroll_down")
 }
 
@@ -182,10 +183,10 @@ a_shadowing_row_goes_in_live_with_a_note :: proc(t: ^testing.T) {
     testing.expect(t, strings.contains(text, "f1 = :help $o_path"))
 
 
-    b, _ := find(&a, "f1", .Surface)
+    b, _ := find(&a, "f1", app.SEC_SURFACE)
     testing.expect_value(t, b.line, ":help $o_path")
 
-    wider, _ := find(&a, "f1", .Global)
+    wider, _ := find(&a, "f1", app.SEC_GLOBAL)
     testing.expect_value(t, wider.line, ":describe.key")
 }
 
@@ -234,9 +235,9 @@ two_owners_share_one_primer :: proc(t: ^testing.T) {
 
     prefix, parsed := input.chord_parse("ctrl+@AB05", nil)
     testing.expect(t, parsed)
-    testing.expect(t, input.bind_primes(a.binds[:], prefix, .Global), "no primer under ctrl+b")
+    testing.expect(t, input.bind_primes(a.binds[:], prefix, sec_path(app.SEC_GLOBAL)), "no primer under ctrl+b")
 
-    kids := input.bind_children(a.binds[:], prefix, .Global, nil, {}, 0, context.temp_allocator)
+    kids := input.bind_children(a.binds[:], prefix, sec_path(app.SEC_GLOBAL), nil, {}, context.temp_allocator)
     testing.expect(t, strings.contains(kids, ":ls"), kids)
     testing.expect(t, strings.contains(kids, ":ring"), kids)
 }

@@ -4,6 +4,7 @@ import "lues:pt"
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 import "core:testing"
 import "../desc"
@@ -127,7 +128,8 @@ a_row_is_ls_la_with_a_link_on_the_name :: proc(t: ^testing.T) {
 
     kind, _ := app.kind_named(&a, "files")
     testing.expect_value(t, d.kind, kind)
-    testing.expect_value(t, d.ctx, input.Bind_Ctx.Surface)
+    walk, send := doc_path(&a, d)
+    testing.expect(t, slice.contains(walk, app.SEC_SURFACE) && send, "a listing walks no surface rows")
     testing.expect_value(t, d.selection, desc.Selection.Char) // a caret in a name, not a row
     testing.expect(t, d.editable, "a listing you cannot type into")
     testing.expect_value(t, len(d.columns), 0)
