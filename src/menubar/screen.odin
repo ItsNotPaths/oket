@@ -60,7 +60,7 @@ Act :: enum u8 {
 
 // A value nobody recognises is the one the file did not have to say.
 show_named :: proc(s: string) -> Show {
-    return s == "constant" ? .Constant : .Hidden
+    return s == "hidden" ? .Hidden : .Constant
 }
 
 palette_named :: proc(s: string) -> Palette {

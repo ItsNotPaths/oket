@@ -127,7 +127,7 @@ binds_base :: proc() -> [dynamic]input.Bind {
     bind_in(&b, "AD10", {.Alt, .Shift}, ":panel.close", SEC_GLOBAL) // the panel, never the document in it
     // alt+w, for width. A LINE, because the sizing model is the row and not the kernel: rebind
     // the list and the same key is a toggle, a three-way or a set.
-    bind_in(&b, "AD02", {.Alt}, ":width 30 50 100", SEC_GLOBAL)
+    bind_in(&b, "AD02", {.Alt}, ":width 33 50 66 100", SEC_GLOBAL)
     bind_in(&b, "AC09", {.Alt}, ":lock", SEC_GLOBAL) // alt+l
     // The universal spelling, and it moves the TEXT rather than the grid: ctrl+= is bigger
     // glyphs, which is fewer cells.

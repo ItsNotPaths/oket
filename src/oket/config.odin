@@ -39,7 +39,7 @@ Config :: struct {
     select:  int, // [cursor] select = 90 — percent of the swap a selection carries (§3)
     wheel:   int, // [mouse] wheel = 3 — lines one notch scrolls
     double_ms: int, // [mouse] double = 300 — the double-click window (PLAN.md §14)
-    font_px: int, // [font] size = 18 — the face size to bake at; 0 is the display's own
+    font_px: int, // [font] size = 24 — the face size to bake at; 0 is the display's own
     split:   txt.Split, // [cursor] split = selections — what cursor.split_lines leaves per line
     switcher: Switcher_Show, // [switcher] show = titles — what the alt column carries
     marks:   bool, // [indent] marks = off — a tab's line and a space's dot
@@ -116,6 +116,8 @@ BEHIND_DEFAULT :: 12
 // caret on top of it is the one thing still drawn at 100.
 SELECT_DEFAULT :: 90
 
+FONT_DEFAULT :: 24
+
 // One wheel notch, and the window a second click still counts as a double one (§14: a timeout
 // is invisible state, so the file must be able to say what it is). The window's one value is
 // the mouse machine's, which also serves its callers that have no config to read.
@@ -124,7 +126,8 @@ DOUBLE_DEFAULT :: input.DOUBLE_CLICK_MS
 
 config_default :: proc() -> Config {
     return {gap = GAP_DEFAULT, tau = TAU_DEFAULT, behind = BEHIND_DEFAULT,
-            select = SELECT_DEFAULT, wheel = WHEEL_DEFAULT, double_ms = DOUBLE_DEFAULT}
+            select = SELECT_DEFAULT, font_px = FONT_DEFAULT, wheel = WHEEL_DEFAULT,
+            double_ms = DOUBLE_DEFAULT}
 }
 
 // A setting is where it is written, what it MEANS, its default as you would type it, and what
@@ -161,7 +164,7 @@ LISTS := [?]List_Setting {
     {"menu", "bar", "file, edit, view, panel", "which menus the bar carries, in order"},
     {"menu", "palette", "invert",
      "the bar's colours: dark, light, or invert for the opposite of the theme"},
-    {"menu", "show", "hidden",
+    {"menu", "show", "constant",
      "constant keeps the bar on a row of its own; hidden draws it over what is there"},
     {LIVE_SECTION, "live", LIVE_DEFAULT, "builtins that re-run step 1 of the line as you type"},
 }
@@ -192,10 +195,9 @@ SETTINGS := [?]Setting {
     {"cursor", "split", "selections",
      "what cursor.split_lines leaves per line: selections or carets",
      proc(c: ^Config, value: string) {c.split = conf_split(value)}},
-    // 0 is what an absent row means and what `font.reset` goes back to; the range guard is
-    // face_px_ok's, at the read site.
-    {"font", "size", "0", "the face size to bake at; 0 is whatever the display asked for",
-     proc(c: ^Config, value: string) {c.font_px = conf_int(value, 0)}},
+    // 0 is the display's own size; the range guard is face_px_ok's, at the read site.
+    {"font", "size", "24", "the face size to bake at; 0 is whatever the display asked for",
+     proc(c: ^Config, value: string) {c.font_px = conf_int(value, FONT_DEFAULT)}},
     {"mouse", "wheel", "3", "lines one wheel notch scrolls",
      proc(c: ^Config, value: string) {c.wheel = conf_int(value, WHEEL_DEFAULT)}},
     {"mouse", "double", "300",

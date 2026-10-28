@@ -51,10 +51,11 @@ home_dir :: proc(h: app.Home) -> string {
 // the test binary, which races the parallel runner and is not this App's file to write.
 bare_app :: proc(cols := 50, rows := 4) -> (a: app.App, ok: bool) {
     a = app.app_make() or_return
-    // The real defaults, less the two a test cannot have: a strip that animates makes every
-    // geometry assertion a race, and a gap puts every panel width off its arithmetic.
+    // The real defaults, less three a test cannot have: a strip that animates makes every
+    // geometry assertion a race, and a gap or a bar row puts every panel off its arithmetic.
     a.config = app.config_default()
     a.config.tau, a.config.gap = 0, 0
+    app.config_set_line(&a.config, "menu", "show", "hidden")
     a.binds = app.binds_base()
     // Where oket thinks it is, the way app_init sets it: the home page names it and a terminal
     // is spawned in it, so an App without one is not one this suite can ask about.
@@ -156,6 +157,9 @@ plug_app :: proc(t: ^testing.T, name: string, plugins: ..string) -> (a: app.App,
             return {}, false
         }
     }
+    // A load re-reads the file, so bare_app's hidden bar has to be written down to survive one.
+    conf, _ := filepath.join({home, app.CONFIG_NAME}, context.temp_allocator)
+    _ = os.write_entire_file(conf, transmute([]u8)string("[menu]\nshow = hidden\n"))
     a = bare_app() or_return
     app.app_home(&a, home) // owned by the App, freed with it
     return a, true
