@@ -1,6 +1,5 @@
 package main
 
-import "core:fmt"
 import "core:strconv"
 import "core:strings"
 import "../store"
@@ -13,7 +12,6 @@ import "../cl"
 //   @+N   N panels right of the focused one, @-N N left
 //   N     an alias for #N, because that is what `:open <path> 3` meant before there were panels
 //   @=    the panel already showing it, and the one you are in when no panel is
-//   @     the panel the picker was steered to, which only a gesture can name (§6)
 //   @*    every panel, #* every live slot of the lane — for verbs that ACT (`:width`, `:close`)
 //
 // The two sigils are §3's two axes and a line may carry one of each: `#N` says which slot holds
@@ -149,18 +147,3 @@ target_panel :: proc(a: ^App, t: Target) -> (int, bool) {
     return a.focus, false
 }
 
-// `@` on its own is resolved here and nowhere else: the picker rewrites it to the `@N` of the
-// panel it was steered to, so the line that runs is one the user could have typed and the parse
-// above learns no fourth form (PANELS.md §6). Always a copy, because the line the picker holds
-// is freed with the state that holds it.
-target_aim :: proc(text: string, panel: int) -> string {
-    for i in 0 ..< len(text) {
-        if text[i] != '@' || i > 0 && !cl.field_sep(text[i - 1]) {
-            continue
-        }
-        if i + 1 == len(text) || cl.field_sep(text[i + 1]) {
-            return fmt.tprintf("%s@%d%s", text[:i], panel + 1, text[i + 1:])
-        }
-    }
-    return strings.clone(text, context.temp_allocator)
-}

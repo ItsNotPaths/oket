@@ -76,19 +76,19 @@ f3_steps_through_the_matches :: proc(t: ^testing.T) {
     app.point_sync(&a)
     app.cl_exec(&a, ":find hit")
 
-    app.handle_chord(&a, {f3, {}, 0})
+    app.handle_chord(&a, {f3, {}})
     testing.expect_value(t, len(doc.cursors), 1)
     testing.expect_value(t, doc.cursors[0].head.line, 2)
 
-    app.handle_chord(&a, {f3, {}, 0})
+    app.handle_chord(&a, {f3, {}})
     testing.expect_value(t, doc.cursors[0].head.line, 4)
 
     // And wrapping is txt's, so the fifth step is the first hit again.
-    app.handle_chord(&a, {f3, {}, 0})
+    app.handle_chord(&a, {f3, {}})
     testing.expect_value(t, doc.cursors[0].head.line, 0)
 
     // Back from the START of the selection, or a step back would find the hit it is standing on.
-    app.handle_chord(&a, {f3, {.Shift}, 0})
+    app.handle_chord(&a, {f3, {.Shift}})
     testing.expect_value(t, doc.cursors[0].head.line, 4)
 }
 
@@ -102,7 +102,7 @@ f3_before_any_find_says_what_to_type :: proc(t: ^testing.T) {
     defer close_app(&a)
 
     f3, _ := input.key_code("FK03")
-    app.handle_chord(&a, {f3, {}, 0})
+    app.handle_chord(&a, {f3, {}})
     testing.expect(t, strings.contains(a.message, ":find"), a.message)
 }
 

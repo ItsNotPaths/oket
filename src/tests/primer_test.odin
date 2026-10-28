@@ -104,7 +104,7 @@ the_help_chord_lists_the_children_in_the_menu :: proc(t: ^testing.T) {
     testing.expect(t, !strings.contains(app.bar_text(&a), "quit"), app.bar_text(&a))
 
     help, _ := input.key_code(input.PREFIX_HELP)
-    app.handle_chord(&a, {help, {.Ctrl}, 0})
+    app.handle_chord(&a, {help, {.Ctrl}})
     _, still := armed(&a)
     testing.expect(t, !still, "the primer stayed up under the menu it opened")
     p, up := a.pending.(input.Pending_Menu)
@@ -187,7 +187,7 @@ describe_reads_a_primer_out :: proc(t: ^testing.T) {
     app.binds_parse(&a, "[global]\nctrl+@AB05 ctrl+@AC04 = file.quit\n", "binds.conf")
 
     f1, _ := input.key_code("FK01")
-    app.handle_chord(&a, {f1, {}, 0})
+    app.handle_chord(&a, {f1, {}})
     app.handle_chord(&a, chord("ctrl+@AB05"))
     testing.expect(t, strings.contains(a.message, "arms a primer"), a.message)
     testing.expect(t, strings.contains(a.message, "quit"), a.message)

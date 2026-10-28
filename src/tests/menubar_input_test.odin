@@ -94,25 +94,6 @@ space_opens_the_menu_and_the_primer_says_where :: proc(t: ^testing.T) {
     testing.expect(t, strings.contains(a.message, "unbound"), a.message)
 }
 
-// The comparison IGNORES `Chord.held`. Keeping `b` down through `alt+b` into `alt+space` is the
-// natural way to type this, and the second chord then arrives qualified by `b` — an equality test
-// against a zero `held` would miss the chord the user actually typed.
-@(test)
-the_help_chord_arrives_with_the_primers_key_still_down :: proc(t: ^testing.T) {
-    a, ok := primer_app()
-    if !ok {
-        return
-    }
-    defer close_app(&a)
-
-    app.handle_chord(&a, chord("AB05", {.Alt}))
-    app.handle_chord(&a, chord("SPCE", {.Alt}, held = "AB05"))
-    _, up := open_menu(&a)
-    testing.expect(t, up, "a held key hid the help chord")
-    testing.expect_value(t, menu_name(&a, a.menu.nav), "chords")
-    testing.expect(t, menu.popped(a.menu.nav))
-}
-
 // The menu claims six keys and nothing else (§5). Anything else falls THROUGH and closes, in the
 // one keystroke: f1 opens describe and the menu is gone, both from one press.
 @(test)

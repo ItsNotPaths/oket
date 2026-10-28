@@ -21,7 +21,7 @@ import "../input"
 // A section is a bind context: `global`, `text`, `surface`, `terminal`, or a KIND's name —
 // `[files]` is narrower than `[surface]` and wins where it applies, which is how `enter` means
 // one thing in a listing and another in the editor while both are surfaces. A value is a verb's
-// registry name, `none` to unbind, or `exec`/`stage`/`pick` and a command line whose `$o_`
+// registry name, `none` to unbind, or `exec`/`stage` and a command line whose `$o_`
 // names fill from point.
 //
 // A start never rewrites it, only appends what a plugin asked for. In the config directory, next
@@ -127,11 +127,10 @@ binds_ctx :: proc(a: ^App, name: string) -> (ctx: input.Bind_Ctx, kind: input.Ki
 MODE_WORDS := [input.Bind_Mode]string {
     .Exec  = "exec",
     .Stage = "stage",
-    .Pick  = "pick",
 }
 
 // A mode word and a command line, `none`, or a verb — a kernel one, or one a plugin registered.
-// (hole value-is-line :tags binds :needs (pick-cut) :sev refactor) a value is a verb name or exec/stage/pick + line; make it a command line, a lone `:verb` still resolves to the enum at parse
+// (hole value-is-line :tags binds :sev refactor) a value is a verb name or exec/stage + line; make it a command line, a lone `:verb` still resolves to the enum at parse
 binds_target :: proc(a: ^App, value: string) -> (input.Bind_Target, bool) {
     for word, mode in MODE_WORDS {
         if rest, cut := cut_word(value, word); cut {

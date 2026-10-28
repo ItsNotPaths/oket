@@ -32,12 +32,8 @@ holding_arrow_does_not_jump_on_release :: proc(t: ^testing.T) {
     start := a.menu.nav.row
     N :: 20
     // initial press + repeats = N moves
-    for i in 0 ..< N {
-        if i == 0 {
-            app.handle_chord(&a, chord("DOWN"))
-        } else {
-            app.handle_chord(&a, chord("DOWN"), true)
-        }
+    for _ in 0 ..< N {
+        app.handle_chord(&a, chord("DOWN"))
     }
     want := (start + N) % len(rows2)
     testing.expect_value(t, a.menu.nav.row, want)
@@ -167,8 +163,7 @@ live_repeats_still_move :: proc(t: ^testing.T) {
 }
 
 @(private = "file")
-chord :: proc(name: string, mods: input.Mods = {}, held := "") -> input.Chord {
+chord :: proc(name: string, mods: input.Mods = {}) -> input.Chord {
     code, _ := input.key_code(name)
-    down, _ := input.key_code(held)
-    return {code, mods, down}
+    return {code, mods}
 }

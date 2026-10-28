@@ -51,22 +51,22 @@ a_zoom_step_moves_the_cell :: proc(t: ^testing.T) {
     zero, _ := input.key_code("AE10")
 
     was, _ := gfx.painter_cell(&a.painter)
-    app.handle_chord(&a, {plus, {.Ctrl}, 0})
+    app.handle_chord(&a, {plus, {.Ctrl}})
     bigger, _ := gfx.painter_cell(&a.painter)
     testing.expectf(t, bigger > was, "ctrl+= left the cell at %d", bigger)
 
-    app.handle_chord(&a, {minus, {.Ctrl}, 0})
+    app.handle_chord(&a, {minus, {.Ctrl}})
     back, _ := gfx.painter_cell(&a.painter)
     testing.expect_value(t, back, was)
 
     // Reset goes to the size the app started at, from wherever the steps left it.
-    app.handle_chord(&a, {plus, {.Ctrl}, 0})
-    app.handle_chord(&a, {plus, {.Ctrl}, 0})
-    app.handle_chord(&a, {zero, {.Ctrl}, 0})
+    app.handle_chord(&a, {plus, {.Ctrl}})
+    app.handle_chord(&a, {plus, {.Ctrl}})
+    app.handle_chord(&a, {zero, {.Ctrl}})
     testing.expect_value(t, a.font_px, 16)
 
     // And reset from the baseline says so: three bound chords, none of them ever silent.
-    app.handle_chord(&a, {zero, {.Ctrl}, 0})
+    app.handle_chord(&a, {zero, {.Ctrl}})
     testing.expect_value(t, a.message, "already at 16 px")
 }
 
@@ -81,7 +81,7 @@ a_zoom_at_the_range_end_says_so :: proc(t: ^testing.T) {
     defer gfx.atlas_destroy(&a.painter.atlas)
 
     plus, _ := input.key_code("AE12")
-    app.handle_chord(&a, {plus, {.Ctrl}, 0})
+    app.handle_chord(&a, {plus, {.Ctrl}})
     testing.expect_value(t, a.font_px, gfx.FACE_PX_MAX)
     testing.expect(t, len(a.message) > 0, "a zoom at the ceiling went quiet")
 }
@@ -97,7 +97,7 @@ the_bitmap_fallback_says_it_cannot_zoom :: proc(t: ^testing.T) {
     defer close_app(&a)
 
     plus, _ := input.key_code("AE12")
-    app.handle_chord(&a, {plus, {.Ctrl}, 0})
+    app.handle_chord(&a, {plus, {.Ctrl}})
     testing.expect_value(t, a.message,
                          "the built-in bitmap has one size; there is no system font to resize")
 }

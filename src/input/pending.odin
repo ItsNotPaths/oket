@@ -1,6 +1,5 @@
 package input
 
-import "core:fmt"
 
 // One pending state, never a pile of bools (§6). Whatever qualifies the next keystroke lives
 // here; nil means keys mean what they always mean.
@@ -26,20 +25,8 @@ Pending_Switcher :: struct {
     alts: bit_set[Switcher_Alt],
 }
 
-// The picker is ARMED (PANELS.md §6): the line is already expanded and waiting, `chord` is the
-// one whose release runs it, and `target` is the panel the side arrows have steered to. The
-// state does not exist until a `pick` row arms it, so there is no flag to be false.
-Pending_Pick :: struct {
-    // The whole chord, not just its held key: its release commits the gesture and a REPEAT of
-    // it is the key never having come up, which is not a second press of a row.
-    chord:  Chord,
-    // Owned, and filled at the PRESS, so its `$o_` names read the point the chord fired on.
-    line:   string,
-    target: int,
-}
-
 // A primer is up (§4): the next chord is qualified by `chord`. The label is built at arm time —
-// the table cannot change while a primer is up — and owned the way an armed pick owns its line.
+// the table cannot change while a primer is up — and owned, so pending_set frees it.
 // It points at the help chord and lists nothing: the MENUBAR holds the children, one row each,
 // and a bar row that also listed them would be a second answer to one question (MENU.md §5).
 Pending_Prefix :: struct {
@@ -60,7 +47,6 @@ Pending :: union {
     Pending_Describe,
     Pending_Cmdline,
     Pending_Switcher,
-    Pending_Pick,
     Pending_Prefix,
     Pending_Menu,
 }
@@ -73,11 +59,6 @@ pending_describe :: proc(p: Pending) -> string {
         return "command line: enter runs, esc closes"
     case Pending_Switcher:
         return "alt: 1-9 goes to a slot, 0 to N0, ` alternates, q closes"
-    case Pending_Pick:
-        return fmt.tprintf(
-            "pick: @%d; arrows choose, the chord again makes a panel, release opens, esc cancels",
-            v.target + 1,
-        )
     case Pending_Prefix:
         return v.label
     case Pending_Menu:
@@ -86,12 +67,10 @@ pending_describe :: proc(p: Pending) -> string {
     return ""
 }
 
-// The one door onto the field, because a state may own memory: an armed pick holds the line it
-// captured, and whatever replaces it — Escape, another capture, the exit — is what frees it.
+// The one door onto the field, because a state may own memory: a primer holds its label, and
+// whatever replaces it — Escape, another capture, the exit — is what frees it.
 pending_set :: proc(p: ^Pending, to: Pending = nil) {
     #partial switch it in p {
-    case Pending_Pick:
-        delete(it.line)
     case Pending_Prefix:
         delete(it.label)
     }

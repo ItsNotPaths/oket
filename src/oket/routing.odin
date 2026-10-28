@@ -59,12 +59,6 @@ active_desc :: proc(a: ^App) -> (^Slot, ^desc.Descriptor) {
 // The focused document names its own context, and the descriptor is where it says so (§5). An
 // empty store leaves only Global.
 bind_ctx :: proc(a: ^App) -> (input.Bind_Ctx, input.Kind) {
-    // The armed picker is a context of its own (PANELS.md §6), entered at ARM time and not at
-    // the press of the key it holds: left and right choose a panel for exactly as long as the
-    // gesture lasts, and nothing else is shadowed.
-    if _, armed := a.pending.(input.Pending_Pick); armed {
-        return .Pick, 0
-    }
     if cl_active(a) {
         kind, _ := verb_kind(a, cl_verb(a))
         return .Cmdline, kind
@@ -84,7 +78,7 @@ pending_take :: proc(a: ^App, chord: input.Chord) -> bool {
     esc, _ := input.key_code("ESC")
     #partial switch _ in a.pending {
     case input.Pending_Describe:
-        if chord == {esc, {}, 0} {
+        if chord == {esc, {}} {
             input.pending_set(&a.pending)
             return true
         }
@@ -124,7 +118,7 @@ prefix_arm :: proc(a: ^App, chord: input.Chord, ctx: input.Bind_Ctx, kind: input
 @(private = "file")
 prefix_help :: proc(prefix: input.Chord) -> input.Chord {
     code, _ := input.key_code(input.PREFIX_HELP)
-    return {code, prefix.mods, 0}
+    return {code, prefix.mods}
 }
 
 // The two keys a primer reserves, and then the outcomes below. Both reserved chords are answered
@@ -135,14 +129,11 @@ prefix_take :: proc(a: ^App, chord: input.Chord) -> bool {
     esc, _ := input.key_code("ESC")
     // Escape is unmodified and would fall through to quit, so it cancels ahead of the rule
     // below. The help chord is the one other key the primer reserves.
-    if chord == (input.Chord{esc, {}, 0}) {
+    if chord == (input.Chord{esc, {}}) {
         input.pending_set(&a.pending)
         return true
     }
-    // Code and mods, and `held` deliberately left out: keeping `x` down through `m-x` into
-    // `m-space` fills `held` with `x`, and an equality test against a zero one would miss the
-    // chord the user actually typed.
-    if h := prefix_help(p.chord); chord.code == h.code && chord.mods == h.mods {
+    if chord == prefix_help(p.chord) {
         menu_open(a, p.chord) // the write that replaces this pending is what frees its label
         return true
     }
@@ -182,28 +173,22 @@ prefix_resolve :: proc(a: ^App, chord, prefix: input.Chord) -> bool {
 @(private = "file")
 esc_collapses :: proc(a: ^App, chord: input.Chord) -> bool {
     esc, _ := input.key_code("ESC")
-    if chord != (input.Chord{esc, {}, 0}) {
+    if chord != (input.Chord{esc, {}}) {
         return false
     }
     doc := active_doc(a)
     return doc != nil && len(doc.cursors) > 1
 }
 
-handle_chord :: proc(a: ^App, chord: input.Chord, repeat := false) {
+handle_chord :: proc(a: ^App, chord: input.Chord) {
     if pending_take(a, chord) {
-        return
-    }
-    // A repeat of the chord that armed the picker is the key never having come up, and the
-    // `[pick]` row it resolves to makes a panel (§6). One press, one panel.
-    if repeat && pick_armed_by(a, chord) {
         return
     }
     message_set(a, "")
     // A trail owns Escape ahead of every row that claims the key — quit, surface.send and the
-    // command line's own close alike (VIEWS.md §4). Behind an armed picker, which owns the
-    // keystroke outright, and not a row itself: the condition is the trail, and a bind table has
-    // no way to say `while N > 1`.
-    if _, armed := a.pending.(input.Pending_Pick); !armed && esc_collapses(a, chord) {
+    // command line's own close alike (VIEWS.md §4). Not a row itself: the condition is the
+    // trail, and a bind table has no way to say `while N > 1`.
+    if esc_collapses(a, chord) {
         cursor_command(a, .Cursor_Collapse)
         return
     }
@@ -213,7 +198,7 @@ handle_chord :: proc(a: ^App, chord: input.Chord, repeat := false) {
         // A chord no row claims may still be a PRIMER, which is a row's prefix and never a row
         // of its own (§4.1). Asked after the lookup, so a chord that already runs something
         // keeps running it and the clash is what the home page reports. Never over a pending:
-        // arming would close the command line or drop an armed pick.
+        // arming would close the command line.
         if a.pending == nil && prefix_arm(a, chord, ctx, kind) {
             return
         }
@@ -233,7 +218,7 @@ handle_chord :: proc(a: ^App, chord: input.Chord, repeat := false) {
 // is the whole of "the menu does what typing it does" (MENU.md §1).
 bind_dispatch :: proc(a: ^App, chord: input.Chord, b: input.Bind, extend: bool) {
     if line, is_line := b.target.(input.Bind_Line); is_line {
-        bind_line_fire(a, chord, line)
+        bind_line_fire(a, line)
         return
     }
     if slot, registered := b.target.(input.Slot); registered {
@@ -354,12 +339,6 @@ command_run :: proc(a: ^App, cmd: input.Command, n: int, extend: bool) {
         panel_shift(a, -1)
     case .Panel_Move_Right:
         panel_shift(a, +1)
-    case .Pick_Left:
-        pick_step(a, -1)
-    case .Pick_Right:
-        pick_step(a, +1)
-    case .Pick_Cancel:
-        pick_drop(a)
     case .CL_Open:
         cl_show(a)
     case .CL_Sigil:
@@ -647,12 +626,11 @@ mouse_events_target :: proc(a: ^App) -> ^Term {
     return d.mouse == .Events && !s.locked ? term_of(a, s.doc) : nil
 }
 
-// The line arm of a bind (§8): run, staged or armed as the file said. `exec` runs it, `stage`
-// puts it in the command line for aiming, `pick` waits for the chord's held key to come up
-// (PANELS.md §6) — those three words are the whole grammar, and they are what makes Enter and
-// Shift+Enter two rows over one value rather than two code paths in a plugin.
+// The line arm of a bind (§8): run or staged as the file said. `exec` runs it, `stage` puts it
+// in the command line for aiming — those two words are the whole grammar, and they are what
+// makes Enter and Shift+Enter two rows over one value rather than two code paths in a plugin.
 @(private = "file")
-bind_line_fire :: proc(a: ^App, chord: input.Chord, line: input.Bind_Line) {
+bind_line_fire :: proc(a: ^App, line: input.Bind_Line) {
     switch line.mode {
     case .Exec:
         cl_exec(a, line.text)
@@ -662,8 +640,6 @@ bind_line_fire :: proc(a: ^App, chord: input.Chord, line: input.Bind_Line) {
         if text, ok := vars_fill(a, line.text); ok {
             cl_show(a, strings.concatenate({cl.arg_whole(text), " "}, context.temp_allocator))
         }
-    case .Pick:
-        pick_arm(a, chord, line)
     }
 }
 
@@ -1032,7 +1008,7 @@ point_place :: proc(a: ^App, cx, cy: int, extend := false) {
 // still has the trail to add to by the time cursor.add runs.
 point_press :: proc(a: ^App, m: input.Mouse, mods: input.Mods, cx, cy: int) {
     ctx, kind := bind_ctx(a)
-    if b, _, ok := input.bind_lookup(a.binds[:], {input.mouse_code(m), mods, 0}, ctx, kind); ok {
+    if b, _, ok := input.bind_lookup(a.binds[:], {input.mouse_code(m), mods}, ctx, kind); ok {
         if cmd, named := input.bind_command(b); named && input.command_places_point(cmd) {
             return
         }
@@ -1101,7 +1077,7 @@ scroll_by :: proc(a: ^App, lines: int) {
 @(private = "file")
 clickable :: proc(a: ^App, d: ^desc.Descriptor) -> bool {
     for button in ([?]input.Mouse{.Click, .Double_Click}) {
-        chord := input.Chord{input.mouse_code(button), {}, 0}
+        chord := input.Chord{input.mouse_code(button), {}}
         if bind, _, bound := input.bind_lookup(a.binds[:], chord, d.ctx, d.kind); bound {
             if _, is_line := bind.target.(input.Bind_Line); is_line {
                 return true

@@ -11,9 +11,6 @@ Bind_Ctx :: enum u8 {
     Text,
     Surface,
     Terminal,
-    // The armed picker (PANELS.md §6). Entered when a `pick` row fires and left when its held
-    // key comes up, so left and right choose a panel for exactly as long as the gesture lasts.
-    Pick,
     // The open command line. Falls back to Text, so a row here only adds to what the line answers.
     Cmdline,
 }
@@ -29,7 +26,6 @@ CTX_NAMES := [Bind_Ctx]string {
     .Text     = "text",
     .Surface  = "surface",
     .Terminal = "terminal",
-    .Pick     = "pick",
     .Cmdline  = "cmdline",
 }
 
@@ -106,9 +102,6 @@ Command :: enum u8 {
     Panel_Prev,
     Panel_Move_Left,
     Panel_Move_Right,
-    Pick_Left,
-    Pick_Right,
-    Pick_Cancel,
     Jump_Back,
     Jump_Forward,
     CL_Open,
@@ -155,14 +148,9 @@ Kind :: distinct u32
 // the mode decides whether it runs, lands in the command line for aiming (§5), or waits (§6).
 // One config line is then the whole policy, so `exec rm $o_path` needs nothing at all from the
 // plugin that drew the row it acts on.
-//
-// `pick` is the third of them (PANELS.md §6): the line fills at the PRESS, so its names read
-// from where point was, and it runs at the RELEASE of the chord's held key with `@` aimed at
-// the panel that was steered to.
 Bind_Mode :: enum u8 {
     Exec,
     Stage,
-    Pick,
 }
 
 Bind_Line :: struct {
@@ -256,9 +244,6 @@ COMMANDS := [Command]Command_Info {
     .Panel_Prev          = {"panel.prev", "focus the panel to the left", {.Global}},
     .Panel_Move_Left     = {"panel.move_left", "swap this panel with the one to its left", {.Global}},
     .Panel_Move_Right    = {"panel.move_right", "swap this panel with the one to its right", {.Global}},
-    .Pick_Left           = {"pick.left", "steer the armed picker one panel left", {.Pick}},
-    .Pick_Right          = {"pick.right", "steer the armed picker one panel right", {.Pick}},
-    .Pick_Cancel         = {"pick.cancel", "drop the armed picker; nothing is opened", {.Pick}},
     .Jump_Back           = {"jump.back", "to the previous position in the jump ring, across surfaces", {.Global}},
     .Jump_Forward        = {"jump.forward", "back toward the position you jumped from", {.Global}},
     .CL_Open             = {"cl.open", "open the command line", {.Global}},
@@ -449,22 +434,9 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     // rather than for one kind: a surface whose lines carry no `path` reports that it cannot
     // fill `$o_path`, which is data rather than a refusal decided per call (§8).
     bind_line(&b, "RTRN", {}, ":open $o_path", ctx = {.Surface})
-    // The picker (PANELS.md §6): hold tab, press enter on a link, steer, let tab go. `tab` and
-    // `tab+enter` are DIFFERENT chords, so this shadows nothing — an editor keeps its indent.
-    // `@` on its own is the panel steered to, which is the one address only a gesture can name.
-    bind_line(&b, "RTRN", {}, ":open $o_path @", .Pick, {.Surface}, held = "TAB")
-    // The same open, one panel over, with no gesture at all. §6: the direction preference is a
-    // ROW and not a config key, because a row is greppable, rebindable and describable.
+    // The same open, one panel over. §6: the direction preference is a ROW and not a config
+    // key, because a row is greppable, rebindable and describable.
     bind_line(&b, "RTRN", {.Ctrl}, ":open $o_path @-1", ctx = {.Surface})
-    // The same chord again, while armed: there is nowhere to throw this yet, so make somewhere.
-    // A row, not a second meaning grown inside the picker — `[surface] tab+enter` is out of
-    // reach while the `[pick]` context is on, so the two cannot be the same row by accident.
-    bind_line(&b, "RTRN", {}, ":np", ctx = {.Pick}, held = "TAB")
-    // While the picker is armed the side arrows choose a panel rather than move a caret. Rows,
-    // because the context is entered at ARM time and shadows only what should be shadowed.
-    bind_put(&b, "LEFT", {}, .Pick_Left)
-    bind_put(&b, "RGHT", {}, .Pick_Right)
-    bind_put(&b, "ESC", {}, .Pick_Cancel)
 
     // The mouse, as ordinary rows (§8). A button chord has none: the kernel moves point before
     // it dispatches one, so `click` with nothing bound already does the thing a click does, and
@@ -491,18 +463,14 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     return b
 }
 
-// `text` is the line WITHOUT its `exec`, `stage` or `pick` word: those three spell the choice in
-// a config row, and here it is the `mode` argument. `held` is the key a gesture holds, named the
-// way a row names one. Not file-private: the kernel writes the rows that name a KIND, because a
+// `text` is the line WITHOUT its `exec` or `stage` word: those spell the choice in a config row,
+// and here it is the `mode` argument. Not file-private: the kernel writes the rows that name a KIND, because a
 // kind id is its own (kinds.odin) and this package holds one as identity it never reads.
 bind_line :: proc(b: ^[dynamic]Bind, key: string, mods: Mods, text: string,
-                  mode := Bind_Mode.Exec, ctx := Bind_Ctxs{.Global}, kind := Kind(0),
-                  held := "") {
+                  mode := Bind_Mode.Exec, ctx := Bind_Ctxs{.Global}, kind := Kind(0)) {
     code, ok := key_code(key)
     assert(ok, "a kernel default names a key that is not in the table")
-    down, held_ok := key_code(held)
-    assert(held == "" || held_ok, "a kernel default holds a key that is not in the table")
-    bind_add(b, {code, mods, down}, Bind_Line{strings.clone(text), mode}, ctx, kind = kind)
+    bind_add(b, {code, mods}, Bind_Line{strings.clone(text), mode}, ctx, kind = kind)
 }
 
 // `ctx` narrows a row below the verb's own contexts, for a default that wants one of them and
@@ -513,7 +481,7 @@ bind_put :: proc(b: ^[dynamic]Bind, key: string, mods: Mods, cmd: Command, ctx: 
     assert(ok, "a kernel default names a key that is not in the table")
     assert(ctx <= COMMANDS[cmd].ctx, "a kernel default names a context its verb does not answer in")
     at := ctx == {} ? COMMANDS[cmd].ctx : ctx
-    bind_add(b, {code, mods, 0}, cmd, at)
+    bind_add(b, {code, mods}, cmd, at)
 }
 
 // A chord that is BOTH a primer and a row of its own. There is no priority between them: the
@@ -658,28 +626,13 @@ bind_scan :: proc(binds: []Bind, chord: Chord, want: Bind_Ctxs, kind: Kind,
                   prefix := Chord{}) -> (Bind, bool) {
     for b in binds {
         if b.prefix == prefix &&
-           b.chord.mods == chord.mods &&
-           b.chord.held == chord.held &&
-           chord.code == b.chord.code &&
+           b.chord == chord &&
            b.kind == kind &&
            b.ctx & want != {} {
             return b, true
         }
     }
     return {}, false
-}
-
-// Does anything in the table HOLD this key — is it a qualifier at all (PANELS.md §6). A key
-// that qualifies nothing must not qualify the next one: two keys overlapping is one hand moving
-// fast, and `left+right` is a chord no row answers. Asked of the whole table, because a gesture
-// is a gesture in every ctx and every kind.
-bind_holds :: proc(binds: []Bind, code: Code) -> bool {
-    for b in binds {
-        if b.chord.held == code {
-            return true
-        }
-    }
-    return false
 }
 
 // One tier, no fallthrough: is THIS ctx-and-kind already holding the chord. The clash check
@@ -714,7 +667,7 @@ bind_lookup :: proc(
     // The Shift retry stays UNDER the same primer: a child is reached by its own chord or not
     // at all, and dropping the prefix here would be the fallback tier the filter exists to deny.
     if .Shift in chord.mods {
-        b, ok = bind_find(binds, {chord.code, chord.mods - {.Shift}, chord.held}, ctx, kind,
+        b, ok = bind_find(binds, {chord.code, chord.mods - {.Shift}}, ctx, kind,
                           prefix)
         return b, ok, ok
     }
@@ -746,8 +699,6 @@ target_info :: proc(t: Bind_Target, names: Names) -> (name, doc: string) {
             return v.text, "run as typed"
         case .Stage:
             return v.text, "staged in the command line for aiming"
-        case .Pick:
-            return v.text, "expanded now, run at the release on the panel you steer to"
         }
     }
     return "", ""
@@ -829,13 +780,8 @@ describe_chord :: proc(
         }
     }
     verb := "runs"
-    if line, is_line := b.target.(Bind_Line); is_line {
-        #partial switch line.mode {
-        case .Stage:
-            verb = "stages"
-        case .Pick:
-            verb = "arms"
-        }
+    if line, is_line := b.target.(Bind_Line); is_line && line.mode == .Stage {
+        verb = "stages"
     }
     if moves_point {
         verb = fmt.tprintf("moves point, then %s", verb)

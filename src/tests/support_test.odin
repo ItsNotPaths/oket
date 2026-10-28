@@ -209,12 +209,9 @@ point :: proc(a: ^app.App) -> txt.Cursor {
     return app.active(a).view.point
 }
 
-// `held` is the key that is DOWN when the chord fires, spelled the way a bind row spells it
-// (PANELS.md §6). Empty for every chord that is not part of a gesture.
-chord :: proc(name: string, mods: input.Mods = {}, held := "") -> input.Chord {
+chord :: proc(name: string, mods: input.Mods = {}) -> input.Chord {
     code, _ := input.key_code(name)
-    down, _ := input.key_code(held)
-    return {code, mods, down}
+    return {code, mods}
 }
 
 // --- a listing, as a FIXTURE ---

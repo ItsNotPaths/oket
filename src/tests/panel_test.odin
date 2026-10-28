@@ -647,9 +647,6 @@ two_sigils_and_a_bare_number :: proc(t: ^testing.T) {
         testing.expectf(t, !ok, "%q was taken for an address", text)
         testing.expect_value(t, bad, text)
     }
-
-    // The picker rewrites only a BARE `@`; `@*` is already an address and keeps its aim.
-    testing.expect_value(t, app.target_aim(":width 50 @*", 2), ":width 50 @*")
 }
 
 // A `#` is a comment where the shell would see one and a slot where a builtin would, so a ring

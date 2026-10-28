@@ -21,13 +21,9 @@ Mod :: enum u8 {
 
 Mods :: bit_set[Mod;u8]
 
-// `held` is a key that is DOWN, not a modifier: `Mods` is four members over a bit_set and tab
-// cannot join them, so a chord names one instead (PANELS.md §6). Zero for every chord that is
-// not part of a hold-steer-release gesture, which is all of them by default.
 Chord :: struct {
     code: Code,
     mods: Mods,
-    held: Code,
 }
 
 // Resolves a layout spelling ("j") to the position that types it. The front-end supplies it,
@@ -157,9 +153,7 @@ mod_named :: proc(text: string) -> (Mod, bool) {
     return .Shift, false
 }
 
-// Both config spellings (§6), and one name left of a `+` that is not a modifier is a key held
-// DOWN: `tab+enter` is the picker's chord and is not the same chord as `enter` (PANELS.md §6).
-// Only one key can be held, because only one field holds it.
+// Both config spellings (§6). Every name left of the last `+` is a modifier.
 chord_parse :: proc(text: string, resolve: Layout_Resolve) -> (c: Chord, ok: bool) {
     rest := text
     for {
@@ -167,29 +161,18 @@ chord_parse :: proc(text: string, resolve: Layout_Resolve) -> (c: Chord, ok: boo
         if i < 0 || i == len(rest) - 1 { // a trailing '+' is the + key itself
             break
         }
-        if m, is_mod := mod_named(rest[:i]); is_mod {
-            c.mods += {m}
-        } else {
-            if c.held != 0 {
-                return {}, false
-            }
-            c.held = key_of(rest[:i], resolve) or_return
-        }
+        m := mod_named(rest[:i]) or_return
+        c.mods += {m}
         rest = rest[i + 1:]
     }
     c.code = key_of(rest, resolve) or_return
     return c, true
 }
 
-// The physical spelling, always valid to parse back: "alt+@AC06", "@57" for a nameless code,
-// "@TAB+@RTRN" for a held chord.
+// The physical spelling, always valid to parse back: "alt+@AC06", "@57" for a nameless code.
 chord_physical :: proc(c: Chord, allocator := context.allocator) -> string {
     b := strings.builder_make(allocator)
     write_mods(&b, c.mods)
-    if c.held != 0 {
-        write_physical(&b, c.held)
-        strings.write_byte(&b, '+')
-    }
     write_physical(&b, c.code)
     return strings.to_string(b)
 }
@@ -234,8 +217,7 @@ chord_pair_format :: proc(prefix, c: Chord, layout: Layout_Name,
 }
 
 // The layout spelling for display: the glyph the position types, a label for keys that type
-// nothing, the physical spelling as the last resort. A held key is a prefix like a modifier,
-// so `tab+enter` reads as the gesture it is (PANELS.md §6).
+// nothing, the physical spelling as the last resort.
 chord_format :: proc(c: Chord, layout: Layout_Name, allocator := context.allocator) -> string {
     key := key_spelling(c.code, layout)
     if key == "" {
@@ -244,14 +226,6 @@ chord_format :: proc(c: Chord, layout: Layout_Name, allocator := context.allocat
     }
     b := strings.builder_make(allocator)
     write_mods(&b, c.mods)
-    if c.held != 0 {
-        if h := key_spelling(c.held, layout); h != "" {
-            strings.write_string(&b, h)
-        } else {
-            write_physical(&b, c.held)
-        }
-        strings.write_byte(&b, '+')
-    }
     strings.write_string(&b, key)
     return strings.to_string(b)
 }

@@ -269,7 +269,7 @@ focused_doc :: proc(a: ^app.App) -> ^txt.Doc {
 click_at :: proc(a: ^app.App, mods: input.Mods, cx, cy: int) {
     app.point_press(a, .Click, mods, cx, cy)
     input.mouse_press(&a.mouse, .Click, cx, cy)
-    app.handle_chord(a, {input.mouse_code(.Click), mods, 0})
+    app.handle_chord(a, {input.mouse_code(.Click), mods})
 }
 
 // alt+click adds a caret and a plain click puts the trail down. The kernel moves point before it
@@ -398,7 +398,7 @@ describe_answers_the_cursor_rows :: proc(t: ^testing.T) {
         {chord("UP", {.Ctrl, .Alt}), .Cursor_Add_Above},
         {chord("AC03", {.Alt}), .Cursor_Add_Next},
         {chord("AC03", {.Alt, .Shift}), .Cursor_Add_All},
-        {{input.mouse_code(.Click), {.Alt}, 0}, .Cursor_Add},
+        {{input.mouse_code(.Click), {.Alt}}, .Cursor_Add},
     }
     for row in rows {
         answer := input.describe_chord(a.binds[:], row.chord, .Surface, nil)

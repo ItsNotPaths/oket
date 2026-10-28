@@ -118,18 +118,13 @@ panel_showing :: proc(a: ^App, at: Spot) -> ^Panel {
 
 // --- the verbs (§5) ---
 
-// A panel to the right of the one the keys are AIMED at, and the aim goes with it: `panel.open`,
-// and `:np` from the command line. While the picker is armed that is its target, so the same
-// verb makes somewhere to throw the file to and steers to it (§6).
+// A panel to the right of the focused one, and the focus goes with it: `panel.open`, and `:np`
+// from the command line.
 panel_open :: proc(a: ^App) {
-    panel_aim(a, panel_make(a, panel_marked(a) + 1))
+    panel_focus(a, panel_make(a, a.focus + 1))
     // It stands on the HOME PAGE and not on nothing. An empty panel is a floor with no answer
     // on it, and the page is what the kernel has to say when there is nothing there yet (§13).
-    // Not while a picker is armed: that gesture makes somewhere to throw a file to, the throw
-    // is one keystroke away, and the aim is a mark rather than the focus ring_add would move.
-    if _, armed := a.pending.(input.Pending_Pick); !armed {
-        ring_add(a, home_open(a))
-    }
+    ring_add(a, home_open(a))
 }
 
 // A panel at index `i`, standing on nothing until something opens there. It takes the focused
@@ -173,17 +168,17 @@ panel_step :: proc(a: ^App, by: int) {
 }
 
 // `panel.move_left` and `panel.move_right`: the panel changes place, the documents do not. The
-// aim goes with it, so the thing you were looking at is still the thing you are looking at.
+// focus goes with it, so the thing you were looking at is still the thing you are looking at.
 // Clamped like the walk — a strip has two ends.
 panel_shift :: proc(a: ^App, by: int) {
-    i := panel_marked(a)
+    i := a.focus
     j := clamp(i + by, 0, len(a.panels) - 1)
     if i == j {
         return
     }
     a.panels[i], a.panels[j] = a.panels[j], a.panels[i]
-    panel_aim(a, j)
-    panels_relayout(a) // the widths reordered, whatever the aim did with the focus
+    panel_focus(a, j)
+    panels_relayout(a) // the widths reordered, whatever the focus did
 }
 
 // `:width`, on the LIVE panel the line named — that it is live is target_panel's check, not
@@ -246,10 +241,7 @@ panels_fit :: proc(a: ^App) {
     land := a.frame.strip.w != a.strip.view || a.strip.tau <= 0
     a.strip.view = a.frame.strip.w
     dest := panel_dests(a)
-    // The camera follows the MARK and not the focus (§3, §5): the caret is what says where the
-    // next thing lands, and a target you cannot see is a gesture steered blind. Unarmed the two
-    // are the same panel, so this is the old rule with the picker's answer folded in.
-    a.strip.aim = strip.look_at(a.strip, dest, panel_marked(a))
+    a.strip.aim = strip.look_at(a.strip, dest, a.focus)
     if land {
         a.strip.camera = a.strip.aim
     }
@@ -351,28 +343,6 @@ panel_focus :: proc(a: ^App, i: int) {
         a.focus = i
         panels_relayout(a)
     }
-}
-
-// Which panel wears the caret. The armed picker's target, so steering is visible with no second
-// mark to invent: the caret is already what says where the next thing lands (§3).
-panel_marked :: proc(a: ^App) -> int {
-    if p, armed := a.pending.(input.Pending_Pick); armed {
-        return p.target
-    }
-    return a.focus
-}
-
-// Move the mark. `panel_marked` reads it and this writes it, so a verb that lands somewhere says
-// so once and the gesture it is inside decides what that means: the picker's target while one is
-// armed, the focus otherwise.
-panel_aim :: proc(a: ^App, i: int) {
-    if p, armed := a.pending.(input.Pending_Pick); armed {
-        p.target = clamp(i, 0, len(a.panels) - 1)
-        a.pending = p // the same captured line, so this is the one write that must not free it
-        panels_relayout(a) // the camera follows the mark, and the mark just moved
-        return
-    }
-    panel_focus(a, i)
 }
 
 // The rectangle a document was last drawn in. A live slot the strip is not showing still has a

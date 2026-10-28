@@ -55,7 +55,7 @@ surface_draw :: proc(a: ^App) {
     }
 
     for &p, i in a.panels {
-        panel_draw(a, &p, i == panel_marked(a))
+        panel_draw(a, &p, i == a.focus)
     }
     switcher_draw(a) // into the focused panel's grid, over what it just drew
     menubar_draw(a) // its own grids, after the panels (MENU.md §4)

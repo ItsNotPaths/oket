@@ -4,23 +4,6 @@ import "core:strings"
 import "core:testing"
 import "../input"
 
-// A KEY QUALIFIES THE NEXT ONE ONLY IF A ROW HOLDS IT (PANELS.md §6). `tab` does, because the
-// picker's rows hold it. An arrow does not, and two arrows overlapping is one hand moving fast —
-// a `left+right` nobody wrote would resolve to nothing and eat the keystroke, which is what shut
-// the menubar under a quick left-then-right.
-@(test)
-only_a_bound_qualifier_holds :: proc(t: ^testing.T) {
-    binds := input.binds_default()
-    defer input.binds_destroy(&binds)
-
-    tab, _ := input.key_code("TAB")
-    testing.expect(t, input.bind_holds(binds[:], tab), "nothing holds tab")
-    for name in ([?]string{"LEFT", "RGHT", "UP", "DOWN", "RTRN", "ESC"}) {
-        code, _ := input.key_code(name)
-        testing.expectf(t, !input.bind_holds(binds[:], code), "%s qualifies the next key", name)
-    }
-}
-
 // The gate for build order step 2: describe answers for every chord, including unbound ones.
 
 @(test)
@@ -30,16 +13,16 @@ describe_answers_every_chord :: proc(t: ^testing.T) {
 
     for e in input.KEY_NAMES {
         for mods in ([?]input.Mods{{}, {.Ctrl}, {.Ctrl, .Alt, .Shift}}) {
-            s := input.describe_chord(binds[:], {e.code, mods, 0}, .Global, nil)
+            s := input.describe_chord(binds[:], {e.code, mods}, .Global, nil)
             defer delete(s)
             testing.expectf(t, s != "", "no answer for @%s", e.name)
-            _, _, bound := input.bind_lookup(binds[:], {e.code, mods, 0}, .Global)
+            _, _, bound := input.bind_lookup(binds[:], {e.code, mods}, .Global)
             testing.expect_value(t, strings.contains(s, "unbound"), !bound)
         }
     }
 
     // A code outside the name table still gets an answer, and its spelling parses back.
-    s := input.describe_chord(binds[:], {999, {.Alt}, 0}, .Global, nil)
+    s := input.describe_chord(binds[:], {999, {.Alt}}, .Global, nil)
     defer delete(s)
     testing.expect_value(t, s, "alt+@999 is unbound")
 }
@@ -52,7 +35,7 @@ describe_reads_the_width_row_out :: proc(t: ^testing.T) {
     defer input.binds_destroy(&binds)
     w, _ := input.key_code("AD02")
 
-    s := input.describe_chord(binds[:], {w, {.Alt}, 0}, .Global, nil)
+    s := input.describe_chord(binds[:], {w, {.Alt}}, .Global, nil)
     defer delete(s)
     testing.expect(t, strings.contains(s, "runs :width 30 50 100"), s)
 }
@@ -63,12 +46,12 @@ describe_names_the_command :: proc(t: ^testing.T) {
     defer input.binds_destroy(&binds)
     esc, _ := input.key_code("ESC")
 
-    s := input.describe_chord(binds[:], {esc, {}, 0}, .Global, nil)
+    s := input.describe_chord(binds[:], {esc, {}}, .Global, nil)
     defer delete(s)
     testing.expect_value(t, s, "esc (@ESC) runs file.quit: close the window [global, kernel default]")
 
     // The same key with a modifier is a different chord, and says so.
-    s2 := input.describe_chord(binds[:], {esc, {.Ctrl}, 0}, .Global, nil)
+    s2 := input.describe_chord(binds[:], {esc, {.Ctrl}}, .Global, nil)
     defer delete(s2)
     testing.expect_value(t, s2, "ctrl+esc (ctrl+@ESC) is unbound")
 }
@@ -82,16 +65,16 @@ shift_extends_or_names_its_own_verb :: proc(t: ^testing.T) {
     down, _ := input.key_code("DOWN")
     z, _ := input.key_code("AB01")
 
-    b, extend, ok := input.bind_lookup(binds[:], {down, {.Shift}, 0}, .Text)
+    b, extend, ok := input.bind_lookup(binds[:], {down, {.Shift}}, .Text)
     testing.expect(t, ok && extend)
     testing.expect_value(t, b.target, input.Bind_Target(input.Command.Nav_Down))
 
-    b, extend, ok = input.bind_lookup(binds[:], {z, {.Ctrl, .Shift}, 0}, .Text)
+    b, extend, ok = input.bind_lookup(binds[:], {z, {.Ctrl, .Shift}}, .Text)
     testing.expect(t, ok && !extend) // the exact row wins, no extending
     testing.expect_value(t, b.target, input.Bind_Target(input.Command.Redo))
 
     // A Text bind is invisible from Global context: nothing to type into, nothing to run.
-    _, _, ok = input.bind_lookup(binds[:], {down, {}, 0}, .Global)
+    _, _, ok = input.bind_lookup(binds[:], {down, {}}, .Global)
     testing.expect(t, !ok)
 }
 
@@ -131,11 +114,11 @@ terminal_esc_shadows_quit :: proc(t: ^testing.T) {
     defer input.binds_destroy(&binds)
     esc, _ := input.key_code("ESC")
 
-    b, _, ok := input.bind_lookup(binds[:], {esc, {}, 0}, .Terminal)
+    b, _, ok := input.bind_lookup(binds[:], {esc, {}}, .Terminal)
     testing.expect(t, ok)
     testing.expect_value(t, b.target, input.Bind_Target(input.Command.Surface_Send))
 
-    b, _, ok = input.bind_lookup(binds[:], {esc, {}, 0}, .Text)
+    b, _, ok = input.bind_lookup(binds[:], {esc, {}}, .Text)
     testing.expect(t, ok)
     testing.expect_value(t, b.target, input.Bind_Target(input.Command.Quit))
 }
@@ -152,7 +135,7 @@ the_terminal_keeps_the_chords_editing_took :: proc(t: ^testing.T) {
 
     ctrl :: proc(key: string) -> input.Chord {
         code, _ := input.key_code(key)
-        return {code, {.Ctrl}, 0}
+        return {code, {.Ctrl}}
     }
 
     for e in ([?]struct {
@@ -174,7 +157,7 @@ the_terminal_keeps_the_chords_editing_took :: proc(t: ^testing.T) {
     // ctrl+v pastes in a session too, and ctrl+shift+v reaches it through the Shift fallback.
     for mods in ([?]input.Mods{{.Ctrl}, {.Ctrl, .Shift}}) {
         v, _ := input.key_code("AB04")
-        paste, _, _ := input.bind_lookup(binds[:], {v, mods, 0}, .Terminal)
+        paste, _, _ := input.bind_lookup(binds[:], {v, mods}, .Terminal)
         got, _ := input.bind_command(paste)
         testing.expect_value(t, got, input.Command.Term_Paste)
     }
@@ -192,14 +175,14 @@ the_terminal_keeps_the_chords_editing_took :: proc(t: ^testing.T) {
     // So the interrupt is a row of its own. An EXACT Shift row, or the Shift fallback would
     // reach term.copy above and a shell would have no way left to say stop.
     c, _ := input.key_code("AB03")
-    stop, _, _ := input.bind_lookup(binds[:], {c, {.Ctrl, .Shift}, 0}, .Terminal)
+    stop, _, _ := input.bind_lookup(binds[:], {c, {.Ctrl, .Shift}}, .Terminal)
     interrupt, _ := input.bind_command(stop)
     testing.expect_value(t, interrupt, input.Command.Surface_Send)
 
     // And narrowed to the terminal. A browser has no job to send to, so it must NOT reach
     // surface.send and report "this document has no job of its own"; the Shift fallback leaves
     // it on edit.copy there.
-    outside, _, _ := input.bind_lookup(binds[:], {c, {.Ctrl, .Shift}, 0}, .Surface)
+    outside, _, _ := input.bind_lookup(binds[:], {c, {.Ctrl, .Shift}}, .Surface)
     fallback, _ := input.bind_command(outside)
     testing.expect_value(t, fallback, input.Command.Copy)
 

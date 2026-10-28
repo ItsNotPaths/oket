@@ -226,7 +226,7 @@ enter :: proc(s: ^Screen, b: menu.Bar) -> (Act, menu.Row) {
 @(private = "file")
 is_key :: proc(chord: input.Chord, name: string) -> bool {
     code, _ := input.key_code(name)
-    return chord == input.Chord{code, {}, 0}
+    return chord == input.Chord{code, {}}
 }
 
 // --- on the mouse (§6) ---

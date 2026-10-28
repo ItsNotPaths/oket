@@ -61,10 +61,6 @@ input_event :: proc(a: ^App, ev: ^sdl.Event) {
     case .TEXT_EDITING:
         preedit_set(a, string(ev.edit.text))
     case .WINDOW_FOCUS_LOST:
-        // The window has lost the keyboard, so the release of whatever is down will be
-        // delivered somewhere else. A `held` nobody clears would qualify every chord after it.
-        a.held = 0
-        pick_drop(a)
         switcher_drop(a) // alt's release will be delivered elsewhere, so the column ends here
         preedit_set(a, "") // and the composition went with the keyboard
     case .MOUSE_BUTTON_DOWN, .MOUSE_BUTTON_UP:
@@ -93,21 +89,9 @@ key_event :: proc(a: ^App, ev: ^sdl.KeyboardEvent) {
     }
     // Releases never enter the bind table.
     if !ev.down {
-        if a.held == code {
-            a.held = 0
-        }
-        pick_release(a, code)
         return
     }
-    // A key that is down QUALIFIES the next one only if SOMETHING BINDS IT AS A QUALIFIER.
-    // `tab` holds because rows hold it; two arrows overlapping is one hand moving fast, and a
-    // `left+right` nobody wrote would resolve to nothing and eat the keystroke.
-    if a.held == 0 && input.bind_holds(a.binds[:], code) {
-        a.held = code
-    }
-    // `tab+enter` is a chord and `tab` on its own still is one, which is why holding it shadows
-    // nothing and repeats it instead.
-    handle_chord(a, input.Chord{code, mods_of(ev.mod), a.held == code ? 0 : a.held}, ev.repeat)
+    handle_chord(a, input.Chord{code, mods_of(ev.mod)})
 }
 
 // A click is a chord, and it fires on RELEASE so a drag cancels it (§8).
@@ -149,7 +133,7 @@ button_event :: proc(a: ^App, ev: ^sdl.MouseButtonEvent) {
     }
     if m, fired := input.mouse_release(&a.mouse, cx, cy, f64(sdl.GetTicks()) / 1000,
                                        f64(a.config.double_ms) / 1000); fired {
-        handle_chord(a, input.Chord{input.mouse_code(m), mods_now(), 0})
+        handle_chord(a, input.Chord{input.mouse_code(m), mods_now()})
     }
 }
 
@@ -202,7 +186,7 @@ wheel_event :: proc(a: ^App, ev: ^sdl.MouseWheelEvent) {
         term_mouse(a, tm, wheel, cx, cy, mods_now(), true)
         return
     }
-    handle_chord(a, input.Chord{input.mouse_code(wheel), mods_now(), 0})
+    handle_chord(a, input.Chord{input.mouse_code(wheel), mods_now()})
 }
 
 @(private = "file")

@@ -99,10 +99,6 @@ State :: struct {
     sys_seq:      u64, // the last injection into N0; a report carrying another is stale
     binds:        [dynamic]input.Bind,
     pending:      input.Pending,
-    // The key that is down, if one is (PANELS.md §6). It qualifies the next chord — `tab+enter`
-    // is not `enter` — and its release is what commits an armed picker. One field, because a
-    // chord holds one key and a release never reaches the bind table.
-    held:         input.Code,
     mouse:        input.Mouse_State,
     hand:         ^sdl.Cursor, // the pointer over a field a click would act on
     preedit:      string, // owned; the platform IME's uncommitted text, "" outside composition

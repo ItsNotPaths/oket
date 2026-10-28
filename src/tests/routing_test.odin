@@ -180,7 +180,7 @@ one_row_gives_a_listing_the_mouse :: proc(t: ^testing.T) {
     testing.expect_value(t, line, fmt.tprintf(":open %s/beta.txt", dir))
 
     // describe answers for the click now, and names the file the row came from.
-    answer := input.describe_chord(a.binds[:], {input.mouse_code(.Click), {}, 0}, .Surface, nil)
+    answer := input.describe_chord(a.binds[:], {input.mouse_code(.Click), {}}, .Surface, nil)
     defer delete(answer)
     testing.expect_value(
         t,
@@ -200,16 +200,16 @@ the_wheel_scrolls_and_leaves_point_alone :: proc(t: ^testing.T) {
     defer os.remove_all(dir)
     defer close_app(&a)
 
-    app.handle_chord(&a, {input.mouse_code(.Wheel_Down), {}, 0})
+    app.handle_chord(&a, {input.mouse_code(.Wheel_Down), {}})
     testing.expect_value(t, app.active(&a).view.top, 1)
     testing.expect_value(t, point(&a).head.line, 0)
 
     // Clamped: the last line stays reachable and the view never runs off the end.
     for _ in 0 ..< 5 {
-        app.handle_chord(&a, {input.mouse_code(.Wheel_Down), {}, 0})
+        app.handle_chord(&a, {input.mouse_code(.Wheel_Down), {}})
     }
     testing.expect_value(t, app.active(&a).view.top, 1) // two entries, so line 1 is the floor
-    app.handle_chord(&a, {input.mouse_code(.Wheel_Up), {}, 0})
+    app.handle_chord(&a, {input.mouse_code(.Wheel_Up), {}})
     testing.expect_value(t, app.active(&a).view.top, 0)
 }
 
@@ -225,7 +225,7 @@ a_double_click_selects_at_the_documents_granularity :: proc(t: ^testing.T) {
     defer close_app(&a)
 
     app.point_place(&a, 4, 1)
-    app.handle_chord(&a, {input.mouse_code(.Double_Click), {}, 0})
+    app.handle_chord(&a, {input.mouse_code(.Double_Click), {}})
     testing.expect_value(t, point(&a).anchor.line, 1)
     testing.expect_value(t, point(&a).head.line, 1)
     testing.expect_value(t, point(&a).anchor.col, 0)
@@ -248,15 +248,15 @@ arrows_move_point_in_a_surface :: proc(t: ^testing.T) {
     down, _ := input.key_code("DOWN")
     up, _ := input.key_code("UP")
 
-    app.handle_chord(&a, {down, {}, 0})
+    app.handle_chord(&a, {down, {}})
     testing.expect_value(t, point(&a).head.line, 1)
-    app.handle_chord(&a, {down, {}, 0})
+    app.handle_chord(&a, {down, {}})
     testing.expect_value(t, point(&a).head.line, 1) // the last line is the floor
-    app.handle_chord(&a, {up, {}, 0})
+    app.handle_chord(&a, {up, {}})
     testing.expect_value(t, point(&a).head.line, 0)
 
     // Shift is not written into the row: it falls back to the bare chord and extends.
-    app.handle_chord(&a, {down, {.Shift}, 0})
+    app.handle_chord(&a, {down, {.Shift}})
     testing.expect_value(t, point(&a).anchor.line, 0)
     testing.expect_value(t, point(&a).head.line, 1)
 }
@@ -275,19 +275,19 @@ describe_waits_for_one_chord_and_answers :: proc(t: ^testing.T) {
     f1, _ := input.key_code("FK01")
     esc, _ := input.key_code("ESC")
 
-    app.handle_chord(&a, {f1, {}, 0})
+    app.handle_chord(&a, {f1, {}})
     testing.expect(t, a.pending != nil)
     testing.expect(t, strings.contains(app.bar_text(&a), "press any chord"))
 
     // A click is a chord, so describe answers for one exactly as it does for a key.
-    app.handle_chord(&a, {input.mouse_code(.Click), {}, 0})
+    app.handle_chord(&a, {input.mouse_code(.Click), {}})
     testing.expect(t, a.pending == nil)
     testing.expect_value(t, a.message, "click moves point; nothing further is bound")
     testing.expect_value(t, app.bar_text(&a), a.message)
 
     // Escape cancels the wait rather than answering for Escape.
-    app.handle_chord(&a, {f1, {}, 0})
-    app.handle_chord(&a, {esc, {}, 0})
+    app.handle_chord(&a, {f1, {}})
+    app.handle_chord(&a, {esc, {}})
     testing.expect(t, a.pending == nil)
     testing.expect(t, !a.quit, "escape cancelled the capture, it did not fall through to quit")
 }
