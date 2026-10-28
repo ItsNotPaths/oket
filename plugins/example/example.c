@@ -424,7 +424,7 @@ LUES_MAIN {
     api->register_command(api, self, LIT("example"), LIT("echo the line under point"), say);
     /* ASKED FOR, never claimed (§8): this becomes a row in binds.conf and the file decides
      * from then on. A chord already taken is written commented out, not stolen. */
-    api->request_bind(api, self, LIT("global"), LIT("alt+h"), LIT("exec :ring example"));
+    api->request_bind(api, self, LIT("global"), LIT("alt+h"), LIT(":ring example"));
 
     BOX = api->register_token(api, self, LIT("punctuation"));
     PICKED = api->register_token(api, self, LIT("accent"));
@@ -435,8 +435,8 @@ LUES_MAIN {
                           complete_cmd);
     /* alt+/, which is dabbrev-expand's key in every Emacs there has ever been, and this is
      * dabbrev: the words already in the buffer. alt+w is the strip's width toggle. */
-    api->request_bind(api, self, LIT("text"), LIT("alt+@AB10"), LIT("complete"));
-    api->request_bind(api, self, LIT("text"), LIT("alt+shift+@AB10"), LIT("complete accept"));
+    api->request_bind(api, self, LIT("text"), LIT("alt+@AB10"), LIT(":complete"));
+    api->request_bind(api, self, LIT("text"), LIT("alt+shift+@AB10"), LIT(":complete accept"));
     /* The pipeline is a config line, never a load order (§5). This stage goes AFTER fold, which
      * is what makes the box land under the row on screen. */
     api->request_config(api, self, LIT("edit"), LIT("view"), LIT("example"));

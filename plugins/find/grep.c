@@ -328,9 +328,9 @@ int grep_register(const lues_api *api, lues_self self) {
     api->register_command(api, self, LIT("grep"), LIT("grep -rn, as a list of links"), grep_cmd);
     api->register_command(api, self, LIT("grep.down"), LIT("the next match's block"), down_cmd);
     api->register_command(api, self, LIT("grep.up"), LIT("the previous match's block"), up_cmd);
-    api->request_bind(api, self, LIT("grep"), LIT("enter"), LIT("exec :openlink"));
-    api->request_bind(api, self, LIT("grep"), LIT("double-click"), LIT("exec :openlink"));
-    api->request_bind(api, self, LIT("grep"), LIT("down"), LIT("grep.down"));
-    api->request_bind(api, self, LIT("grep"), LIT("up"), LIT("grep.up"));
+    api->request_bind(api, self, LIT("grep"), LIT("enter"), LIT(":openlink"));
+    api->request_bind(api, self, LIT("grep"), LIT("double-click"), LIT(":openlink"));
+    api->request_bind(api, self, LIT("grep"), LIT("down"), LIT(":grep.down"));
+    api->request_bind(api, self, LIT("grep"), LIT("up"), LIT(":grep.up"));
     return 0;
 }

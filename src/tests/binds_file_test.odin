@@ -42,7 +42,7 @@ binds_file_lays_over_the_defaults :: proc(t: ^testing.T) {
     before, _ := find(&a, "f3", .Text)
     testing.expect_value(t, before.target, input.Bind_Target(input.Command.Search_Next))
 
-    app.binds_parse(&a, "[text]\nf3 = file.dump\nclick = exec :open $o_path\n", "binds.conf")
+    app.binds_parse(&a, "[text]\nf3 = :file.dump\nclick = :open $o_path\n", "binds.conf")
 
     after, found := find(&a, "f3", .Text)
     testing.expect(t, found)
@@ -67,34 +67,43 @@ binds_file_skips_what_it_cannot_read :: proc(t: ^testing.T) {
 
     app.binds_parse(
         &a,
-        "[nowhere]\nf3 = file.dump\n[text]\nnotachord = file.dump\nf6 = not.a.verb\nf7 = file.dump\n",
+        "[nowhere]\nf3 = :file.dump\n[text]\nnotachord = :file.dump\nf7 = :file.dump\n",
         "binds.conf",
     )
     still, _ := find(&a, "f3", .Text)
     testing.expect_value(t, still.target, input.Bind_Target(input.Command.Search_Next))
 
     b, found := find(&a, "f7", .Text)
-    testing.expect(t, found, "a good row after three bad ones was dropped")
+    testing.expect(t, found, "a good row after two bad ones was dropped")
     testing.expect_value(t, b.target, input.Bind_Target(input.Command.Save))
-    testing.expect(t, strings.contains(a.message, "binds.conf:5"))
+    testing.expect(t, strings.contains(a.message, "binds.conf:4"))
 }
 
-// `stage` puts the line in the command line for aiming rather than running it, which is the
-// difference between Enter and Shift+Enter in one file (§5).
+// A value is a command line. A lone `:verb` is the verb itself; anything else runs as typed, so
+// a bare name is a shell command and `stage` is a word, never a prefix. `stage` aims the line in
+// the command line rather than running it (§5).
 @(test)
-binds_file_stages_as_well_as_runs :: proc(t: ^testing.T) {
+a_value_is_a_command_line :: proc(t: ^testing.T) {
     a := fixture()
     defer close(&a)
-    app.binds_parse(&a, "[surface]\nclick = stage :open $o_path\n", "binds.conf")
-
-    b, _ := find(&a, "click", .Surface)
-    line, is_line := b.target.(input.Bind_Line)
-    testing.expect(t, is_line)
-    testing.expect_value(t, line.mode, input.Bind_Mode.Stage)
-
-    // A word, never a prefix: a verb whose name starts with a mode word is still a verb.
-    _, made := app.binds_target(&a, "execute")
-    testing.expect(t, !made)
+    for row in ([?]struct {
+            value: string,
+            want:  input.Bind_Target,
+        }{
+            {":file.dump", input.Command.Save},
+            {"none", input.Command.None},
+            {":file.dump now", input.Bind_Line{":file.dump now", .Exec}},
+            {":not.a.verb", input.Bind_Line{":not.a.verb", .Exec}},
+            {"file.dump", input.Bind_Line{"file.dump", .Exec}},
+            {"stagehand x", input.Bind_Line{"stagehand x", .Exec}},
+            {"stage :open", input.Bind_Line{":open", .Stage}},
+        }) {
+        got := app.binds_target(&a, row.value)
+        defer if l, is_line := got.(input.Bind_Line); is_line {
+            delete(l.text)
+        }
+        testing.expectf(t, got == row.want, "%q parsed as %v", row.value, got)
+    }
 }
 
 // A requested row becomes text in the file, and the file decides from then on. The header is
@@ -111,13 +120,13 @@ a_requested_row_becomes_a_file_row :: proc(t: ^testing.T) {
     defer close(&a)
     app.app_home(&a, dir)
 
-    lues.bind_request(a.kernel, "files", "surface", "click", "exec :open $o_path")
+    lues.bind_request(a.kernel, "files", "surface", "click", ":open $o_path")
     app.binds_sync(&a)
 
     text := read(t, app.binds_path(&a))
     testing.expect(t, strings.contains(text, lues.owner_marker("files")))
     testing.expect(t, strings.contains(text, "[surface]"))
-    testing.expect(t, strings.contains(text, "click = exec :open $o_path"))
+    testing.expect(t, strings.contains(text, "click = :open $o_path"))
 
     b, found := find(&a, "click", .Surface)
     testing.expect(t, found)
@@ -144,14 +153,14 @@ a_taken_chord_is_written_commented_and_reported :: proc(t: ^testing.T) {
     app.app_home(&a, dir)
 
     // wheel-down is a kernel default at Global, so a Global request for it collides.
-    lues.bind_request(a.kernel, "noisy", "global", "wheel-down", "exec :open $o_path")
+    lues.bind_request(a.kernel, "noisy", "global", "wheel-down", ":open $o_path")
     app.binds_sync(&a)
 
     text := read(t, app.binds_path(&a))
-    testing.expect(t, strings.contains(text, "# wheel-down = exec :open $o_path"))
-    testing.expect(t, strings.contains(text, "taken by view.scroll_down"))
+    testing.expect(t, strings.contains(text, "# wheel-down = :open $o_path"))
+    testing.expect(t, strings.contains(text, "taken by :view.scroll_down"))
 
-    testing.expect(t, strings.contains(a.message, "wheel-down is taken by view.scroll_down"), a.message)
+    testing.expect(t, strings.contains(a.message, "wheel-down is taken by :view.scroll_down"), a.message)
 
     // The default still answers, so the refusal cost nothing.
     b, _ := find(&a, "wheel-down", .Global)
@@ -173,12 +182,12 @@ a_shadowing_row_goes_in_live_with_a_note :: proc(t: ^testing.T) {
     app.app_home(&a, dir)
 
     // f1 is describe.key at Global; a surface row covers it there and nowhere else.
-    lues.bind_request(a.kernel, "files", "surface", "f1", "exec :help $o_path")
+    lues.bind_request(a.kernel, "files", "surface", "f1", ":help $o_path")
     app.binds_sync(&a)
 
     text := read(t, app.binds_path(&a))
-    testing.expect(t, strings.contains(text, "# shadows describe.key"))
-    testing.expect(t, strings.contains(text, "f1 = exec :help $o_path"))
+    testing.expect(t, strings.contains(text, "# shadows :describe.key"))
+    testing.expect(t, strings.contains(text, "f1 = :help $o_path"))
 
 
     b, _ := find(&a, "f1", .Surface)
@@ -223,13 +232,13 @@ two_owners_share_one_primer :: proc(t: ^testing.T) {
     defer close(&a)
     app.app_home(&a, dir)
 
-    lues.bind_request(a.kernel, "alpha", "global", "ctrl+@AB05 ctrl+@AC01", "exec :ls")
-    lues.bind_request(a.kernel, "beta", "global", "ctrl+@AB05 ctrl+@AC04", "exec :ring")
+    lues.bind_request(a.kernel, "alpha", "global", "ctrl+@AB05 ctrl+@AC01", ":ls")
+    lues.bind_request(a.kernel, "beta", "global", "ctrl+@AB05 ctrl+@AC04", ":ring")
     app.binds_sync(&a)
 
     text := read(t, app.binds_path(&a))
-    testing.expect(t, strings.contains(text, "ctrl+@AB05 ctrl+@AC01 = exec :ls"), text)
-    testing.expect(t, strings.contains(text, "ctrl+@AB05 ctrl+@AC04 = exec :ring"), text)
+    testing.expect(t, strings.contains(text, "ctrl+@AB05 ctrl+@AC01 = :ls"), text)
+    testing.expect(t, strings.contains(text, "ctrl+@AB05 ctrl+@AC04 = :ring"), text)
     testing.expect(t, !strings.contains(text, "taken by"), text) // neither took the other's chord
 
     prefix, parsed := input.chord_parse("ctrl+@AB05", nil)

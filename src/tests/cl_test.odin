@@ -221,7 +221,7 @@ a_missing_field_says_so :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    app.binds_parse(&a, "[home]\n@AC03 = exec :open $o_nothing\n", "binds.conf")
+    app.binds_parse(&a, "[home]\n@AC03 = :open $o_nothing\n", "binds.conf")
     app.handle_chord(&a, chord("AC03")) // the d position
 
     testing.expect(t, !app.cl_active(&a), "the line never ran")

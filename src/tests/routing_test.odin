@@ -67,7 +67,7 @@ a_field_a_line_would_act_on_is_drawn_as_a_link :: proc(t: ^testing.T) {
 
     // And the pointer says the same thing from the other end, once a click would act there —
     // which is hover's own rule and is what puts the hand cursor up.
-    app.binds_parse(&a, "[surface]\nclick = exec :open $o_path\n", "binds.conf")
+    app.binds_parse(&a, "[surface]\nclick = :open $o_path\n", "binds.conf")
     app.hover_update(&a, 0, 1, 1)
     app.surface_draw(&a)
     at, on = linked(&a, 1)
@@ -155,7 +155,7 @@ one_row_gives_a_listing_the_mouse :: proc(t: ^testing.T) {
     defer os.remove_all(dir)
     defer close_app(&a)
 
-    app.binds_parse(&a, "[surface]\nclick = exec :open $o_path\n", "binds.conf")
+    app.binds_parse(&a, "[surface]\nclick = :open $o_path\n", "binds.conf")
 
     // Hover: the bind table is asked what a click here would do, and the field its line names is
     // the one offered.

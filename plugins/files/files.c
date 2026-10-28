@@ -1068,21 +1068,21 @@ LUES_MAIN {
      * renamed. The hierarchy is on `enter` (a directory is visited) and on `ctrl+backspace` (out
      * of one), with the `..` row as the way up that needs no chord at all. */
     api->request_bind(api, self, LIT("files"), LIT("enter"),
-                      LIT("exec :fs.enter $o_path && :open $o_path"));
+                      LIT(":fs.enter $o_path && :open $o_path"));
     /* Out, and it shadows nothing: `edit.delete_word_back` is written for the `text` context and
      * a listing is a surface. Backspace erases inside a name, so the modified one leaving the
      * directory reads the same way round. */
-    api->request_bind(api, self, LIT("files"), LIT("ctrl+backspace"), LIT("fs.up"));
+    api->request_bind(api, self, LIT("files"), LIT("ctrl+backspace"), LIT(":fs.up"));
     /* DOUBLE click, not single: a single one moves point and `fs.snap` lands it on the name, so
      * clicking into a row to rename it does not also take you somewhere. */
     api->request_bind(api, self, LIT("files"), LIT("double-click"),
-                      LIT("exec :fs.enter $o_path && :open $o_path"));
-    api->request_bind(api, self, LIT("files"), LIT("click"), LIT("fs.snap"));
-    api->request_bind(api, self, LIT("files"), LIT("up"), LIT("fs.up.row"));
-    api->request_bind(api, self, LIT("files"), LIT("down"), LIT("fs.down.row"));
-    api->request_bind(api, self, LIT("files"), LIT("del"), LIT("fs.erase.fwd"));
-    api->request_bind(api, self, LIT("files"), LIT("ctrl+@AC02"), LIT("exec :fs.commit"));
-    api->request_bind(api, self, LIT("files"), LIT("f5"), LIT("exec :fs.reload"));
-    api->request_bind(api, self, LIT("files"), LIT("ctrl+@AB05"), LIT("exec :fs.hidden"));
+                      LIT(":fs.enter $o_path && :open $o_path"));
+    api->request_bind(api, self, LIT("files"), LIT("click"), LIT(":fs.snap"));
+    api->request_bind(api, self, LIT("files"), LIT("up"), LIT(":fs.up.row"));
+    api->request_bind(api, self, LIT("files"), LIT("down"), LIT(":fs.down.row"));
+    api->request_bind(api, self, LIT("files"), LIT("del"), LIT(":fs.erase.fwd"));
+    api->request_bind(api, self, LIT("files"), LIT("ctrl+@AC02"), LIT(":fs.commit"));
+    api->request_bind(api, self, LIT("files"), LIT("f5"), LIT(":fs.reload"));
+    api->request_bind(api, self, LIT("files"), LIT("ctrl+@AB05"), LIT(":fs.hidden"));
     return 0;
 }

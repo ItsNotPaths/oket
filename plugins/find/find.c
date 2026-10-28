@@ -228,7 +228,7 @@ LUES_MAIN {
                           next);
     api->register_command(api, self, LIT("find.prev"),
                           LIT("the previous :find match, as you type"), prev);
-    api->request_bind(api, self, LIT(":find"), LIT("down"), LIT("find.next"));
-    api->request_bind(api, self, LIT(":find"), LIT("up"), LIT("find.prev"));
+    api->request_bind(api, self, LIT(":find"), LIT("down"), LIT(":find.next"));
+    api->request_bind(api, self, LIT(":find"), LIT("up"), LIT(":find.prev"));
     return 0;
 }

@@ -485,8 +485,8 @@ both_stages_get_the_chords_they_asked_for :: proc(t: ^testing.T) {
     // The PHYSICAL spelling, which is what describe prints and what a row is written as: a
     // position on the keyboard, not what the key types on this layout.
     rows := read_binds(&a)
-    for want in ([?]string{"alt+@AB01 = fold", "alt+shift+@AB01 = fold none",
-                           "alt+@AB10 = complete", "alt+shift+@AB10 = complete accept"}) {
+    for want in ([?]string{"alt+@AB01 = :fold", "alt+shift+@AB01 = :fold none",
+                           "alt+@AB10 = :complete", "alt+shift+@AB10 = :complete accept"}) {
         // The leading newline is what says the row is LIVE: a chord already taken is written
         // as `# <chord> = <line>   # taken by ...` and the feature has no key at all.
         live := strings.concatenate({"\n", want}, context.temp_allocator)

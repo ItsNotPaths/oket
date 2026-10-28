@@ -29,11 +29,11 @@ fixture :: proc(t: ^testing.T) -> (a: app.App, ok: bool) {
     append(&a.kernel.cmds, lues.Plug_Cmd{name = "alpha.grep", doc = "search the tree", owner = 0})
     append(&a.kernel.cmds, lues.Plug_Cmd{name = "beta.tail", doc = "follow a file", owner = 1})
 
-    lues.bind_request(a.kernel, "alpha", "global", "ctrl+@AB05 ctrl+@AC01", "exec :ls")
-    lues.bind_request(a.kernel, "beta", "global", "ctrl+@AB05 ctrl+@AC04", "exec :ring")
-    app.binds_parse(&a, "[global]\nctrl+@AB05 ctrl+@AC01 = exec :ls\n" +
-                        "ctrl+@AB05 ctrl+@AC04 = exec :ring\n" +
-                        "ctrl+@AB05 ctrl+@AC02 = exec :sel\n", "binds.conf")
+    lues.bind_request(a.kernel, "alpha", "global", "ctrl+@AB05 ctrl+@AC01", ":ls")
+    lues.bind_request(a.kernel, "beta", "global", "ctrl+@AB05 ctrl+@AC04", ":ring")
+    app.binds_parse(&a, "[global]\nctrl+@AB05 ctrl+@AC01 = :ls\n" +
+                        "ctrl+@AB05 ctrl+@AC04 = :ring\n" +
+                        "ctrl+@AB05 ctrl+@AC02 = :sel\n", "binds.conf")
     return a, true
 }
 
@@ -303,7 +303,7 @@ a_rebound_chord_is_listed_once_and_says_what_it_runs :: proc(t: ^testing.T) {
     defer close(&a)
     app.ring_add(&a, scratch_doc(&a, "a.txt", "hello"))
 
-    app.binds_parse(&a, "[text]\nf5 = file.dump\n", "binds.conf")
+    app.binds_parse(&a, "[text]\nf5 = :file.dump\n", "binds.conf")
     b := app.menubar_build(&a)
     file, _ := named(b, "file")
 

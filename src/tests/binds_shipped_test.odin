@@ -59,7 +59,7 @@ a_deleted_row_is_reported_and_none_unbinds :: proc(t: ^testing.T) {
     row := ""
     rest := text
     for line in strings.split_lines_iterator(&rest) {
-        if strings.has_suffix(line, " = search.next") {
+        if strings.has_suffix(line, " = :search.next") {
             row = line
         }
     }
@@ -74,7 +74,7 @@ a_deleted_row_is_reported_and_none_unbinds :: proc(t: ^testing.T) {
     missing := app.binds_missing(&a)
     testing.expect_value(t, len(missing), 1)
     if len(missing) == 1 {
-        testing.expect(t, strings.has_suffix(missing[0], " = search.next"))
+        testing.expect(t, strings.has_suffix(missing[0], " = :search.next"))
     }
     f3, _ := input.key_code("FK03")
     b, _, found := input.bind_lookup(a.binds[:], {f3, {}}, .Text)

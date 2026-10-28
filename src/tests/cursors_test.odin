@@ -370,7 +370,7 @@ a_config_line_picks_what_a_split_leaves :: proc(t: ^testing.T) {
     app.config_load(&a)
     testing.expect_value(t, a.config.split, txt.Split.Carets)
 
-    app.binds_parse(&a, "[text]\nalt+@AC02 = cursor.split_lines\n", "binds.conf")
+    app.binds_parse(&a, "[text]\nalt+@AC02 = :cursor.split_lines\n", "binds.conf")
     doc := focused_doc(&a)
     txt.doc_select_span(doc, {0, 0}, {2, 0})
     app.handle_chord(&a, chord("AC02", {.Alt}))

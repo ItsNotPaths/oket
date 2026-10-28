@@ -447,6 +447,14 @@ static int32_t list_clear_cmd(const lues_api *api, lues_self self, const lues_at
     return 0;
 }
 
+/* A row's value is a command line, so a verb is asked for as `:verb`. */
+static void list_request(const lues_api *api, lues_self self, const char *ctx, const char *chord,
+                         const char *cmd) {
+    char line[64];
+    int n = snprintf(line, sizeof line, ":%s", cmd);
+    api->request_bind(api, self, ctx, strlen(ctx), chord, strlen(chord), line, (size_t)n);
+}
+
 void oket_list_register(const lues_api *api, lues_self self, const oket_list_spec *spec,
                         lues_kind kind) {
     LIST_SPEC = spec;
@@ -466,10 +474,7 @@ void oket_list_register(const lues_api *api, lues_self self, const oket_list_spe
                           LIT("clear the filter and leave it"), list_clear_cmd);
     /* ASKED FOR, never claimed (§8). ctrl+f is `ctrl+@AC04` in the physical spelling, and esc
      * shadows quit for this kind — the writeback says so where it can be taken back. */
-    api->request_bind(api, self, spec->name, strlen(spec->name), LIT("ctrl+@AC04"),
-                      LIST_FILTER_CMD, strlen(LIST_FILTER_CMD));
-    api->request_bind(api, self, spec->name, strlen(spec->name), LIT("backspace"),
-                      LIST_ERASE_CMD, strlen(LIST_ERASE_CMD));
-    api->request_bind(api, self, spec->name, strlen(spec->name), LIT("esc"),
-                      LIST_CLEAR_CMD, strlen(LIST_CLEAR_CMD));
+    list_request(api, self, spec->name, "ctrl+@AC04", LIST_FILTER_CMD);
+    list_request(api, self, spec->name, "backspace", LIST_ERASE_CMD);
+    list_request(api, self, spec->name, "esc", LIST_CLEAR_CMD);
 }

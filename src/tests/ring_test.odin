@@ -173,7 +173,7 @@ a_kind_section_narrows_over_its_context :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    app.binds_parse(&a, "[surface]\n@AC03 = exec :ls\n[home]\n@AC03 = exec :open $o_path\n",
+    app.binds_parse(&a, "[surface]\n@AC03 = :ls\n[home]\n@AC03 = :open $o_path\n",
                     "binds.conf")
     answer := input.describe_chord(a.binds[:], chord("AC03"), .Surface, nil, app.names(&a),
                                    app.KIND_HOME)

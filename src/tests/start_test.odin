@@ -221,11 +221,11 @@ the_page_lists_what_is_wrong_with_the_binds :: proc(t: ^testing.T) {
 
     // A plugin asks; the file already answers that chord with something else, so the row it
     // asked for is not the row that fires (§8).
-    lues.bind_request(a.kernel, "hello", "global", "f9", "exec :note")
+    lues.bind_request(a.kernel, "hello", "global", "f9", ":note")
     unmet := app.binds_unmet(&a, context.temp_allocator)
     testing.expect_value(t, len(unmet), 0) // nothing holds f9 yet, so nothing is refused
 
-    app.binds_parse(&a, "[global]\nctrl+b f = exec :home\nf9 = exec :home\n", app.BINDS_NAME)
+    app.binds_parse(&a, "[global]\nctrl+b f = :home\nf9 = :home\n", app.BINDS_NAME)
     testing.expect_value(t, len(a.gripes), 1)
     unmet = app.binds_unmet(&a, context.temp_allocator)
     if !testing.expect(t, len(unmet) == 1, "a chord the file answers itself went unreported") {
@@ -242,7 +242,7 @@ the_page_lists_what_is_wrong_with_the_binds :: proc(t: ^testing.T) {
 
     // A second read replaces what the first found rather than saying it twice: binds.conf is
     // read twice in a sync, and a list that only grew would report one typo as two.
-    app.binds_parse(&a, "[global]\nctrl+b f = exec :home\nf9 = exec :home\n", app.BINDS_NAME)
+    app.binds_parse(&a, "[global]\nctrl+b f = :home\nf9 = :home\n", app.BINDS_NAME)
     testing.expect_value(t, len(a.gripes), 1)
 }
 

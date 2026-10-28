@@ -443,7 +443,7 @@ LUES_MAIN {
     api->register_command(api, self, LIT("th.rm"), LIT("remove a pulled theme"), rm_cmd);
     api->register_command(api, self, LIT("th.dir"), LIT("where the themes live; no argument asks"),
                           dir_cmd);
-    api->request_bind(api, self, LIT("global"), LIT("alt+@AD05"), LIT("exec :ring themer"));
+    api->request_bind(api, self, LIT("global"), LIT("alt+@AD05"), LIT(":ring themer"));
     api->request_bind(api, self, LIT("themer"), LIT("enter"), LIT("stage $o_act"));
     api->request_bind(api, self, LIT("themer"), LIT("del"),
                       LIT("stage :th.rm $o_name && :set theme.name " THEME_DEFAULT));

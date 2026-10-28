@@ -47,7 +47,7 @@ a_plugin_registers_opens_renders_and_unloads :: proc(t: ^testing.T) {
     _, is_cmd := app.plug_cmd_named(&a, "example")
     testing.expect(t, is_cmd, ":example did not register")
     // Asked for, not claimed: the row is text in the user's file and the file decides (§8).
-    row := strings.contains(read_binds(&a), "alt+h = exec :ring example")
+    row := strings.contains(read_binds(&a), "alt+h = :ring example")
     testing.expect(t, row, "the requested bind never reached binds.conf")
 
     // --- open, and render ---

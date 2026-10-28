@@ -15,14 +15,13 @@ import "../input"
 //     # --- files ---
 //     [files]
 //     enter       = stage :open $o_path
-//     click       = exec :open $o_path
-//     right-click = stage :open $o_path
+//     click       = :open $o_path
+//     up          = :fs.up.row
 //
 // A section is a bind context: `global`, `text`, `surface`, `terminal`, or a KIND's name —
 // `[files]` is narrower than `[surface]` and wins where it applies, which is how `enter` means
-// one thing in a listing and another in the editor while both are surfaces. A value is a verb's
-// registry name, `none` to unbind, or `exec`/`stage` and a command line whose `$o_`
-// names fill from point.
+// one thing in a listing and another in the editor while both are surfaces. A value is a command
+// line whose `$o_` names fill from point, `stage` and a line to aim it first, or `none` to unbind.
 //
 // A start never rewrites it, only appends what a plugin asked for. In the config directory, next
 // to config.conf (path.odin).
@@ -91,11 +90,7 @@ binds_parse :: proc(a: ^App, text, origin_name: string) {
             conf_complain(a, origin_name, row.line, why)
             continue
         }
-        target, made := binds_target(a, row.value)
-        if !made {
-            conf_complain(a, origin_name, row.line, fmt.tprintf("%s is not a verb", row.value))
-            continue
-        }
+        target := binds_target(a, row.value)
         origin := input.Origin{.Config, strings.clone(origin_name), row.line}
         // Prepended, because bind_scan takes the first match and the defaults are already in: a
         // file row has to be found before the default it is replacing.
@@ -123,30 +118,44 @@ binds_ctx :: proc(a: ^App, name: string) -> (ctx: input.Bind_Ctx, kind: input.Ki
     return .Global, 0, false
 }
 
-@(rodata)
-MODE_WORDS := [input.Bind_Mode]string {
-    .Exec  = "exec",
-    .Stage = "stage",
-}
+STAGE_WORD :: "stage"
 
-// A mode word and a command line, `none`, or a verb — a kernel one, or one a plugin registered.
-// (hole value-is-line :tags binds :sev refactor) a value is a verb name or exec/stage + line; make it a command line, a lone `:verb` still resolves to the enum at parse
-binds_target :: proc(a: ^App, value: string) -> (input.Bind_Target, bool) {
-    for word, mode in MODE_WORDS {
-        if rest, cut := cut_word(value, word); cut {
-            return input.Bind_Line{strings.clone(rest), mode}, true
+// `none`, `stage <line>`, or a command line. A lone `:verb` resolves to the verb now, so a press
+// skips the parse; one nothing has registered yet stays a line and resolves when it runs.
+binds_target :: proc(a: ^App, value: string) -> input.Bind_Target {
+    if value == input.COMMANDS[.None].name {
+        return input.Command.None
+    }
+    if rest, staged := cut_word(value, STAGE_WORD); staged {
+        return input.Bind_Line{strings.clone(rest), .Stage}
+    }
+    if strings.has_prefix(value, ":") && !strings.contains_any(value, " \t") {
+        name := value[1:]
+        if cmd, found := input.command_named(name); found {
+            return cmd
+        }
+        if slot, found := plug_cmd_named(a, name); found {
+            return slot
         }
     }
-    if value == input.COMMANDS[.None].name {
-        return input.Command.None, true
+    return input.Bind_Line{strings.clone(value), .Exec}
+}
+
+// The file's spelling of a target, so a written row reads back as the same bind.
+binds_value :: proc(a: ^App, t: input.Bind_Target) -> string {
+    switch v in t {
+    case input.Command:
+        if v == .None {
+            return input.COMMANDS[.None].name
+        }
+        return fmt.tprintf(":%s", input.COMMANDS[v].name)
+    case input.Slot:
+        name, _ := input.target_info(v, names(a))
+        return fmt.tprintf(":%s", name)
+    case input.Bind_Line:
+        return v.mode == .Stage ? fmt.tprintf("%s %s", STAGE_WORD, v.text) : v.text
     }
-    if cmd, found := input.command_named(value); found {
-        return cmd, true
-    }
-    if slot, found := plug_cmd_named(a, value); found {
-        return slot, true
-    }
-    return input.Command.None, false
+    return ""
 }
 
 // A chord a plugin asked for that the file answers with something else (§8, §13). Derived from
@@ -159,7 +168,7 @@ binds_target :: proc(a: ^App, value: string) -> (input.Bind_Target, bool) {
 Bind_Unmet :: struct {
     owner: string, // borrowed from the request
     chord: string, // borrowed
-    held:  string, // what the chord runs instead; borrowed from the name tables
+    held:  string, // what the chord runs instead, as the file spells it
 }
 
 binds_unmet :: proc(a: ^App, allocator := context.temp_allocator) -> []Bind_Unmet {
@@ -179,26 +188,14 @@ binds_unmet :: proc(a: ^App, allocator := context.temp_allocator) -> []Bind_Unme
         if !found || b.target == input.Bind_Target(input.Command.None) {
             continue
         }
-        if held, _ := input.target_info(b.target, names(a)); held != req_line(r.line) {
+        if held := binds_value(a, b.target); held != r.line {
             append(&out, Bind_Unmet{r.owner, r.chord, held})
         }
     }
     return out[:]
 }
 
-// The request without its mode word, which is what a table row holds: `exec :note` is asked
-// for, `:note` is bound, and the two are the same row.
-@(private = "file")
-req_line :: proc(line: string) -> string {
-    for word in MODE_WORDS {
-        if rest, cut := cut_word(line, word); cut {
-            return rest
-        }
-    }
-    return line
-}
-
-// A word, never a prefix: a verb called `execute.all` is not a command line.
+// A word, never a prefix: `stagehand` is a shell command, not a staged one.
 @(private = "file")
 cut_word :: proc(s, word: string) -> (rest: string, ok: bool) {
     if !strings.has_prefix(s, word) || len(s) <= len(word) || s[len(word)] != ' ' {
@@ -221,8 +218,7 @@ binds_held :: proc(a: ^App, ctx_name, chord_text: string) -> (string, bool) {
     if !found {
         return "", false
     }
-    name, _ := input.target_info(b.target, names(a))
-    return name, true
+    return binds_value(a, b.target), true
 }
 
 // What a WIDER tier runs for the chord, once this tier is known to be free. The row is still
@@ -237,8 +233,7 @@ binds_shadowed :: proc(a: ^App, ctx_name, chord_text: string) -> (string, bool) 
     if !found {
         return "", false
     }
-    name, _ := input.target_info(b.target, names(a))
-    return name, true
+    return binds_value(a, b.target), true
 }
 
 // The file first, so a chord the user's own rows hold reads as taken; then what was requested,
@@ -336,16 +331,7 @@ binds_row :: proc(a: ^App, b: input.Bind, ctx: input.Bind_Ctx) -> (section, row:
     if b.prefix != {} {
         key = fmt.tprintf("%s %s", chord_spelled(b.prefix), key)
     }
-    value: string
-    switch t in b.target {
-    case input.Command:
-        value = input.COMMANDS[t].name
-    case input.Slot:
-        value, _ = input.target_info(t, names(a))
-    case input.Bind_Line:
-        value = fmt.tprintf("%s %s", MODE_WORDS[t.mode], t.text)
-    }
-    return section, fmt.tprintf("%s = %s", key, value)
+    return section, fmt.tprintf("%s = %s", key, binds_value(a, b.target))
 }
 
 // The layout's spelling when it reads back as the same chord and holds nothing the file reads

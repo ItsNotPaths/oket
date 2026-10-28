@@ -142,8 +142,8 @@ the_plugins_own_newline_shadows_the_kernels :: proc(t: ^testing.T) {
     defer close_plug_app(&a)
 
     rows := read_binds(&a)
-    testing.expect(t, strings.contains(rows, "enter = ed.newline"), rows)
-    testing.expect(t, strings.contains(rows, "# shadows edit.newline"), rows)
+    testing.expect(t, strings.contains(rows, "enter = :ed.newline"), rows)
+    testing.expect(t, strings.contains(rows, "# shadows :edit.newline"), rows)
 
     id := focused(&a)
     app.handle_chord(&a, chord("END"))

@@ -177,14 +177,14 @@ enter_is_a_row_and_the_chain_is_the_navigation :: proc(t: ^testing.T) {
     // Asked for, never claimed — and loud about what it met: this row shadows the surface-tier
     // `:open $o_path` and the writeback says so above it.
     rows := read_binds(&a)
-    testing.expect(t, strings.contains(rows, "# shadows :open $o_path\nenter = exec :fs.enter $o_path && :open $o_path"),
+    testing.expect(t, strings.contains(rows, "# shadows :open $o_path\nenter = :fs.enter $o_path && :open $o_path"),
                    rows)
     // The same line on the mouse, which is the whole of what a document does to get one: a row,
     // and the plugin never sees an event (§8). DOUBLE click, because a single one lands the
     // caret on the name — clicking into a row to rename it must not also take you somewhere.
-    testing.expect(t, strings.contains(rows, "double-click = exec :fs.enter $o_path && :open $o_path"),
+    testing.expect(t, strings.contains(rows, "double-click = :fs.enter $o_path && :open $o_path"),
                    rows)
-    testing.expect(t, strings.contains(rows, "click = fs.snap"), rows)
+    testing.expect(t, strings.contains(rows, "click = :fs.snap"), rows)
 
     // Standing on `sub`. Enter VISITS it: the buffer becomes that directory rather than growing
     // a subtree, the chain STOPS rather than reaching `:open`, and the caret lands on a name.

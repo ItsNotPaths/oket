@@ -169,7 +169,7 @@ hover_belongs_to_the_panel_under_the_pointer :: proc(t: ^testing.T) {
     }
     defer close_app(&a)
 
-    app.binds_parse(&a, "[surface]\nclick = exec :open $o_path\n", "binds.conf")
+    app.binds_parse(&a, "[surface]\nclick = :open $o_path\n", "binds.conf")
 
     app.hover_update(&a, 0, 2, 1)
     testing.expect(t, app.panel_focused(&a).hover.on, "the name a bound click acts on is not underlined")

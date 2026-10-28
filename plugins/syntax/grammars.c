@@ -405,7 +405,7 @@ lues_kind grammars_register(const lues_api *api, lues_self self) {
      * backspace, gr.clear on esc, all rows the core ASKED for (§8). */
     oket_list_register(api, self, &LSPEC, GRAMMARS);
     api->register_command(api, self, LIT("gr.build"), LIT("mark a row as building"), build_cmd);
-    api->request_bind(api, self, LIT("global"), LIT("alt+@AC05"), LIT("exec :ring grammars"));
-    api->request_bind(api, self, LIT("grammars"), LIT("enter"), LIT("exec :do $o_act"));
+    api->request_bind(api, self, LIT("global"), LIT("alt+@AC05"), LIT(":ring grammars"));
+    api->request_bind(api, self, LIT("grammars"), LIT("enter"), LIT(":do $o_act"));
     return GRAMMARS;
 }

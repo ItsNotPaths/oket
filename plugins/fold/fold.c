@@ -245,8 +245,8 @@ LUES_MAIN {
     api->register_command(api, self, LIT("fold"),
                           LIT("fold or unfold the block point is on; `none` clears them"),
                           fold_cmd);
-    api->request_bind(api, self, LIT("text"), LIT("alt+@AB01"), LIT("fold")); /* alt+z */
-    api->request_bind(api, self, LIT("text"), LIT("alt+shift+@AB01"), LIT("fold none"));
+    api->request_bind(api, self, LIT("text"), LIT("alt+@AB01"), LIT(":fold")); /* alt+z */
+    api->request_bind(api, self, LIT("text"), LIT("alt+shift+@AB01"), LIT(":fold none"));
     /* A stage is in a pipeline because a config line says so, never because it loaded (§5).
      * This is the row that puts it there the first time, and the file owns it afterwards. */
     api->request_config(api, self, LIT("edit"), LIT("view"), LIT("fold"));

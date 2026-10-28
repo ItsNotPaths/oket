@@ -447,7 +447,7 @@ a_row_carries_its_whole_registry_entry :: proc(t: ^testing.T) {
             asked = r.line
         }
     }
-    testing.expect_value(t, asked, "exec :do $o_act")
+    testing.expect_value(t, asked, ":do $o_act")
     line := act.value
     // Through cl_parse rather than the raw split: `||` is a step operator, so `|| true` is
     // its own segment until the coalesce puts it back inside the shell step.
