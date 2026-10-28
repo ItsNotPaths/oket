@@ -157,8 +157,8 @@ prefix_resolve :: proc(a: ^App, chord, prefix: input.Chord) -> bool {
         return false
     }
     ctx, kind := bind_ctx(a)
-    if b, extend, ok := input.bind_lookup(a.binds[:], chord, ctx, kind, prefix); ok {
-        bind_dispatch(a, chord, b, extend)
+    if b, ok := input.bind_lookup(a.binds[:], chord, ctx, kind, prefix); ok {
+        bind_dispatch(a, chord, b)
         return true
     }
     message_set(a, fmt.tprintf("%s is unbound", input.chord_pair_format(
@@ -193,7 +193,7 @@ handle_chord :: proc(a: ^App, chord: input.Chord) {
         return
     }
     ctx, kind := bind_ctx(a)
-    b, extend, ok := input.bind_lookup(a.binds[:], chord, ctx, kind)
+    b, ok := input.bind_lookup(a.binds[:], chord, ctx, kind)
     if !ok {
         // A chord no row claims may still be a PRIMER, which is a row's prefix and never a row
         // of its own (§4.1). Asked after the lookup, so a chord that already runs something
@@ -210,15 +210,15 @@ handle_chord :: proc(a: ^App, chord: input.Chord) {
         }
         return
     }
-    bind_dispatch(a, chord, b, extend)
+    bind_dispatch(a, chord, b)
 }
 
 // A resolved row, run. Split from handle_chord so a child reached under a primer takes exactly
 // the path its plain sibling takes (§4.2) — and so a row PRESSED in the menu takes it too, which
 // is the whole of "the menu does what typing it does" (MENU.md §1).
-bind_dispatch :: proc(a: ^App, chord: input.Chord, b: input.Bind, extend: bool) {
+bind_dispatch :: proc(a: ^App, chord: input.Chord, b: input.Bind) {
     if line, is_line := b.target.(input.Bind_Line); is_line {
-        cl_exec(a, string(line))
+        line_run(a, string(line))
         return
     }
     if slot, registered := b.target.(input.Slot); registered {
@@ -240,7 +240,7 @@ bind_dispatch :: proc(a: ^App, chord: input.Chord, b: input.Bind, extend: bool) 
             message_set(a, "this document has no job of its own")
         }
     case:
-        command_run(a, cmd, 0, extend)
+        command_run(a, cmd, 0, false)
     }
 }
 
@@ -991,7 +991,7 @@ point_place :: proc(a: ^App, cx, cy: int, extend := false) {
 // still has the trail to add to by the time cursor.add runs.
 point_press :: proc(a: ^App, m: input.Mouse, mods: input.Mods, cx, cy: int) {
     ctx, kind := bind_ctx(a)
-    if b, _, ok := input.bind_lookup(a.binds[:], {input.mouse_code(m), mods}, ctx, kind); ok {
+    if b, ok := input.bind_lookup(a.binds[:], {input.mouse_code(m), mods}, ctx, kind); ok {
         if cmd, named := input.bind_command(b); named && input.command_places_point(cmd) {
             return
         }
@@ -1061,7 +1061,7 @@ scroll_by :: proc(a: ^App, lines: int) {
 clickable :: proc(a: ^App, d: ^desc.Descriptor) -> bool {
     for button in ([?]input.Mouse{.Click, .Double_Click}) {
         chord := input.Chord{input.mouse_code(button), {}}
-        if bind, _, bound := input.bind_lookup(a.binds[:], chord, d.ctx, d.kind); bound {
+        if bind, bound := input.bind_lookup(a.binds[:], chord, d.ctx, d.kind); bound {
             if _, is_line := bind.target.(input.Bind_Line); is_line {
                 return true
             }

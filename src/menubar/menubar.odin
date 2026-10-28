@@ -226,7 +226,7 @@ runs :: proc(t: input.Bind_Target, names: input.Names) -> string {
 // doing what it no longer does. This is the question the key handler asks, asked once per row.
 @(private = "file")
 answers :: proc(src: Source, b: input.Bind) -> bool {
-    got, _, ok := input.bind_lookup(src.binds, b.chord, src.ctx, src.kind, b.prefix)
+    got, ok := input.bind_lookup(src.binds, b.chord, src.ctx, src.kind, b.prefix)
     return ok && got == b
 }
 

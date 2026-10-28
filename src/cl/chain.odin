@@ -21,6 +21,7 @@ Step :: struct {
     shell: bool,
     op:    Op,
     text:  string, // owned; a builtin's `:` already stripped
+    feeds: bool, // a `|` opens the step after it, so its output is staged rather than shown
 }
 
 Chain :: struct {
@@ -59,6 +60,9 @@ parse :: proc(ch: ^Chain, line: string, host: $H, alias: proc(host: H, name: str
               takes_line: proc(host: H, name: string) -> bool = nil) {
     reset(ch)
     parse_into(ch, line, .And, 0, host, alias, takes_line)
+    for i in 1 ..< len(ch.steps) {
+        ch.steps[i - 1].feeds = ch.steps[i].op == .Pipe
+    }
 }
 
 // One line's segments, appended. `op0` replaces the first segment's opener — an alias body
@@ -95,10 +99,10 @@ parse_into :: proc(ch: ^Chain, line: string, op0: Op, depth: int, host: $H,
             if takes_line != nil && takes_line(host, first_field(name)) {
                 at := int(uintptr(raw_data(seg.text)) - uintptr(raw_data(src)))
                 rest := strings.trim_space(src[at:])
-                append(&ch.steps, Step{false, op, strings.clone(strings.trim_space(rest[1:]))})
+                append(&ch.steps, Step{op = op, text = strings.clone(strings.trim_space(rest[1:]))})
                 return
             }
-            append(&ch.steps, Step{false, op, strings.clone(name)})
+            append(&ch.steps, Step{op = op, text = strings.clone(name)})
             continue
         }
         // Two shell steps in a row are one command: the operator goes back in and the shell
@@ -110,7 +114,7 @@ parse_into :: proc(ch: ^Chain, line: string, op0: Op, depth: int, host: $H,
             prev.text = joined
             continue
         }
-        append(&ch.steps, Step{true, op, strings.clone(s)})
+        append(&ch.steps, Step{shell = true, op = op, text = strings.clone(s)})
     }
 }
 
@@ -144,13 +148,6 @@ done :: proc(ch: ^Chain, ok: bool) {
 job_done :: proc(ch: ^Chain, code: int) {
     ch.waiting = false
     done(ch, code == 0)
-}
-
-// Is a step after this one opened by a `|` — a `:put` waiting for what the shell is about to
-// write. What makes a host stage a step's stdout rather than leave it on screen.
-wants_feed :: proc(ch: ^Chain) -> bool {
-    after := ch.idx + 1
-    return after < len(ch.steps) && ch.steps[after].op == .Pipe
 }
 
 // The feed this step takes, when a `|` opened it and a step before produced one: `:put`/`:do`'s

@@ -21,6 +21,11 @@ import "../cl"
 @(private = "file")
 run_line :: proc(a: ^app.App, line: string) {
     app.cl_exec(a, line)
+    pump_idle(a)
+}
+
+@(private = "file")
+pump_idle :: proc(a: ^app.App) {
     for i := 0; cl.busy(&a.chain) && i < 5000; i += 1 {
         app.term_pump(a) // N0 is a PTY: nothing reports until its bytes reach the parser
         app.sh_pump(a)
@@ -31,6 +36,32 @@ run_line :: proc(a: ^app.App, line: string) {
     // still in the VT: one more pump lands it in the store for the assertions to read.
     app.term_pump(a)
     store.store_drain(a.docs)
+}
+
+// A key's one-step line runs at once and never abandons a chain that is waiting on the shell. A
+// line it queues waits behind that chain, listed in the bar, and runs when the chain ends.
+@(test)
+a_key_never_abandons_a_waiting_chain :: proc(t: ^testing.T) {
+    a, ok := bare_app(60, 6)
+    if !ok {
+        return
+    }
+    defer close_app(&a)
+    id := scratch_doc(&a, "note", "x")
+    app.ring_add(&a, id)
+
+    app.cl_exec(&a, "sleep 0.2 && :lock")
+    testing.expect(t, a.chain.waiting)
+
+    app.line_run(&a, ":do :ring.zero")
+    testing.expect(t, a.chain.waiting, "the key abandoned the waiting chain")
+    testing.expect(t, strings.contains(app.bar_text(&a), "queued: :ring.zero"), app.bar_text(&a))
+
+    pump_idle(&a)
+    at, _ := app.ring_find(&a, id)
+    testing.expect(t, a.ring.lanes[at.lane].slots[at.slot - 1].locked, "the waiting chain never ran")
+    testing.expect_value(t, app.ring_slot(&a), app.SLOT_ZERO)
+    testing.expect_value(t, len(a.chain.queue), 0)
 }
 
 // The split is the shell's own reading of an operator: never inside quotes, after a backslash,

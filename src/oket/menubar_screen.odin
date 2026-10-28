@@ -157,7 +157,7 @@ menu_act :: proc(a: ^App, act: menubar.Act, row: menu.Row) {
 }
 
 // Pressing a row does what typing it does (§1). A `:` row IS its own line, holes and all, so it
-// is staged the way a `stage` bind row is; a bind row goes down the path its chord goes down.
+// is staged the way a `:stage` bind row is; a bind row goes down the path its chord goes down.
 @(private = "file")
 menu_run :: proc(a: ^App, row: menu.Row) {
     if row.id == menubar.STAGE {
@@ -165,5 +165,5 @@ menu_run :: proc(a: ^App, row: menu.Row) {
         return
     }
     b := a.binds[row.id]
-    bind_dispatch(a, b.chord, b, false)
+    bind_dispatch(a, b.chord, b)
 }

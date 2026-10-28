@@ -78,7 +78,7 @@ Job :: struct {
 // staged the same way when the chain has a `:put` waiting for it, and left alone otherwise, so
 // an ordinary step is live output and not a buffer that appears when it ends. A step naming an
 // `$o_` var opens with all of them set or unset (cl.sh_vars).
-sh_run :: proc(a: ^App, cmd, feed: string, fed: bool) -> bool {
+sh_run :: proc(a: ^App, cmd, feed: string, fed, captured: bool) -> bool {
     if a.job.live {
         message_set(a, "a shell step is still running")
         return false
@@ -89,7 +89,7 @@ sh_run :: proc(a: ^App, cmd, feed: string, fed: bool) -> bool {
     }
     job_end(a) // the last step's staging, kept until now so its `cat` could finish with it
     a.sys_seq += 1
-    a.job = Job{live = true, id = a.sys_seq, captured = cl.wants_feed(&a.chain)}
+    a.job = Job{live = true, id = a.sys_seq, captured = captured}
     tm.t.exit_ready = false // any report still standing belongs to a step that is over
 
     if fed {

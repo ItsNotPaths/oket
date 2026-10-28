@@ -30,7 +30,7 @@ find :: proc(a: ^app.App, spelling: string, ctx: input.Bind_Ctx) -> (input.Bind,
     if !ok {
         return {}, false
     }
-    b, _, found := input.bind_lookup(a.binds[:], chord, ctx)
+    b, found := input.bind_lookup(a.binds[:], chord, ctx)
     return b, found
 }
 

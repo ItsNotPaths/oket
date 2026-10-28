@@ -81,7 +81,7 @@ every_default_chord_is_a_row :: proc(t: ^testing.T) {
     mice := 0
     for b in binds {
         ctx := .Global in b.ctx ? input.Bind_Ctx.Global : ctx_of(b.ctx)
-        found, _, ok := input.bind_lookup(binds[:], b.chord, ctx, b.kind)
+        found, ok := input.bind_lookup(binds[:], b.chord, ctx, b.kind)
         testing.expectf(t, ok, "%v resolves to nothing in %v", b.chord, ctx)
         testing.expect_value(t, found.target, b.target)
         if input.code_is_mouse(b.chord.code) {

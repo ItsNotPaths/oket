@@ -77,7 +77,7 @@ a_deleted_row_is_reported_and_none_unbinds :: proc(t: ^testing.T) {
         testing.expect(t, strings.has_suffix(missing[0], " = :search.next"))
     }
     f3, _ := input.key_code("FK03")
-    b, _, found := input.bind_lookup(a.binds[:], {f3, {}}, .Text)
+    b, found := input.bind_lookup(a.binds[:], {f3, {}}, .Text)
     testing.expect(t, found && b.target == input.Bind_Target(input.Command.Search_Next),
                    "the default stopped running")
 
@@ -87,6 +87,6 @@ a_deleted_row_is_reported_and_none_unbinds :: proc(t: ^testing.T) {
     _ = os.write_entire_file(path, transmute([]u8)unbound)
     app.binds_sync(&a)
     testing.expect_value(t, len(app.binds_missing(&a)), 0)
-    _, _, found = input.bind_lookup(a.binds[:], {f3, {}}, .Text)
+    _, found = input.bind_lookup(a.binds[:], {f3, {}}, .Text)
     testing.expect(t, !found, "a `none` row still resolves")
 }

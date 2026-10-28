@@ -12,7 +12,6 @@ import "../cl"
 Chain :: cl.Chain
 
 // A new line abandons any half-finished chain; a job already running finishes on its own.
-// (hole direct-step :tags (binds live) :sev refactor) no single rule for "one : step, no operators: call the builtin directly"; key presses and the live re-run must share one proc, or one starts resetting the chain
 cl_exec :: proc(a: ^App, line: string) {
     if cl_start(a, line) {
         chain_pump(a)
@@ -31,6 +30,28 @@ cl_start :: proc(a: ^App, line: string) -> bool {
         return false
     }
     return true
+}
+
+// A key's line, and the live re-run's. One builtin step runs directly, outside `a.chain`, so a
+// key never abandons a chain that is waiting; anything longer is a chain of its own. A line the
+// builtin queued runs now, or after the waiting chain ends.
+line_run :: proc(a: ^App, line: string) {
+    ch: cl.Chain
+    defer cl.destroy(&ch)
+    cl.parse(&ch, line, a, alias_expansion, takes_line)
+    if len(ch.steps) != 1 || ch.steps[0].shell {
+        cl_exec(a, line)
+        return
+    }
+    step := ch.steps[0]
+    text, missing, filled := cl.fill(vars_under_point(a), step.text)
+    if !filled {
+        vars_say_missing(a, missing)
+        return
+    }
+    step.text = text
+    cl_builtin(a, step)
+    chain_pump(a)
 }
 
 // Chain-building without execution, split out so the parse is testable on its own.
@@ -73,7 +94,7 @@ chain_pump :: proc(a: ^App) {
         }
         if step.shell {
             feed, fed := cl.piped(ch, step)
-            if !sh_run(a, step.text, feed, fed) {
+            if !sh_run(a, step.text, feed, fed, step.feeds) {
                 cl.reset(ch)
                 cl.queue_clear(ch) // a step that cannot even go out is nothing to keep feeding
                 return

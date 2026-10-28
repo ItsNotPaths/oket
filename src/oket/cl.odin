@@ -85,7 +85,7 @@ cl_line :: proc(a: ^App, alloc := context.temp_allocator) -> string {
 
 // The last builtin step, `:find foo` in `:find foo && echo x`, and where it starts in the line's
 // text. "" when no step is a builtin.
-// (hole live-whitelist :tags live :needs (live-debounce find-rerun-safe direct-step) :sev refactor) no live re-run; re-run step 1 when it is on `[cmdline] live`, through direct-step, never cl_exec
+// (hole live-whitelist :tags live :needs (live-debounce find-rerun-safe) :sev refactor) no live re-run; re-run step 1 when it is on `[cmdline] live`, through line_run, never cl_exec
 cl_step :: proc(a: ^App) -> (step: string, at: int) {
     doc := store.store_doc(a.docs, a.cl.doc)
     if doc == nil {

@@ -526,7 +526,7 @@ builtin_put :: proc(a: ^App, _: string, step: cl.Step) -> bool {
 // like `:ls`. The verb is what makes a chain conditional without new syntax: the chain already
 // branches on a step's exit, so `:get kind | grep -q term && ...` is an if.
 @(private = "file")
-builtin_get :: proc(a: ^App, args: string, _: cl.Step) -> bool {
+builtin_get :: proc(a: ^App, args: string, step: cl.Step) -> bool {
     _, what := cl.first_arg(args)
     out, known := get_value(a, what)
     if !known {
@@ -534,7 +534,7 @@ builtin_get :: proc(a: ^App, args: string, _: cl.Step) -> bool {
         return false
     }
     cl.feed_set(&a.chain, out)
-    if !cl.wants_feed(&a.chain) {
+    if !step.feeds {
         sys_print(a, out)
         ring_show_system(a)
     }

@@ -468,6 +468,7 @@ LUES_MAIN {
     /* ASKED FOR, never claimed (§8). Each of these shadows a kernel row for this kind alone —
      * plain enter and plain tab go on serving the command line and anything else. */
     api->request_bind(api, self, LIT("edit"), LIT("enter"), LIT(":ed.newline"));
+    api->request_bind(api, self, LIT("edit"), LIT("shift+enter"), LIT(":ed.newline"));
     api->request_bind(api, self, LIT("edit"), LIT("tab"), LIT(":ed.indent"));
     api->request_bind(api, self, LIT("edit"), LIT("ctrl+@AC02"), LIT(":w")); /* ctrl+s */
     api->request_bind(api, self, LIT("edit"), LIT("@FK05"), LIT(":ed.reload")); /* f5 */

@@ -215,7 +215,7 @@ binds_shadowed :: proc(a: ^App, ctx_name, chord_text: string) -> (string, bool) 
     if !ok || !parsed || kind == 0 && ctx == .Global {
         return "", false // nothing is wider than a global row
     }
-    b, _, found := input.bind_lookup(a.binds[:], chord, ctx, kind, prefix)
+    b, found := input.bind_lookup(a.binds[:], chord, ctx, kind, prefix)
     if !found {
         return "", false
     }

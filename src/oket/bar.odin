@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:strings"
 import "../gfx"
 import "../input"
 import "../store"
@@ -32,6 +33,9 @@ bar_text :: proc(a: ^App) -> string {
     }
     if a.message != "" {
         return a.message
+    }
+    if len(a.chain.queue) > 0 {
+        return fmt.tprintf("queued: %s", strings.join(a.chain.queue[:], "  ·  ", context.temp_allocator))
     }
     // Which PANEL, once there is more than one: the bar is global (§2), so it has to say which
     // of them it is answering for. `@N` is stage 4's spelling for a panel, used here first.

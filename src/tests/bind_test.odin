@@ -16,7 +16,7 @@ describe_answers_every_chord :: proc(t: ^testing.T) {
             s := input.describe_chord(binds[:], {e.code, mods}, .Global, nil)
             defer delete(s)
             testing.expectf(t, s != "", "no answer for @%s", e.name)
-            _, _, bound := input.bind_lookup(binds[:], {e.code, mods}, .Global)
+            _, bound := input.bind_lookup(binds[:], {e.code, mods}, .Global)
             testing.expect_value(t, strings.contains(s, "unbound"), !bound)
         }
     }
@@ -56,25 +56,46 @@ describe_names_the_command :: proc(t: ^testing.T) {
     testing.expect_value(t, s2, "ctrl+esc (ctrl+@ESC) is unbound")
 }
 
-// Shift is not written into motion binds: it falls back to the bare chord and extends. An
-// exact Shift row names a different verb and beats the fallback.
+// A shifted chord is its own row, never a retry of the bare one. These are the shifted chords
+// the defaults keep: motions extend, and the few a held shift reaches by accident or by habit.
 @(test)
-shift_extends_or_names_its_own_verb :: proc(t: ^testing.T) {
+shift_rows_are_written_out :: proc(t: ^testing.T) {
     binds := input.binds_default()
     defer input.binds_destroy(&binds)
-    down, _ := input.key_code("DOWN")
-    z, _ := input.key_code("AB01")
+    key :: proc(name: string, mods: input.Mods) -> input.Chord {
+        code, _ := input.key_code(name)
+        return {code, mods}
+    }
+    line :: proc(text: string) -> input.Bind_Target {
+        return input.Bind_Line(text)
+    }
+    for row in ([?]struct {
+            chord: input.Chord,
+            ctx:   input.Bind_Ctx,
+            want:  input.Bind_Target,
+        }{
+            {key("DOWN", {.Shift}), .Text, line(":nav.down extend")},
+            {key("DOWN", {.Shift}), .Surface, line(":nav.down extend")},
+            {key("LEFT", {.Ctrl, .Shift}), .Text, line(":edit.word_left extend")},
+            {key("HOME", {.Shift}), .Text, line(":edit.home extend")},
+            {key("END", {.Ctrl, .Shift}), .Text, line(":edit.doc_end extend")},
+            {key("UP", {.Ctrl, .Shift}), .Text, line(":edit.para_up extend")},
+            {key("AC01", {.Ctrl, .Shift}), .Text, line(":edit.home extend")},
+            {key("BKSP", {.Shift}), .Text, input.Command.Delete_Back},
+            {key("RTRN", {.Shift}), .Text, input.Command.Newline},
+            {key("AB04", {.Ctrl, .Shift}), .Terminal, input.Command.Term_Paste},
+            {key("AB01", {.Ctrl, .Shift}), .Text, input.Command.Redo},
+        }) {
+        b, ok := input.bind_lookup(binds[:], row.chord, row.ctx)
+        testing.expectf(t, ok && b.target == row.want, "%v in %v is %v", row.chord, row.ctx, b.target)
+    }
 
-    b, extend, ok := input.bind_lookup(binds[:], {down, {.Shift}}, .Text)
-    testing.expect(t, ok && extend)
-    testing.expect_value(t, b.target, input.Bind_Target(input.Command.Nav_Down))
-
-    b, extend, ok = input.bind_lookup(binds[:], {z, {.Ctrl, .Shift}}, .Text)
-    testing.expect(t, ok && !extend) // the exact row wins, no extending
-    testing.expect_value(t, b.target, input.Bind_Target(input.Command.Redo))
+    // No retry: a shifted chord nothing names is unbound, not its bare twin.
+    _, ok := input.bind_lookup(binds[:], key("TAB", {.Shift}), .Text)
+    testing.expect(t, !ok, "shift+tab fell back to tab")
 
     // A Text bind is invisible from Global context: nothing to type into, nothing to run.
-    _, _, ok = input.bind_lookup(binds[:], {down, {}}, .Global)
+    _, ok = input.bind_lookup(binds[:], key("DOWN", {}), .Global)
     testing.expect(t, !ok)
 }
 
@@ -114,11 +135,11 @@ terminal_esc_shadows_quit :: proc(t: ^testing.T) {
     defer input.binds_destroy(&binds)
     esc, _ := input.key_code("ESC")
 
-    b, _, ok := input.bind_lookup(binds[:], {esc, {}}, .Terminal)
+    b, ok := input.bind_lookup(binds[:], {esc, {}}, .Terminal)
     testing.expect(t, ok)
     testing.expect_value(t, b.target, input.Bind_Target(input.Command.Surface_Send))
 
-    b, _, ok = input.bind_lookup(binds[:], {esc, {}}, .Text)
+    b, ok = input.bind_lookup(binds[:], {esc, {}}, .Text)
     testing.expect(t, ok)
     testing.expect_value(t, b.target, input.Bind_Target(input.Command.Quit))
 }
@@ -146,54 +167,51 @@ the_terminal_keeps_the_chords_editing_took :: proc(t: ^testing.T) {
             {"AC08", .Kill_Line},
             {"AD07", .Kill_To_Line_Start},
         }) {
-        b, _, bound := input.bind_lookup(binds[:], ctrl(e.key), .Surface)
+        b, bound := input.bind_lookup(binds[:], ctrl(e.key), .Surface)
         got, _ := input.bind_command(b)
         testing.expectf(t, bound && got == e.cmd, "@%s does not reach %v", e.key, e.cmd)
 
-        _, _, claimed := input.bind_lookup(binds[:], ctrl(e.key), .Terminal)
+        _, claimed := input.bind_lookup(binds[:], ctrl(e.key), .Terminal)
         testing.expectf(t, !claimed, "@%s was taken from the terminal", e.key)
     }
 
-    // ctrl+v pastes in a session too, and ctrl+shift+v reaches it through the Shift fallback.
+    // ctrl+v pastes in a session too, and so does ctrl+shift+v, every terminal's paste.
     for mods in ([?]input.Mods{{.Ctrl}, {.Ctrl, .Shift}}) {
         v, _ := input.key_code("AB04")
-        paste, _, _ := input.bind_lookup(binds[:], {v, mods}, .Terminal)
+        paste, _ := input.bind_lookup(binds[:], {v, mods}, .Terminal)
         got, _ := input.bind_command(paste)
         testing.expect_value(t, got, input.Command.Term_Paste)
     }
 
     // ctrl+c means copy in every document, the terminal included, so the chord resolves in both
     // contexts — to editing's verb in a surface and to the terminal's own in a session.
-    surface, _, _ := input.bind_lookup(binds[:], ctrl("AB03"), .Surface)
+    surface, _ := input.bind_lookup(binds[:], ctrl("AB03"), .Surface)
     in_surface, _ := input.bind_command(surface)
     testing.expect_value(t, in_surface, input.Command.Copy)
 
-    session, _, _ := input.bind_lookup(binds[:], ctrl("AB03"), .Terminal)
+    session, _ := input.bind_lookup(binds[:], ctrl("AB03"), .Terminal)
     in_term, _ := input.bind_command(session)
     testing.expect_value(t, in_term, input.Command.Term_Copy)
 
-    // So the interrupt is a row of its own. An EXACT Shift row, or the Shift fallback would
-    // reach term.copy above and a shell would have no way left to say stop.
+    // So the interrupt is a row of its own, and a shell still has a way to say stop.
     c, _ := input.key_code("AB03")
-    stop, _, _ := input.bind_lookup(binds[:], {c, {.Ctrl, .Shift}}, .Terminal)
+    stop, _ := input.bind_lookup(binds[:], {c, {.Ctrl, .Shift}}, .Terminal)
     interrupt, _ := input.bind_command(stop)
     testing.expect_value(t, interrupt, input.Command.Surface_Send)
 
     // And narrowed to the terminal. A browser has no job to send to, so it must NOT reach
-    // surface.send and report "this document has no job of its own"; the Shift fallback leaves
-    // it on edit.copy there.
-    outside, _, _ := input.bind_lookup(binds[:], {c, {.Ctrl, .Shift}}, .Surface)
-    fallback, _ := input.bind_command(outside)
-    testing.expect_value(t, fallback, input.Command.Copy)
+    // surface.send and report "this document has no job of its own".
+    _, outside := input.bind_lookup(binds[:], {c, {.Ctrl, .Shift}}, .Surface)
+    testing.expect(t, !outside, "ctrl+shift+c is bound outside the terminal")
 
     // ctrl+a and ctrl+e are {.Text}, so they answer in the command line and NOWHERE else: a
     // surface gets them through oket_doc's own table and a terminal through readline, both
     // by the miss rule. A kernel row at .Surface would take them from both.
     for key in ([?]string{"AC01", "AD03"}) {
-        _, _, in_text := input.bind_lookup(binds[:], ctrl(key), .Text)
+        _, in_text := input.bind_lookup(binds[:], ctrl(key), .Text)
         testing.expectf(t, in_text, "@%s does not answer in the command line", key)
         for ctx in ([?]input.Bind_Ctx{.Surface, .Terminal}) {
-            _, _, claimed := input.bind_lookup(binds[:], ctrl(key), ctx)
+            _, claimed := input.bind_lookup(binds[:], ctrl(key), ctx)
             testing.expectf(t, !claimed, "@%s was taken from %v", key, ctx)
         }
     }

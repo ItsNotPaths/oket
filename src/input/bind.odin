@@ -43,7 +43,7 @@ ctx_named :: proc(name: string) -> (Bind_Ctx, bool) {
     return .Global, false
 }
 
-// (hole bind-generic :tags binds :needs (direct-step shift-fallback) :sev refactor) oter needs binds without this enum: a bind holds a command line, the enum moves to oket
+// (hole bind-generic :tags binds :sev refactor) oter needs binds without this enum: a bind holds a command line, the enum moves to oket
 Command :: enum u8 {
     None,
     Quit,
@@ -322,23 +322,25 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     //
     // Letter chords are POSITIONS (QWERTY letters name them below); a layout swap keeps them
     // under the same fingers.
-    bind_put(&b, "UP", {}, .Nav_Up)
-    bind_put(&b, "DOWN", {}, .Nav_Down)
-    bind_put(&b, "LEFT", {}, .Nav_Left)
-    bind_put(&b, "RGHT", {}, .Nav_Right)
-    bind_put(&b, "LEFT", {.Ctrl}, .Word_Left)
-    bind_put(&b, "RGHT", {.Ctrl}, .Word_Right)
-    bind_put(&b, "HOME", {}, .Line_Home)
-    bind_put(&b, "END", {}, .Line_End)
-    bind_put(&b, "HOME", {.Ctrl}, .Doc_Start)
-    bind_put(&b, "END", {.Ctrl}, .Doc_End)
-    bind_put(&b, "UP", {.Ctrl}, .Para_Up)
-    bind_put(&b, "DOWN", {.Ctrl}, .Para_Down)
+    bind_motion(&b, "UP", {}, .Nav_Up)
+    bind_motion(&b, "DOWN", {}, .Nav_Down)
+    bind_motion(&b, "LEFT", {}, .Nav_Left)
+    bind_motion(&b, "RGHT", {}, .Nav_Right)
+    bind_motion(&b, "LEFT", {.Ctrl}, .Word_Left)
+    bind_motion(&b, "RGHT", {.Ctrl}, .Word_Right)
+    bind_motion(&b, "HOME", {}, .Line_Home)
+    bind_motion(&b, "END", {}, .Line_End)
+    bind_motion(&b, "HOME", {.Ctrl}, .Doc_Start)
+    bind_motion(&b, "END", {.Ctrl}, .Doc_End)
+    bind_motion(&b, "UP", {.Ctrl}, .Para_Up)
+    bind_motion(&b, "DOWN", {.Ctrl}, .Para_Down)
     bind_put(&b, "BKSP", {}, .Delete_Back)
+    bind_put(&b, "BKSP", {.Shift}, .Delete_Back) // shift still down from a capital
     bind_put(&b, "DELE", {}, .Delete_Forward)
     bind_put(&b, "BKSP", {.Ctrl}, .Delete_Word_Back)
     bind_put(&b, "DELE", {.Ctrl}, .Delete_Word_Forward)
     bind_put(&b, "RTRN", {}, .Newline)
+    bind_put(&b, "RTRN", {.Shift}, .Newline)
     bind_put(&b, "KPEN", {}, .Newline)
     bind_put(&b, "TAB", {}, .Tab)
     // The placement verbs (VIEWS.md §4). A caret is PLACED, not walked to, which is why there is
@@ -356,8 +358,8 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     // ctrl+a and ctrl+e are the most deployed pair there is: every readline prompt and every
     // Cocoa text field. Arrows already carry motion, so the only cost is select-all, which
     // stays a verb with no default chord (Emacs gives it none either).
-    bind_put(&b, "AC01", {.Ctrl}, .Line_Home) // ctrl+a
-    bind_put(&b, "AD03", {.Ctrl}, .Line_End) // ctrl+e
+    bind_motion(&b, "AC01", {.Ctrl}, .Line_Home) // ctrl+a
+    bind_motion(&b, "AD03", {.Ctrl}, .Line_End) // ctrl+e
     bind_put(&b, "AC02", {.Ctrl}, .Save) // ctrl+s
     bind_put(&b, "AB01", {.Ctrl}, .Undo) // ctrl+z
     bind_put(&b, "AB01", {.Ctrl, .Shift}, .Redo) // a different verb, so Shift is written out
@@ -390,7 +392,7 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     bind_put(&b, "LEFT", {.Alt}, .Panel_Prev)
     bind_put(&b, "RGHT", {.Alt}, .Panel_Next)
     // Shift on the walk MOVES what you are looking at, which is the pairing every strip and
-    // tab bar already uses. An exact Shift row, so the Shift fallback cannot reach `panel.prev`.
+    // tab bar already uses.
     bind_put(&b, "LEFT", {.Alt, .Shift}, .Panel_Move_Left)
     bind_put(&b, "RGHT", {.Alt, .Shift}, .Panel_Move_Right)
     bind_put(&b, "LEFT", {.Ctrl, .Alt}, .Jump_Back)
@@ -437,16 +439,17 @@ binds_default :: proc(allocator := context.allocator) -> [dynamic]Bind {
     bind_put(&b, "wheel-down", {}, .View_Scroll_Down)
 
     // Surface claims: context-specific, so they shadow the global rows above (Esc must reach
-    // vim inside the shell, never quit oket). Shift+Ctrl+Up extends via the Shift fallback.
+    // vim inside the shell, never quit oket).
     bind_put(&b, "ESC", {}, .Surface_Send)
-    // ctrl+c and ctrl+v copy and paste HERE TOO, so one chord means one thing in every document.
-    // ctrl+shift+v still pastes, through the Shift fallback. The interrupt is
+    // ctrl+c and ctrl+v copy and paste HERE TOO, so one chord means one thing in every document,
+    // and ctrl+shift+v pastes as every other terminal's does. The interrupt is
     // ctrl+shift+c: it sends the 0x03 a shell reads as SIGINT, narrowed to the terminal so no
     // other surface claims the chord. Both are ordinary rows, so a binds.conf that swaps them
     // back is two lines.
     bind_put(&b, "AB03", {.Ctrl}, .Term_Copy) // ctrl+c
     bind_put(&b, "AB03", {.Ctrl, .Shift}, .Surface_Send, ctx = {.Terminal})
     bind_put(&b, "AB04", {.Ctrl}, .Term_Paste) // ctrl+v
+    bind_put(&b, "AB04", {.Ctrl, .Shift}, .Term_Paste)
     // Scrolling a session is the KERNEL's viewport over its document (§11), so these are the
     // same two verbs every other document has and there is no terminal scroll code to bind to.
     bind_put(&b, "PGUP", {.Shift}, .View_Page_Up)
@@ -461,6 +464,14 @@ bind_line :: proc(b: ^[dynamic]Bind, key: string, mods: Mods, text: string,
     code, ok := key_code(key)
     assert(ok, "a kernel default names a key that is not in the table")
     bind_add(b, {code, mods}, Bind_Line(strings.clone(text)), ctx, kind = kind)
+}
+
+// A motion and its shift twin, which runs the same verb `extend`ing so the move sweeps a selection.
+@(private = "file")
+bind_motion :: proc(b: ^[dynamic]Bind, key: string, mods: Mods, cmd: Command) {
+    bind_put(b, key, mods, cmd)
+    bind_line(b, key, mods + {.Shift}, fmt.tprintf(":%s extend", COMMANDS[cmd].name),
+              ctx = COMMANDS[cmd].ctx)
 }
 
 // `ctx` narrows a row below the verb's own contexts, for a default that wants one of them and
@@ -494,9 +505,9 @@ bind_collisions :: proc(binds: []Bind, layout: Layout_Name, names: Names = {},
             continue
         }
         ctx := bind_one_ctx(b)
-        // bind_lookup, not bind_find: the Shift retry reaches a plain row too, and this report
-        // must ask exactly the question handle_chord asks.
-        plain, _, taken := bind_lookup(binds, b.prefix, ctx, b.kind)
+        // bind_lookup, not bind_find: a `none` row is a miss, and this report must ask exactly
+        // the question handle_chord asks.
+        plain, taken := bind_lookup(binds, b.prefix, ctx, b.kind)
         if !taken {
             continue
         }
@@ -633,35 +644,15 @@ bind_at :: proc(binds: []Bind, chord: Chord, ctx: Bind_Ctx, kind: Kind = 0,
     return bind_scan(binds, chord, {ctx}, kind, prefix)
 }
 
-// Shift is not written into most binds: a Shift-qualified chord matching nothing exactly
-// retries without it and runs `extend`ing, so Shift+Down sweeps a selection. An exact Shift
-// row (ctrl+shift+z) beats the fallback, which is how Shift names a DIFFERENT verb.
-// (hole shift-fallback :tags binds :sev refactor) shift retries the unshifted row (motions, ctrl+shift+v, more); drop it for explicit rows, pinned by a test that every chord resolves as before
-bind_lookup :: proc(
-    binds: []Bind,
-    chord: Chord,
-    ctx: Bind_Ctx,
-    kind: Kind = 0,
-    prefix := Chord{},
-) -> (
-    b: Bind,
-    extend, ok: bool,
-) {
-    if b, ok = bind_find(binds, chord, ctx, kind, prefix); ok {
-        // `none` unbinds on purpose: the tier answers, and what it answers is a miss.
-        if b.target == Bind_Target(Command.None) {
-            return {}, false, false
-        }
-        return b, false, true
+// A shifted chord is its own row: shift+down extends because a row says `:nav.down extend`.
+bind_lookup :: proc(binds: []Bind, chord: Chord, ctx: Bind_Ctx, kind: Kind = 0,
+                    prefix := Chord{}) -> (Bind, bool) {
+    b, ok := bind_find(binds, chord, ctx, kind, prefix)
+    // `none` unbinds on purpose: the tier answers, and what it answers is a miss.
+    if !ok || b.target == Bind_Target(Command.None) {
+        return {}, false
     }
-    // The Shift retry stays UNDER the same primer: a child is reached by its own chord or not
-    // at all, and dropping the prefix here would be the fallback tier the filter exists to deny.
-    if .Shift in chord.mods {
-        b, ok = bind_find(binds, {chord.code, chord.mods - {.Shift}}, ctx, kind,
-                          prefix)
-        return b, ok, ok
-    }
-    return {}, false, false
+    return b, true
 }
 
 // The registry, lent by the caller. `input` holds a Slot and a Kind as IDENTITY and never the
@@ -727,7 +718,7 @@ describe_chord :: proc(
         moves_point = mouse_moves_point(m)
     }
 
-    b, extend, bound := bind_lookup(binds, chord, ctx, kind)
+    b, bound := bind_lookup(binds, chord, ctx, kind)
     if !bound {
         if moves_point {
             return fmt.aprintf(
@@ -769,13 +760,12 @@ describe_chord :: proc(
         verb = fmt.tprintf("moves point, then %s", verb)
     }
     return fmt.aprintf(
-        "%s%s %s %s: %s%s [%s, %s]",
+        "%s%s %s %s: %s [%s, %s]",
         spelling,
         phys,
         verb,
         name,
         doc,
-        extend ? ", extending the selection" : "",
         claimed,
         origin_label(b.origin),
         allocator = allocator,
