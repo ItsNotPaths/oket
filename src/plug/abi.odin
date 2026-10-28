@@ -16,7 +16,7 @@ import "../shape"
 //   abi.Span.attrs      shape.Attrs bits
 //   .Forget (submit)    REGEN: derived text, so the carets stay on their rows and nothing undoes
 
-API :: 13
+API :: 14
 
 // Ids below this are the base vocabulary (shape.Style); the rest were interned.
 TOKEN_BASE :: abi.Token(len(shape.Style))
@@ -135,8 +135,6 @@ World :: struct {
     cols:   c.int32_t, // the whole surface, in cells
     rows:   c.int32_t,
     line:   abi.Doc_Handle, // the command line while it is open, NO_DOC when closed
-    // Its last builtin step, `:find foo`, as bytes of it.
-    step, step_len: c.size_t,
     // The workspace: term0's directory, else where oket started. No NUL.
     dir:     [^]u8,
     dir_len: c.size_t,
@@ -172,5 +170,5 @@ Api :: struct {
 #assert(size_of(Side) == 48)
 #assert(size_of(View_Out) == 32)
 #assert(size_of(Pane) == 32)
-#assert(size_of(World) == 64)
+#assert(size_of(World) == 48)
 #assert(size_of(Api) == size_of(abi.Api) + 8 * size_of(rawptr))

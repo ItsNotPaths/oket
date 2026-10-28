@@ -68,7 +68,7 @@ every_printed_default_is_the_real_one :: proc(t: ^testing.T) {
 
     // The written file has to read back as the defaults themselves.
     _, rows := bumped(text, 0)
-    testing.expect_value(t, rows, 18) // a new setting extends BOTH passes below, and this count
+    testing.expect_value(t, rows, 19) // a new setting extends BOTH passes below, and this count
     testing.expect_value(t, len(app.config_missing(&a)), 0)
     testing.expect_value(t, a.config.restore, want.restore)
     testing.expect_value(t, a.config.gap, want.gap)
@@ -94,6 +94,7 @@ every_printed_default_is_the_real_one :: proc(t: ^testing.T) {
     // parsed into a field, so the printed default is right only if the behaviour is unchanged.
     testing.expect_value(t, app.menu_palette(&a), menubar.Palette.Invert)
     testing.expect_value(t, app.menu_show(&a), menubar.Show.Hidden)
+    testing.expect(t, app.cl_live_listed(&a, app.LIVE_DEFAULT))
 
     // The alias row the same way: the printed line has to parse back as the shipped one.
     testing.expect_value(t, app.config_alias_line(&a.config, "panel.equalize"),

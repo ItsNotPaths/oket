@@ -11,7 +11,7 @@ import "../desc"
 import "../store"
 import app "../oket"
 
-// plugins/find's `:grep`: grep's matches as a document in the `grep` lane, a block per match,
+// plugins/grep's `:grep`: grep's matches as a document in the `grep` lane, a block per match,
 // down steps a block, and enter opens the file at the line.
 
 @(private = "file")
@@ -43,12 +43,12 @@ caret_line :: proc(a: ^app.App) -> int {
 
 @(test)
 grep_lists_blocks_steps_them_and_opens_the_match :: proc(t: ^testing.T) {
-    a, ok := plug_app(t, "oket-grep", "plugins/find", "plugins/edit")
+    a, ok := plug_app(t, "oket-grep", "plugins/grep", "plugins/edit")
     if !ok {
         return
     }
     defer close_plug_app(&a)
-    for name in ([]string{"find", "edit"}) {
+    for name in ([]string{"grep", "edit"}) {
         if !testing.expect(t, app.plug_load(&a, app.plug_path(&a, name)), a.message) {
             return
         }

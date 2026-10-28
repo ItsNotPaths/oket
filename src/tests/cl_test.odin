@@ -365,31 +365,6 @@ cmdline_rows_answer_only_on_the_open_line :: proc(t: ^testing.T) {
     testing.expect_value(t, app.cl_line(&a), ":hit")
 }
 
-// A `[:find]` row answers only while the line's LAST builtin is a `:find`; on any other line the
-// key keeps the meaning it has there.
-@(test)
-verb_rows_answer_only_on_their_own_line :: proc(t: ^testing.T) {
-    a, ok := bare_app()
-    if !ok {
-        return
-    }
-    defer close_app(&a)
-    app.ring_add(&a, scratch_doc(&a, "note", "x"))
-    app.binds_parse(&a, "[:find]\nup = :stage :hit\n", "binds.conf")
-
-    app.cl_show(&a, ":findx y")
-    app.handle_chord(&a, chord("UP"))
-    testing.expect_value(t, app.cl_line(&a), ":findx y")
-
-    app.cl_show(&a, ":find y && :put")
-    app.handle_chord(&a, chord("UP"))
-    testing.expect_value(t, app.cl_line(&a), ":find y && :put")
-
-    app.cl_show(&a, ":sel | :find y && echo z")
-    app.handle_chord(&a, chord("UP"))
-    testing.expect_value(t, app.cl_line(&a), ":hit")
-}
-
 // `:stage` takes the rest of the line whole, so a staged chain keeps its operators.
 @(test)
 stage_takes_the_rest_of_the_line :: proc(t: ^testing.T) {

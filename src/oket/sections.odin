@@ -50,11 +50,6 @@ PLUG_GROUPS := [?]struct {
     {"surface", {{SEC_SURFACE}, true}},
 }
 
-// The command line while it starts with that verb.
-// (hole verb-tier-delete :tags live :needs (live-whitelist) :sev cleanup) `[:verb]` sections exist only for live find
-@(rodata)
-VERB_GROUPS := Groups{{SEC_CMDLINE, SEC_TEXT}, false}
-
 section_name :: proc(a: ^App, s: Section) -> string {
     i := int(s)
     if i < len(SECTIONS) {
@@ -100,11 +95,7 @@ section_groups :: proc(a: ^App, s: Section) -> Groups {
     if a == nil {
         return {}
     }
-    name := section_name(a, s)
-    if strings.has_prefix(name, ":") {
-        return VERB_GROUPS
-    }
-    if kind, found := kind_named(a, name); found {
+    if kind, found := kind_named(a, section_name(a, s)); found {
         if k, owned := plug_kind(a, kind); owned && int(k.ctx) < len(PLUG_GROUPS) {
             return PLUG_GROUPS[k.ctx].groups
         }
@@ -178,10 +169,10 @@ binds_groups :: proc(a: ^App, text, origin_name: string) {
     }
 }
 
-// A built-in section, a kind something registered, a `[:verb]`, or `send`.
+// A built-in section, a kind something registered, or `send`.
 @(private = "file")
 section_known :: proc(a: ^App, name: string) -> bool {
-    if name == SEND || strings.has_prefix(name, ":") {
+    if name == SEND {
         return true
     }
     if s, found := section_find(a, name); found && int(s) < len(SECTIONS) {

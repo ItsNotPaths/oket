@@ -32,9 +32,9 @@ cl_start :: proc(a: ^App, line: string) -> bool {
     return true
 }
 
-// A key's line, and the live re-run's. One builtin step runs directly, outside `a.chain`, so a
-// key never abandons a chain that is waiting; anything longer is a chain of its own. A line the
-// builtin queued runs now, or after the waiting chain ends.
+// A key's line. One builtin step runs directly, outside `a.chain`, so a key never abandons a
+// chain that is waiting; anything longer is a chain of its own. A line the builtin queued runs
+// now, or after the waiting chain ends.
 line_run :: proc(a: ^App, line: string) {
     ch: cl.Chain
     defer cl.destroy(&ch)
@@ -43,7 +43,26 @@ line_run :: proc(a: ^App, line: string) {
         cl_exec(a, line)
         return
     }
-    step := ch.steps[0]
+    step_run(a, ch.steps[0])
+}
+
+// The open line's step 1, alone, from where the focused panel stood before the first live run.
+// What follows it waits for enter.
+line_live :: proc(a: ^App, line: string) {
+    ch: cl.Chain
+    defer cl.destroy(&ch)
+    cl.parse(&ch, line, a, alias_expansion, takes_line)
+    cl_before_put(a)
+    if len(ch.steps) == 0 || ch.steps[0].shell || !cl_live_listed(a, cl.first_field(ch.steps[0].text)) {
+        return
+    }
+    cl_before_hold(a)
+    step_run(a, ch.steps[0])
+}
+
+@(private = "file")
+step_run :: proc(a: ^App, step: cl.Step) {
+    step := step
     text, missing, filled := cl.fill(vars_under_point(a), step.text)
     if !filled {
         vars_say_missing(a, missing)

@@ -75,11 +75,11 @@ Kind_Order :: struct {
     names: []string,
 }
 
-// The two keys whose SECTION is a kind rather than a setting group. They are read past SETTINGS
-// because the section is data: `[edit]` and `[files]` are names a plugin registered, and the
-// table below is a rodata list of pairs.
+// The keys whose value is a set of names, in any section. `spans` and `view` are keyed by kind,
+// a name a plugin registered, so they are read past SETTINGS; `live` is `[cmdline] live`. A
+// plugin's request joins the set (config_sync).
 @(private = "file", rodata)
-ORDERED := [?]string{"spans", "view"}
+ORDERED := [?]string{"spans", "view", "live"}
 
 ALIAS_SECTION :: "alias"
 
@@ -163,6 +163,7 @@ LISTS := [?]List_Setting {
      "the bar's colours: dark, light, or invert for the opposite of the theme"},
     {"menu", "show", "hidden",
      "constant keeps the bar on a row of its own; hidden draws it over what is there"},
+    {LIVE_SECTION, "live", LIVE_DEFAULT, "builtins that re-run step 1 of the line as you type"},
 }
 
 // The forms whose KEY or SECTION is a name the user picks, so no row can stand for them. Written

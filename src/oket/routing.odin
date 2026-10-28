@@ -57,12 +57,10 @@ active_desc :: proc(a: ^App) -> (^Slot, ^desc.Descriptor) {
 }
 
 // The sections a chord walks over the focused document, from its kind (§5). The open command
-// line is `[cmdline]`, or `[:verb]` while it starts with that verb. An empty store leaves only
-// global.
+// line is `[cmdline]`. An empty store leaves only global.
 bind_path :: proc(a: ^App) -> (path: []Section, send: bool) {
     if cl_active(a) {
-        s, verb := section_find(a, fmt.tprintf(":%s", cl_verb(a)))
-        return section_path(a, verb ? s : SEC_CMDLINE)
+        return section_path(a, SEC_CMDLINE)
     }
     _, d := active_desc(a)
     if d == nil {
@@ -846,7 +844,10 @@ copy_doc :: proc(a: ^App) {
 // The caret lives in the document and nowhere else; the slot's View carries a copy so the frame
 // can render it. This is the one place that copy is made.
 point_sync :: proc(a: ^App) {
-    s := active(a)
+    slot_sync(a, active(a))
+}
+
+slot_sync :: proc(a: ^App, s: ^Slot) {
     if s == nil {
         return
     }

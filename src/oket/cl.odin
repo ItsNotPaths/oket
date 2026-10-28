@@ -2,8 +2,11 @@ package main
 
 import "lues:lues"
 import "lues:pt"
+import "core:math"
 import "core:os"
+import "core:slice"
 import "core:strings"
+import "core:time"
 import "../desc"
 import "../gfx"
 import "../input"
@@ -27,7 +30,26 @@ Cmdline :: struct {
     using slot: Slot,
     history:    [dynamic]string, // owned
     hist_idx:   int, // == len(history) is the live edit
+    gen:        u64, // the line's generation the live re-run last saw
+    due:        time.Tick, // when the live re-run fires; zero is none
+    before:     Before,
 }
+
+// The focused panel as it stood before the line's first live run. Every run starts from it and
+// closing the line puts it back, so a preview never leaves carets behind.
+Before :: struct {
+    doc:     store.Id,
+    view:    view.View,
+    cursors: []txt.Cursor, // owned; nil is nothing held
+    primary: int,
+}
+
+// How long typing pauses before a live step re-runs.
+LIVE_DEBOUNCE :: 120 * time.Millisecond
+
+// `[cmdline] live`: the builtins whose step re-runs as you type.
+LIVE_SECTION :: "cmdline"
+LIVE_DEFAULT :: "find"
 
 cl_init :: proc(a: ^App) {
     if a.cl.live {
@@ -51,6 +73,7 @@ cl_destroy :: proc(a: ^App) {
         delete(h)
     }
     delete(a.cl.history)
+    cl_before_drop(a)
     a.cl = {}
 }
 
@@ -72,6 +95,9 @@ cl_show :: proc(a: ^App, prefix := "") {
 cl_hide :: proc(a: ^App) {
     input.pending_set(&a.pending)
     cl_set(a, "")
+    cl_before_put(a)
+    cl_before_drop(a)
+    a.cl.due = {}
 }
 
 // What is typed right now, trimmed the way submit trims it.
@@ -83,30 +109,6 @@ cl_line :: proc(a: ^App, alloc := context.temp_allocator) -> string {
     return strings.trim_space(txt.doc_string(doc, alloc))
 }
 
-// The last builtin step, `:find foo` in `:find foo && echo x`, and where it starts in the line's
-// text. "" when no step is a builtin.
-// (hole live-whitelist :tags live :needs (live-debounce find-rerun-safe) :sev refactor) no live re-run; re-run step 1 when it is on `[cmdline] live`, through line_run, never cl_exec
-cl_step :: proc(a: ^App) -> (step: string, at: int) {
-    doc := store.store_doc(a.docs, a.cl.doc)
-    if doc == nil {
-        return
-    }
-    line := txt.doc_string(doc, context.temp_allocator)
-    for seg in cl.split(line) {
-        if s := strings.trim_space(seg.text); strings.has_prefix(s, ":") {
-            step, at = s, int(uintptr(raw_data(s)) - uintptr(raw_data(line)))
-        }
-    }
-    return
-}
-
-// That step's verb, `find` for `:find foo`; "" when there is none.
-cl_verb :: proc(a: ^App) -> string {
-    step, _ := cl_step(a)
-    verb, _, _ := strings.partition(step[min(1, len(step)):], " ")
-    return verb
-}
-
 cl_submit :: proc(a: ^App) {
     line := cl_line(a) // its own copy already: doc_string reads the rope out
     cl_hide(a)
@@ -115,6 +117,66 @@ cl_submit :: proc(a: ^App) {
     }
     append(&a.cl.history, strings.clone(line))
     cl_exec(a, line)
+}
+
+// Step 1 re-runs once typing pauses, when its verb is on `[cmdline] live`.
+cl_live_pump :: proc(a: ^App) {
+    if !cl_active(a) {
+        return
+    }
+    now := time.tick_now()
+    if gen, _ := store.store_gen(a.docs, a.cl.doc); gen != a.cl.gen {
+        a.cl.gen = gen
+        a.cl.due = time.tick_add(now, LIVE_DEBOUNCE)
+    }
+    if a.cl.due != {} && time.tick_diff(a.cl.due, now) >= 0 {
+        a.cl.due = {}
+        line_live(a, cl_line(a))
+    }
+}
+
+// How long the idle wait may block before the live re-run is due; -1 is no deadline.
+cl_live_wait_ms :: proc(a: ^App) -> i32 {
+    if a.cl.due == {} {
+        return -1
+    }
+    left := time.tick_diff(time.tick_now(), a.cl.due)
+    return i32(max(math.ceil(time.duration_milliseconds(left)), 0))
+}
+
+cl_live_listed :: proc(a: ^App, verb: string) -> bool {
+    names := config_names(&a.config, LIVE_SECTION, "live")
+    return names == nil ? verb == LIVE_DEFAULT : slice.contains(names, verb)
+}
+
+// Taken once, before the first live run.
+cl_before_hold :: proc(a: ^App) {
+    s := ring_focused(a)
+    if a.cl.before.cursors != nil || s == nil {
+        return
+    }
+    doc := store.store_doc(a.docs, s.doc)
+    if doc == nil {
+        return
+    }
+    a.cl.before = {s.doc, s.view, slice.clone(doc.cursors[:]), doc.primary}
+}
+
+cl_before_put :: proc(a: ^App) {
+    b := a.cl.before
+    s := ring_focused(a)
+    if b.cursors == nil || s == nil || s.doc != b.doc {
+        return
+    }
+    if doc := store.store_doc(a.docs, s.doc); doc != nil {
+        txt.doc_set_cursors(doc, b.cursors, b.primary)
+        s.view = b.view
+    }
+}
+
+cl_before_drop :: proc(a: ^App) {
+    delete(a.cl.before.cursors)
+    a.cl.before = {}
 }
 
 // The four chords the line answers for itself. Everything else falls through to the ordinary

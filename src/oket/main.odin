@@ -220,6 +220,7 @@ main :: proc() {
         term_pump(&a)
         sh_pump(&a)
         chain_pump(&a)
+        cl_live_pump(&a)
         settled := docs_settle(&a) // and, with it, the view pipeline (VIEWS.md §5)
         // The I/O worker's answers, then whose generation moved, told once the drain has
         // settled. A plugin that answered "not finished" is the one thing no keystroke and no

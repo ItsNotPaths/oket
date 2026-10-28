@@ -35,8 +35,8 @@ find_doc :: proc(a: ^App) -> ^txt.Doc {
 
 // `:find <pattern>` — every match at once, as selections. The primary is the first hit at or
 // after point rather than the first in the file, so the screen goes where you were looking.
-// With no argument, the pattern is what was piped in: `:sel | :find`.
-// (hole find-rerun-safe :tags live :sev refactor) unsafe to re-run: no match cap, jump per run, first match from moving point, esc leaves the carets
+// With no argument, the pattern is what was piped in: `:sel | :find`. Past FIND_CAP hits, only
+// the FIND_CAP from point on are selected.
 builtin_find :: proc(a: ^App, args: string, step: cl.Step) -> bool {
     pattern := strings.trim_space(args)
     if pattern == "" {
@@ -67,12 +67,19 @@ builtin_find :: proc(a: ^App, args: string, step: cl.Step) -> bool {
             break
         }
     }
+    if total := len(hits); total > FIND_CAP {
+        hits = hits[primary:min(primary + FIND_CAP, total)]
+        primary = 0
+        message_set(a, fmt.tprintf("%d of %d matches of %q, from point", len(hits), total, pattern))
+    } else {
+        message_set(a, fmt.tprintf("%d matches of %q; type to replace them all", total, pattern))
+    }
     txt.doc_set_spans(doc, hits, primary)
-    point_sync(a)
-    message_set(a, fmt.tprintf("%d matches of %q; type to replace them all", len(hits), pattern))
+    slot_sync(a, ring_focused(a))
     return true
 }
 
+FIND_CAP :: 1000
 USAGE_FIND :: ":find <text>"
 
 // F3 and shift+F3: one hit at a time, from the primary. The set collapses, because stepping
@@ -100,5 +107,5 @@ search_step :: proc(a: ^App, dir: txt.Find_Dir) {
     // `:find` would drag one caret away from a trail that is still up.
     txt.doc_reset_cursor(doc, at)
     txt.doc_set_head(doc, txt.Pos{at.line, at.col + len(a.find)}, true)
-    point_sync(a)
+    slot_sync(a, ring_focused(a)) // the panel's, even while the line is open
 }

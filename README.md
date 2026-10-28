@@ -99,8 +99,8 @@ alt+g         = git diff -- "$o_path" | :put
 ctrl+b ctrl+f = :ring files
 ```
 
-A section is a context, a kind, or a builtin: `[:find]` is the command line while its last
-builtin step is a `:find`, then `[cmdline]`, then `[text]` under it. A value is a command line
+A section is a kind or a group a header lists: `[edit] (text)` puts edit documents in `[text]`
+too, and `[cmdline]` is the open command line. A value is a command line
 (`:verb` for a verb; `:stage <line>` to aim it first), or `none` to unbind. Both files are written complete;
 a row missing from one is reported on the home page and its built-in default runs. `$o_path`, `$o_name`, `$o_link` and `$o_act` are
 the fields of the line under point: a builtin takes each as one argument and a shell step reads

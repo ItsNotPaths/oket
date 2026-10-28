@@ -30,12 +30,12 @@ input_init :: proc(a: ^App) {
 }
 
 // The frame's events, drained in one place. `wait` parks until the first one arrives — a key,
-// a click, a resize, or a session's reader pushing a wake.
+// a click, a resize, or a session's reader pushing a wake — or the live line is due.
 input_pump :: proc(a: ^App, wait: bool) {
     ev: sdl.Event
     if wait {
-        // (hole live-debounce :tags live :sev refactor) the loop blocks in WaitEvent with no timer; needs a deadline for the debounce
-        if !sdl.WaitEvent(&ev) {
+        // A live line's re-run is due at a deadline no event brings.
+        if !sdl.WaitEventTimeout(&ev, cl_live_wait_ms(a)) {
             return
         }
         input_event(a, &ev)

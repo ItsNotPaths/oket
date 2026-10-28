@@ -3,13 +3,15 @@
  * Each match is a block: a header that names `path:line`, then the lines grep printed around it.
  * Only the header is a `link`, as in the editor; up and down step a block at a time. The jump is
  * the kernel's `:openlink`, bound in binds.conf like any row.
+ *
+ *     :pluginify plugins/grep
  */
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "grep.h"
+#include "oket_helpers.h"
 
 /* -Z ends the path with a NUL, so a `-` or `:` in a name cannot be read as the separator. */
 #define GREP "grep -rnIZ -C 2 --exclude-dir=.git "
@@ -313,7 +315,7 @@ static int32_t grep_cmd(const lues_api *api, lues_self self, const lues_at *at, 
     return 0;
 }
 
-int grep_register(const lues_api *api, lues_self self) {
+LUES_MAIN {
     static const lues_kind_spec SPEC = {
         sizeof(lues_kind_spec),
         LIT("grep"),
