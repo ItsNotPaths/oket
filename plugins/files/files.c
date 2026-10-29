@@ -1084,5 +1084,7 @@ LUES_MAIN {
     api->request_bind(api, self, LIT("files"), LIT("ctrl+@AC02"), LIT(":fs.commit"));
     api->request_bind(api, self, LIT("files"), LIT("f5"), LIT(":fs.reload"));
     api->request_bind(api, self, LIT("files"), LIT("ctrl+@AB05"), LIT(":fs.hidden"));
+    /* The row's path, staged as a line to finish rather than run. */
+    api->request_bind(api, self, LIT("files"), LIT("alt+enter"), LIT(":stage cd $o_path"));
     return 0;
 }
