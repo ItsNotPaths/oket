@@ -178,7 +178,7 @@ cl_builtin :: proc(a: ^App, step: cl.Step) -> bool {
 // fallout, not an argument here.
 @(private = "file")
 builtin_close :: proc(a: ^App, args: string, _: cl.Step) -> bool {
-    target, bad, aimed := target_parse(args)
+    target, bad, aimed := cl.target_parse(args)
     if !aimed || target.how != .Here {
         message_set(a, fmt.tprintf(":close: %s is not a slot (%s)", bad != "" ? bad : args,
                                    USAGE_CLOSE))
@@ -284,7 +284,7 @@ builtin_open :: proc(a: ^App, args: string, _: cl.Step) -> bool {
         message_set(a, USAGE_OPEN)
         return false
     }
-    target, bad, aimed := target_parse(rest)
+    target, bad, aimed := cl.target_parse(rest)
     if !aimed {
         message_set(a, fmt.tprintf(":open: %s is not a slot or a panel (%s)", bad, USAGE_OPEN))
         return false
@@ -319,14 +319,14 @@ USAGE_OPEN :: ":open <path> [#slot] [@panel]"
 @(private = "file")
 builtin_width :: proc(a: ^App, args: string, _: cl.Step) -> bool {
     pcts := make([dynamic]int, 0, 4, context.temp_allocator)
-    target: Target
+    target: cl.Target
     rest := strings.trim_space(args)
     for rest != "" {
         field := cl.first_field(rest)
         rest = strings.trim_space(rest[len(field):])
         if field[0] == '@' {
             aimed: bool
-            target, _, aimed = target_parse(field) // the last `@` wins, target_parse's own rule
+            target, _, aimed = cl.target_parse(field) // the last `@` wins, target_parse's own rule
             if !aimed {
                 message_set(a, fmt.tprintf(":width: %s is not a panel (%s)", field, USAGE_WIDTH))
                 return false

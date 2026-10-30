@@ -5,6 +5,7 @@ import "core:path/filepath"
 import "core:strings"
 import "core:os"
 import "core:testing"
+import "../cl"
 import "../gfx"
 import "../store"
 import app "../oket"
@@ -617,7 +618,7 @@ a_click_counts_from_the_grid_the_keys_are_aimed_at :: proc(t: ^testing.T) {
 two_sigils_and_a_bare_number :: proc(t: ^testing.T) {
     for row in ([?]struct {
         text:   string,
-        target: app.Target,
+        target: cl.Target,
     } {
         {"", {}},
         {"3", {slot = 3}},
@@ -637,13 +638,13 @@ two_sigils_and_a_bare_number :: proc(t: ^testing.T) {
         {"#* #2", {slot = 2}},
         {"#2 #*", {slots = true}},
     }) {
-        target, _, ok := app.target_parse(row.text)
+        target, _, ok := cl.target_parse(row.text)
         testing.expectf(t, ok, "%q is not an address", row.text)
         testing.expectf(t, target == row.target, "%q parsed as %v", row.text, target)
     }
     for text in ([?]string{"x", "@", "#", "@0", "@+0", "#0", "-1", "#-1", "@2x", "@=x", "#=",
                            "*"}) {
-        _, bad, ok := app.target_parse(text)
+        _, bad, ok := cl.target_parse(text)
         testing.expectf(t, !ok, "%q was taken for an address", text)
         testing.expect_value(t, bad, text)
     }
