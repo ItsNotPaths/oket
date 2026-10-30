@@ -9,6 +9,7 @@ import "../gfx"
 import "lues:lues"
 import "lues:wake"
 import "../cl"
+import "../pty"
 
 WIDTH :: 1200
 HEIGHT :: 760
@@ -173,11 +174,13 @@ main :: proc() {
     // A session's reader thread, and the I/O worker, both have to reach the frame loop, which
     // is parked in WaitEvents. Before autoload: a plugin may start a job in its entry point,
     // and a completion nobody wakes for is a frame that never comes.
-    wake.hook = proc() {
+    push_wake :: proc() {
         ev: sdl.Event
         ev.type = .USER
         _ = sdl.PushEvent(&ev) // thread-safe by contract, which is the whole point of the hook
     }
+    wake.hook = push_wake
+    pty.wake_hook = push_wake
 
     // The watchdog that turns a hang into the same named death a fault gets (§10).
     lues.fault_watchdog_start()

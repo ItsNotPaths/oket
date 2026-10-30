@@ -10,7 +10,9 @@ import "core:sys/posix"
 import "core:thread"
 import "core:time"
 import vt "../libvterm"
-import "lues:wake"
+
+// Wakes the host's frame loop from the reader thread. The host sets it once; tests leave it inert.
+wake_hook := proc() {}
 
 // A terminal session: the libvterm VT state machine plus the PTY and child shell. A
 // per-session reader thread does the one blocking read() on the master fd; vterm_* stays
@@ -501,7 +503,7 @@ term_reader_proc :: proc(th: ^thread.Thread) {
             sync.mutex_lock(&t.lock)
             append(&t.inbuf, ..buf[:n])
             sync.mutex_unlock(&t.lock)
-            wake.hook()
+            wake_hook()
             continue
         }
         if n < 0 && posix.get_errno() == .EINTR {
@@ -513,7 +515,7 @@ term_reader_proc :: proc(th: ^thread.Thread) {
         break // n == 0 (EOF) or a real error
     }
     sync.atomic_store(&t.alive, false)
-    wake.hook()
+    wake_hook()
 }
 
 // Stores a self-pointer in libvterm, so call it only once `t` has a stable address — the test
